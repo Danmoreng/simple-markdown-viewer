@@ -10,15 +10,21 @@ include(FetchContent)
 FetchContent_Declare(
     md4c
     GIT_REPOSITORY https://github.com/mity/md4c.git
-    GIT_TAG        v0.5.2
+    GIT_TAG        release-0.5.2
 )
 FetchContent_MakeAvailable(md4c)
 
-# Skia - This is more complex. Building from source via FetchContent is VERY slow.
-# For a v1 prototype, we might want to use a pre-built version or a minimal subset.
-# However, if the user requested FetchContent, I will attempt to set up a way to fetch 
-# a pre-built binary if possible, or build a minimal version.
-# For now, let's stick to the structure and I'll look into a manageable Skia setup.
+# Skia - Using aseprite/skia fork as it is more CMake-friendly
+# Note: Building Skia from source is still very slow.
+FetchContent_Declare(
+    skia
+    GIT_REPOSITORY https://github.com/aseprite/skia.git
+    GIT_TAG        m103-34e4029194 # A known stable tag for aseprite
+)
+# Skia options
+set(SKIA_LIBRARY_KIND "static" CACHE STRING "" FORCE)
+set(SKIA_BACKEND "raster" CACHE STRING "" FORCE) # Start with raster for simplicity
+FetchContent_MakeAvailable(skia)
 
 # Source files
 set(SOURCES
