@@ -28,6 +28,7 @@ set(SOURCES
     src/util/skia_font_utils.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
+    resources/app.rc
 )
 
 # Headers

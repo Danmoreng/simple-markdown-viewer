@@ -82,6 +82,8 @@ namespace {
     constexpr int kMenuBarTopPadding = 7;
     constexpr int kMenuBarBottomPadding = 8;
     constexpr float kTopMenuFontSize = 17.5f;
+    constexpr int kInitialWindowWidth = 900;
+    constexpr int kInitialWindowHeight = 1200;
     constexpr UINT_PTR kCommandOpenFile = 1001;
     constexpr UINT_PTR kCommandExit = 1002;
     constexpr UINT_PTR kCommandSelectFont = 1003;
@@ -89,6 +91,7 @@ namespace {
     constexpr UINT_PTR kCommandThemeLight = 1101;
     constexpr UINT_PTR kCommandThemeSepia = 1102;
     constexpr UINT_PTR kCommandThemeDark = 1103;
+    constexpr int kAppIconResourceId = 101;
 
     struct RenderContext {
         SkCanvas* canvas;
@@ -1846,13 +1849,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     const WCHAR CLASS_NAME[] = L"MDViewerWindowClass";
 
-    WNDCLASSW wc = {};
+    auto* largeIcon = static_cast<HICON>(LoadImageW(
+        hInstance,
+        MAKEINTRESOURCEW(kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON),
+        GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR));
+    auto* smallIcon = static_cast<HICON>(LoadImageW(
+        hInstance,
+        MAKEINTRESOURCEW(kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR));
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hIcon = largeIcon;
+    wc.hIconSm = smallIcon ? smallIcon : largeIcon;
 
-    RegisterClassW(&wc);
+    RegisterClassExW(&wc);
 
     if (!CreateMenus()) {
         MessageBoxW(nullptr, L"Menu initialization failed. The application cannot start.", L"Error", MB_ICONERROR);
@@ -1867,7 +1888,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         CLASS_NAME,
         L"Markdown Viewer",
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+        CW_USEDEFAULT, CW_USEDEFAULT, kInitialWindowWidth, kInitialWindowHeight,
         NULL,
         NULL,
         hInstance,
