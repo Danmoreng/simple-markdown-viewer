@@ -14,17 +14,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
-# Skia - Using aseprite/skia fork as it is more CMake-friendly
-# Note: Building Skia from source is still very slow.
-FetchContent_Declare(
-    skia
-    GIT_REPOSITORY https://github.com/aseprite/skia.git
-    GIT_TAG        m103-34e4029194 # A known stable tag for aseprite
-)
-# Skia options
-set(SKIA_LIBRARY_KIND "static" CACHE STRING "" FORCE)
-set(SKIA_BACKEND "raster" CACHE STRING "" FORCE) # Start with raster for simplicity
-FetchContent_MakeAvailable(skia)
+# Skia - We will build this using official GN/Ninja tools via build.ps1
+# The build script will place Skia in third_party/skia
+set(SKIA_DIR "${CMAKE_CURRENT_SOURCE_MACHINE_DIR}/third_party/skia" CACHE PATH "Path to Skia source")
+set(SKIA_OUT_DIR "${SKIA_DIR}/out/Static" CACHE PATH "Path to Skia build output")
 
 # Source files
 set(SOURCES
