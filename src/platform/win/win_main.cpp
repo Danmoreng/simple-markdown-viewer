@@ -57,6 +57,9 @@ namespace {
     constexpr float kListMarkerGap = 16.0f;
     constexpr float kScrollbarWidth = 10.0f;
     constexpr float kScrollbarMargin = 4.0f;
+    constexpr float kAutoScrollDeadZone = 2.0f;
+    constexpr UINT_PTR kAutoScrollTimerId = 2001;
+    constexpr UINT kAutoScrollTimerMs = 16;
     constexpr UINT_PTR kCommandOpenFile = 1001;
     constexpr UINT_PTR kCommandExit = 1002;
     constexpr UINT_PTR kCommandSelectFont = 1003;
@@ -92,6 +95,8 @@ namespace {
         SkColor thematicBreak;
         SkColor scrollbarTrack;
         SkColor scrollbarThumb;
+        SkColor autoScrollIndicator;
+        SkColor autoScrollIndicatorFill;
     };
 
     ThemePalette GetThemePalette(mdviewer::ThemeMode theme) {
@@ -112,7 +117,9 @@ namespace {
                     SkColorSetRGB(131, 104, 75),
                     SkColorSetRGB(197, 181, 151),
                     SkColorSetARGB(28, 92, 68, 37),
-                    SkColorSetARGB(128, 118, 88, 57)
+                    SkColorSetARGB(128, 118, 88, 57),
+                    SkColorSetARGB(210, 118, 88, 57),
+                    SkColorSetARGB(70, 118, 88, 57)
                 };
             case mdviewer::ThemeMode::Dark:
                 return {
@@ -130,7 +137,9 @@ namespace {
                     SkColorSetRGB(154, 163, 179),
                     SkColorSetRGB(66, 72, 84),
                     SkColorSetARGB(40, 255, 255, 255),
-                    SkColorSetARGB(150, 188, 194, 205)
+                    SkColorSetARGB(150, 188, 194, 205),
+                    SkColorSetARGB(220, 188, 194, 205),
+                    SkColorSetARGB(70, 188, 194, 205)
                 };
             case mdviewer::ThemeMode::Light:
             default:
@@ -149,7 +158,9 @@ namespace {
                     SkColorSetRGB(90, 96, 110),
                     SkColorSetRGB(210, 214, 220),
                     SkColorSetARGB(24, 0, 0, 0),
-                    SkColorSetARGB(120, 100, 100, 100)
+                    SkColorSetARGB(120, 100, 100, 100),
+                    SkColorSetARGB(220, 100, 100, 100),
+                    SkColorSetARGB(65, 100, 100, 100)
                 };
         }
     }
@@ -445,6 +456,100 @@ namespace {
 
     void ClampScrollOffset(HWND hwnd) {
         g_appState.scrollOffset = std::clamp(g_appState.scrollOffset, 0.0f, GetMaxScroll(hwnd));
+    }
+
+    void StopAutoScroll(HWND hwnd) {
+        const bool shouldReleaseCapture = GetCapture() == hwnd;
+        {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            g_appState.isAutoScrolling = false;
+            g_appState.autoScrollOriginX = 0.0f;
+            g_appState.autoScrollOriginY = 0.0f;
+            g_appState.autoScrollCursorX = 0.0f;
+            g_appState.autoScrollCursorY = 0.0f;
+        }
+        KillTimer(hwnd, kAutoScrollTimerId);
+        if (shouldReleaseCapture) {
+            ReleaseCapture();
+        }
+    }
+
+    void StartAutoScroll(HWND hwnd, int x, int y) {
+        {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            g_appState.isAutoScrolling = true;
+            g_appState.isSelecting = false;
+            g_appState.isDraggingScrollbar = false;
+            g_appState.autoScrollOriginX = static_cast<float>(x);
+            g_appState.autoScrollOriginY = static_cast<float>(y);
+            g_appState.autoScrollCursorX = static_cast<float>(x);
+            g_appState.autoScrollCursorY = static_cast<float>(y);
+        }
+        SetCapture(hwnd);
+        SetTimer(hwnd, kAutoScrollTimerId, kAutoScrollTimerMs, nullptr);
+    }
+
+    float ComputeAutoScrollVelocity(float delta) {
+        const float magnitude = std::abs(delta);
+        if (magnitude <= kAutoScrollDeadZone) {
+            return 0.0f;
+        }
+
+        const float adjusted = magnitude - kAutoScrollDeadZone;
+        const float normalized = std::min(adjusted / 16.0f, 25.0f);
+        const float speed = (normalized * normalized) * 0.55f + (adjusted * 0.22f);
+        return delta < 0.0f ? -speed : speed;
+    }
+
+    bool TickAutoScroll(HWND hwnd) {
+        std::lock_guard<std::mutex> lock(g_appState.mtx);
+        if (!g_appState.isAutoScrolling) {
+            return false;
+        }
+
+        const float deltaY = g_appState.autoScrollCursorY - g_appState.autoScrollOriginY;
+        const float scrollDelta = ComputeAutoScrollVelocity(deltaY);
+        if (scrollDelta == 0.0f) {
+            return false;
+        }
+
+        const float previousOffset = g_appState.scrollOffset;
+        g_appState.scrollOffset = std::clamp(g_appState.scrollOffset + scrollDelta, 0.0f, GetMaxScroll(hwnd));
+        return std::abs(g_appState.scrollOffset - previousOffset) > 0.01f;
+    }
+
+    void DrawAutoScrollIndicator(SkCanvas* canvas) {
+        const ThemePalette palette = GetCurrentThemePalette();
+        if (!g_appState.isAutoScrolling) {
+            return;
+        }
+        const float originX = g_appState.autoScrollOriginX;
+        const float originY = g_appState.autoScrollOriginY;
+
+        SkPaint fillPaint;
+        fillPaint.setAntiAlias(true);
+        fillPaint.setColor(palette.autoScrollIndicatorFill);
+        canvas->drawCircle(originX, originY, 15.0f, fillPaint);
+
+        SkPaint ringPaint;
+        ringPaint.setAntiAlias(true);
+        ringPaint.setColor(palette.autoScrollIndicator);
+        ringPaint.setStyle(SkPaint::kStroke_Style);
+        ringPaint.setStrokeWidth(1.8f);
+        canvas->drawCircle(originX, originY, 15.0f, ringPaint);
+        canvas->drawLine(originX - 7.0f, originY, originX + 7.0f, originY, ringPaint);
+        canvas->drawLine(originX, originY - 7.0f, originX, originY + 7.0f, ringPaint);
+
+        SkPaint arrowPaint;
+        arrowPaint.setAntiAlias(true);
+        arrowPaint.setColor(palette.autoScrollIndicator);
+        arrowPaint.setStyle(SkPaint::kStroke_Style);
+        arrowPaint.setStrokeWidth(1.8f);
+
+        canvas->drawLine(originX - 4.0f, originY - 7.0f, originX, originY - 11.0f, arrowPaint);
+        canvas->drawLine(originX, originY - 11.0f, originX + 4.0f, originY - 7.0f, arrowPaint);
+        canvas->drawLine(originX - 4.0f, originY + 7.0f, originX, originY + 11.0f, arrowPaint);
+        canvas->drawLine(originX, originY + 11.0f, originX + 4.0f, originY + 7.0f, arrowPaint);
     }
 
     std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd) {
@@ -845,6 +950,8 @@ void Render(HWND hwnd) {
             ctx.paint.setColor(palette.scrollbarThumb);
             ctx.canvas->drawRoundRect(*thumb, 5.0f, 5.0f, ctx.paint);
         }
+
+        DrawAutoScrollIndicator(ctx.canvas);
     }
 
     SkPixmap pixmap;
@@ -1025,6 +1132,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             UpdateMenuState(hwnd);
             return 0;
         case WM_DESTROY:
+            StopAutoScroll(hwnd);
             PostQuitMessage(0);
             return 0;
         case WM_PAINT:
@@ -1067,6 +1175,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         case WM_LBUTTONDOWN: {
+            StopAutoScroll(hwnd);
             SetFocus(hwnd);
             SetCapture(hwnd);
             const int x = GET_X_LPARAM(lParam);
@@ -1099,6 +1208,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         case WM_MOUSEMOVE: {
+            bool isAutoScrolling = false;
+            {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                isAutoScrolling = g_appState.isAutoScrolling;
+                if (isAutoScrolling) {
+                    g_appState.autoScrollCursorX = static_cast<float>(GET_X_LPARAM(lParam));
+                    g_appState.autoScrollCursorY = static_cast<float>(GET_Y_LPARAM(lParam));
+                }
+            }
+            if (isAutoScrolling) {
+                TickAutoScroll(hwnd);
+                InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
+
             if ((wParam & MK_LBUTTON) == 0) {
                 return 0;
             }
@@ -1130,6 +1254,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
+        case WM_MBUTTONDOWN:
+            SetFocus(hwnd);
+            if (g_appState.isAutoScrolling) {
+                StopAutoScroll(hwnd);
+            } else {
+                StartAutoScroll(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            }
+            InvalidateRect(hwnd, NULL, FALSE);
+            return 0;
+        case WM_MBUTTONUP:
+            return 0;
         case WM_MOUSEWHEEL: {
             int delta = GET_WHEEL_DELTA_WPARAM(wParam);
             {
@@ -1141,12 +1276,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         case WM_KEYDOWN:
+            if (wParam == VK_ESCAPE) {
+                StopAutoScroll(hwnd);
+                InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
             if ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'C' || wParam == 'c')) {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
                 CopySelection(hwnd);
                 return 0;
             }
             break;
+        case WM_TIMER:
+            if (wParam == kAutoScrollTimerId) {
+                if (TickAutoScroll(hwnd)) {
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+                return 0;
+            }
+            break;
+        case WM_CAPTURECHANGED:
+            if (reinterpret_cast<HWND>(lParam) != hwnd) {
+                StopAutoScroll(hwnd);
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
         case WM_SIZE: {
             UpdateSurface(hwnd);
             RelayoutCurrentDocument(hwnd);
