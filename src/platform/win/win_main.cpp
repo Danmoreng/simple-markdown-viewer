@@ -8,10 +8,12 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <commdlg.h>
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <list>
 #include <optional>
 #include <string>
 #include <filesystem>
@@ -33,6 +35,7 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkFont.h"
+#include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkTypeface.h"
@@ -48,6 +51,14 @@ namespace {
     sk_sp<SkTypeface> g_codeTypeface;
     sk_sp<SkFontMgr> g_fontMgr;
     std::wstring g_selectedFontFamily;
+    HMENU g_fileMenu = nullptr;
+    HMENU g_viewMenu = nullptr;
+    HMENU g_themeMenu = nullptr;
+    HBRUSH g_menuBackgroundBrush = nullptr;
+    HFONT g_menuFont = nullptr;
+    bool g_ownsMenuFont = false;
+    int g_hoveredTopMenuIndex = -1;
+    int g_activeTopMenuIndex = -1;
 
     constexpr float kTextBaselineOffset = 5.0f;
     constexpr float kCodeBlockPaddingX = 12.0f;
@@ -60,6 +71,17 @@ namespace {
     constexpr float kAutoScrollDeadZone = 2.0f;
     constexpr UINT_PTR kAutoScrollTimerId = 2001;
     constexpr UINT kAutoScrollTimerMs = 16;
+    constexpr int kMenuHorizontalPadding = 12;
+    constexpr int kMenuVerticalPadding = 6;
+    constexpr int kMenuCheckGutterWidth = 26;
+    constexpr int kMenuArrowAreaWidth = 16;
+    constexpr int kMenuLabelGap = 12;
+    constexpr int kMenuBarHeight = 42;
+    constexpr int kMenuBarLeftInset = 12;
+    constexpr int kMenuBarItemGap = 8;
+    constexpr int kMenuBarTopPadding = 7;
+    constexpr int kMenuBarBottomPadding = 8;
+    constexpr float kTopMenuFontSize = 17.5f;
     constexpr UINT_PTR kCommandOpenFile = 1001;
     constexpr UINT_PTR kCommandExit = 1002;
     constexpr UINT_PTR kCommandSelectFont = 1003;
@@ -77,6 +99,19 @@ namespace {
     struct TextHit {
         size_t position = 0;
         bool valid = false;
+    };
+
+    struct MenuItemData {
+        std::wstring text;
+        bool isSeparator = false;
+        bool hasSubmenu = false;
+    };
+
+    std::list<MenuItemData> g_menuItemData;
+
+    struct TopMenuItem {
+        const wchar_t* label;
+        HMENU menu;
     };
 
     struct ThemePalette {
@@ -97,13 +132,19 @@ namespace {
         SkColor scrollbarThumb;
         SkColor autoScrollIndicator;
         SkColor autoScrollIndicatorFill;
+        SkColor menuBackground;
+        SkColor menuText;
+        SkColor menuDisabledText;
+        SkColor menuSelectedBackground;
+        SkColor menuSelectedText;
+        SkColor menuSeparator;
     };
 
     ThemePalette GetThemePalette(mdviewer::ThemeMode theme) {
         switch (theme) {
             case mdviewer::ThemeMode::Sepia:
                 return {
-                    SkColorSetRGB(246, 238, 220),
+                    SkColorSetRGB(232, 220, 196),
                     SkColorSetRGB(123, 99, 71),
                     SkColorSetRGB(73, 58, 41),
                     SkColorSetRGB(55, 40, 24),
@@ -119,11 +160,17 @@ namespace {
                     SkColorSetARGB(28, 92, 68, 37),
                     SkColorSetARGB(128, 118, 88, 57),
                     SkColorSetARGB(210, 118, 88, 57),
-                    SkColorSetARGB(70, 118, 88, 57)
+                    SkColorSetARGB(70, 118, 88, 57),
+                    SkColorSetRGB(246, 238, 220),
+                    SkColorSetRGB(73, 58, 41),
+                    SkColorSetRGB(150, 126, 96),
+                    SkColorSetRGB(219, 204, 176),
+                    SkColorSetRGB(55, 40, 24),
+                    SkColorSetRGB(194, 177, 145)
                 };
             case mdviewer::ThemeMode::Dark:
                 return {
-                    SkColorSetRGB(22, 24, 29),
+                    SkColorSetRGB(31, 35, 42),
                     SkColorSetRGB(122, 130, 145),
                     SkColorSetRGB(224, 228, 235),
                     SkColorSetRGB(248, 249, 252),
@@ -139,12 +186,18 @@ namespace {
                     SkColorSetARGB(40, 255, 255, 255),
                     SkColorSetARGB(150, 188, 194, 205),
                     SkColorSetARGB(220, 188, 194, 205),
-                    SkColorSetARGB(70, 188, 194, 205)
+                    SkColorSetARGB(70, 188, 194, 205),
+                    SkColorSetRGB(22, 24, 29),
+                    SkColorSetRGB(228, 232, 238),
+                    SkColorSetRGB(119, 126, 138),
+                    SkColorSetRGB(54, 63, 78),
+                    SkColorSetRGB(248, 249, 252),
+                    SkColorSetRGB(74, 82, 96)
                 };
             case mdviewer::ThemeMode::Light:
             default:
                 return {
-                    SK_ColorWHITE,
+                    SkColorSetRGB(244, 246, 249),
                     SK_ColorGRAY,
                     SkColorSetRGB(36, 39, 45),
                     SkColorSetRGB(28, 31, 38),
@@ -160,7 +213,13 @@ namespace {
                     SkColorSetARGB(24, 0, 0, 0),
                     SkColorSetARGB(120, 100, 100, 100),
                     SkColorSetARGB(220, 100, 100, 100),
-                    SkColorSetARGB(65, 100, 100, 100)
+                    SkColorSetARGB(65, 100, 100, 100),
+                    SK_ColorWHITE,
+                    SkColorSetRGB(40, 43, 50),
+                    SkColorSetRGB(145, 151, 162),
+                    SkColorSetRGB(225, 236, 255),
+                    SkColorSetRGB(28, 31, 38),
+                    SkColorSetRGB(214, 219, 226)
                 };
         }
     }
@@ -173,46 +232,204 @@ namespace {
         return GetThemePalette(GetCurrentThemeMode());
     }
 
-    HMENU CreateMainMenu() {
-        HMENU menuBar = CreateMenu();
-        if (!menuBar) {
-            return nullptr;
+    bool EnsureFontSystem();
+
+    std::array<TopMenuItem, 2> GetTopMenuItems() {
+        return {{
+            {L"File", g_fileMenu},
+            {L"View", g_viewMenu},
+        }};
+    }
+
+    float GetContentTopInset() {
+        return static_cast<float>(kMenuBarHeight);
+    }
+
+    COLORREF ToColorRef(SkColor color) {
+        return RGB(SkColorGetR(color), SkColorGetG(color), SkColorGetB(color));
+    }
+
+    HFONT GetMenuFontHandle() {
+        if (g_menuFont) {
+            return g_menuFont;
         }
 
-        HMENU fileMenu = CreatePopupMenu();
-        if (!fileMenu) {
-            DestroyMenu(menuBar);
-            return nullptr;
+        NONCLIENTMETRICSW metrics = {};
+        metrics.cbSize = sizeof(metrics);
+        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
+            metrics.lfMenuFont.lfHeight = static_cast<LONG>(std::round(metrics.lfMenuFont.lfHeight * 1.12f));
+            g_menuFont = CreateFontIndirectW(&metrics.lfMenuFont);
+            g_ownsMenuFont = g_menuFont != nullptr;
         }
 
-        AppendMenuW(fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
-        AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(fileMenu, MF_STRING, kCommandExit, L"E&xit");
-        AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"&File");
-
-        HMENU viewMenu = CreatePopupMenu();
-        if (!viewMenu) {
-            DestroyMenu(menuBar);
-            return nullptr;
+        if (!g_menuFont) {
+            g_menuFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            g_ownsMenuFont = false;
         }
 
-        AppendMenuW(viewMenu, MF_STRING, kCommandSelectFont, L"Select &Font...");
-        AppendMenuW(viewMenu, MF_STRING, kCommandUseDefaultFont, L"Use &Default Font");
-        AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
+        return g_menuFont;
+    }
 
-        HMENU themeMenu = CreatePopupMenu();
-        if (!themeMenu) {
-            DestroyMenu(menuBar);
-            return nullptr;
+    std::pair<std::wstring, std::wstring> SplitMenuText(const std::wstring& text) {
+        const size_t tabPos = text.find(L'\t');
+        if (tabPos == std::wstring::npos) {
+            return {text, L""};
         }
 
-        AppendMenuW(themeMenu, MF_STRING, kCommandThemeLight, L"&Light");
-        AppendMenuW(themeMenu, MF_STRING, kCommandThemeSepia, L"&Sepia");
-        AppendMenuW(themeMenu, MF_STRING, kCommandThemeDark, L"&Dark");
-        AppendMenuW(viewMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"&Theme");
-        AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
+        return {text.substr(0, tabPos), text.substr(tabPos + 1)};
+    }
 
-        return menuBar;
+    SIZE MeasureMenuSegment(HDC hdc, const std::wstring& text) {
+        SIZE size = {};
+        if (!text.empty()) {
+            GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()), &size);
+        }
+        return size;
+    }
+
+    std::wstring GetMenuItemText(HMENU menu, UINT index) {
+        MENUITEMINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = MIIM_STRING;
+        if (!GetMenuItemInfoW(menu, index, TRUE, &info) || info.cch == 0) {
+            return {};
+        }
+
+        std::wstring text(static_cast<size_t>(info.cch) + 1, L'\0');
+        info.dwTypeData = text.data();
+        info.cch = static_cast<UINT>(text.size());
+        if (!GetMenuItemInfoW(menu, index, TRUE, &info)) {
+            return {};
+        }
+
+        text.resize(wcslen(text.c_str()));
+        return text;
+    }
+
+    void ConfigureOwnerDrawMenu(HMENU menu) {
+        if (!menu) {
+            return;
+        }
+
+        const int itemCount = GetMenuItemCount(menu);
+        for (int index = 0; index < itemCount; ++index) {
+            MENUITEMINFOW readInfo = {};
+            readInfo.cbSize = sizeof(readInfo);
+            readInfo.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_ID | MIIM_STRING;
+            if (!GetMenuItemInfoW(menu, static_cast<UINT>(index), TRUE, &readInfo)) {
+                continue;
+            }
+
+            auto& itemData = g_menuItemData.emplace_back();
+            itemData.isSeparator = (readInfo.fType & MFT_SEPARATOR) != 0;
+            itemData.hasSubmenu = readInfo.hSubMenu != nullptr;
+            if (!itemData.isSeparator) {
+                itemData.text = GetMenuItemText(menu, static_cast<UINT>(index));
+            }
+
+            MenuItemData* rawItemData = &itemData;
+
+            MENUITEMINFOW writeInfo = {};
+            writeInfo.cbSize = sizeof(writeInfo);
+            writeInfo.fMask = MIIM_FTYPE | MIIM_DATA;
+            writeInfo.fType = itemData.isSeparator ? (MFT_SEPARATOR | MFT_OWNERDRAW) : MFT_OWNERDRAW;
+            writeInfo.dwItemData = reinterpret_cast<ULONG_PTR>(rawItemData);
+            SetMenuItemInfoW(menu, static_cast<UINT>(index), TRUE, &writeInfo);
+
+            if (readInfo.hSubMenu) {
+                ConfigureOwnerDrawMenu(readInfo.hSubMenu);
+            }
+        }
+    }
+
+    void ApplyMenuBackgroundBrushRecursive(HMENU menu) {
+        if (!menu || !g_menuBackgroundBrush) {
+            return;
+        }
+
+        MENUINFO menuInfo = {};
+        menuInfo.cbSize = sizeof(menuInfo);
+        menuInfo.fMask = MIM_BACKGROUND;
+        menuInfo.hbrBack = g_menuBackgroundBrush;
+        SetMenuInfo(menu, &menuInfo);
+
+        const int itemCount = GetMenuItemCount(menu);
+        for (int index = 0; index < itemCount; ++index) {
+            MENUITEMINFOW itemInfo = {};
+            itemInfo.cbSize = sizeof(itemInfo);
+            itemInfo.fMask = MIIM_SUBMENU;
+            if (GetMenuItemInfoW(menu, static_cast<UINT>(index), TRUE, &itemInfo) && itemInfo.hSubMenu) {
+                ApplyMenuBackgroundBrushRecursive(itemInfo.hSubMenu);
+            }
+        }
+    }
+
+    void RefreshMenuThemeResources(HWND hwnd) {
+        if (g_menuBackgroundBrush) {
+            DeleteObject(g_menuBackgroundBrush);
+            g_menuBackgroundBrush = nullptr;
+        }
+
+        g_menuBackgroundBrush = CreateSolidBrush(ToColorRef(GetCurrentThemePalette().menuBackground));
+        ApplyMenuBackgroundBrushRecursive(g_fileMenu);
+        ApplyMenuBackgroundBrushRecursive(g_viewMenu);
+        if (hwnd) {
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+    }
+
+    void CleanupMenuThemeResources() {
+        g_hoveredTopMenuIndex = -1;
+        g_activeTopMenuIndex = -1;
+        if (g_menuBackgroundBrush) {
+            DeleteObject(g_menuBackgroundBrush);
+            g_menuBackgroundBrush = nullptr;
+        }
+        if (g_ownsMenuFont && g_menuFont) {
+            DeleteObject(g_menuFont);
+        }
+        g_menuFont = nullptr;
+        g_ownsMenuFont = false;
+        g_menuItemData.clear();
+        if (g_fileMenu) {
+            DestroyMenu(g_fileMenu);
+            g_fileMenu = nullptr;
+        }
+        if (g_viewMenu) {
+            DestroyMenu(g_viewMenu);
+            g_viewMenu = nullptr;
+        }
+        g_themeMenu = nullptr;
+    }
+
+    bool CreateMenus() {
+        CleanupMenuThemeResources();
+
+        g_fileMenu = CreatePopupMenu();
+        g_viewMenu = CreatePopupMenu();
+        g_themeMenu = CreatePopupMenu();
+        if (!g_fileMenu || !g_viewMenu || !g_themeMenu) {
+            CleanupMenuThemeResources();
+            return false;
+        }
+
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+        AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandExit, L"E&xit");
+
+        AppendMenuW(g_viewMenu, MF_STRING, kCommandSelectFont, L"Select &Font...");
+        AppendMenuW(g_viewMenu, MF_STRING, kCommandUseDefaultFont, L"Use &Default Font");
+        AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
+
+        AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeLight, L"&Light");
+        AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeSepia, L"&Sepia");
+        AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeDark, L"&Dark");
+        AppendMenuW(g_viewMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(g_themeMenu), L"&Theme");
+
+        ConfigureOwnerDrawMenu(g_fileMenu);
+        ConfigureOwnerDrawMenu(g_viewMenu);
+        RefreshMenuThemeResources(nullptr);
+        return true;
     }
 
     std::optional<std::filesystem::path> ShowOpenFileDialog(HWND hwnd) {
@@ -294,8 +511,7 @@ namespace {
     }
 
     void UpdateMenuState(HWND hwnd) {
-        HMENU menuBar = GetMenu(hwnd);
-        if (!menuBar) {
+        if (!g_viewMenu || !g_themeMenu) {
             return;
         }
 
@@ -306,17 +522,280 @@ namespace {
         }
 
         EnableMenuItem(
-            menuBar,
+            g_viewMenu,
             kCommandUseDefaultFont,
             MF_BYCOMMAND | (g_selectedFontFamily.empty() ? MF_GRAYED : MF_ENABLED));
         CheckMenuRadioItem(
-            menuBar,
+            g_themeMenu,
             kCommandThemeLight,
             kCommandThemeDark,
             currentTheme == mdviewer::ThemeMode::Sepia ? kCommandThemeSepia :
             (currentTheme == mdviewer::ThemeMode::Dark ? kCommandThemeDark : kCommandThemeLight),
             MF_BYCOMMAND);
-        DrawMenuBar(hwnd);
+        RefreshMenuThemeResources(hwnd);
+    }
+
+    bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo) {
+        if (!measureInfo || measureInfo->CtlType != ODT_MENU) {
+            return false;
+        }
+
+        const auto* itemData = reinterpret_cast<const MenuItemData*>(measureInfo->itemData);
+        if (!itemData) {
+            return false;
+        }
+
+        if (itemData->isSeparator) {
+            measureInfo->itemWidth = 1;
+            measureInfo->itemHeight = 9;
+            return true;
+        }
+
+        HDC hdc = GetDC(nullptr);
+        if (!hdc) {
+            return false;
+        }
+
+        HGDIOBJ oldFont = SelectObject(hdc, GetMenuFontHandle());
+        const auto [labelText, accelText] = SplitMenuText(itemData->text);
+        const SIZE labelSize = MeasureMenuSegment(hdc, labelText);
+        const SIZE accelSize = MeasureMenuSegment(hdc, accelText);
+        SelectObject(hdc, oldFont);
+        ReleaseDC(nullptr, hdc);
+
+        int width = kMenuCheckGutterWidth + labelSize.cx + (kMenuHorizontalPadding * 2);
+        if (!accelText.empty()) {
+            width += accelSize.cx + kMenuLabelGap;
+        }
+        if (itemData->hasSubmenu) {
+            width += kMenuArrowAreaWidth;
+        }
+
+        measureInfo->itemWidth = static_cast<UINT>(std::max(width, 150));
+        measureInfo->itemHeight = static_cast<UINT>(
+            std::max(std::max(static_cast<int>(labelSize.cy), static_cast<int>(accelSize.cy)) + (kMenuVerticalPadding * 2), 24));
+        return true;
+    }
+
+    bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo) {
+        if (!drawInfo || drawInfo->CtlType != ODT_MENU) {
+            return false;
+        }
+
+        const auto* itemData = reinterpret_cast<const MenuItemData*>(drawInfo->itemData);
+        if (!itemData) {
+            return false;
+        }
+
+        const ThemePalette palette = GetCurrentThemePalette();
+        const bool isSelected = (drawInfo->itemState & ODS_SELECTED) != 0;
+        const bool isDisabled = (drawInfo->itemState & ODS_DISABLED) != 0;
+        const bool isChecked = (drawInfo->itemState & ODS_CHECKED) != 0;
+
+        COLORREF backgroundColor = ToColorRef(
+            (isSelected || isChecked) ? palette.menuSelectedBackground : palette.menuBackground);
+        COLORREF textColor = ToColorRef(
+            isDisabled ? palette.menuDisabledText : ((isSelected || isChecked) ? palette.menuSelectedText : palette.menuText));
+
+        SetDCBrushColor(drawInfo->hDC, backgroundColor);
+        FillRect(drawInfo->hDC, &drawInfo->rcItem, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+
+        if (itemData->isSeparator) {
+            RECT separatorRect = drawInfo->rcItem;
+            const int midY = (separatorRect.top + separatorRect.bottom) / 2;
+            HPEN pen = CreatePen(PS_SOLID, 1, ToColorRef(palette.menuSeparator));
+            if (pen) {
+                HGDIOBJ oldPen = SelectObject(drawInfo->hDC, pen);
+                MoveToEx(drawInfo->hDC, separatorRect.left + 8, midY, nullptr);
+                LineTo(drawInfo->hDC, separatorRect.right - 8, midY);
+                SelectObject(drawInfo->hDC, oldPen);
+                DeleteObject(pen);
+            }
+            return true;
+        }
+
+        SetBkMode(drawInfo->hDC, TRANSPARENT);
+        SetTextColor(drawInfo->hDC, textColor);
+        HGDIOBJ oldFont = SelectObject(drawInfo->hDC, GetMenuFontHandle());
+        const auto [labelText, accelText] = SplitMenuText(itemData->text);
+
+        RECT labelRect = drawInfo->rcItem;
+        labelRect.left += kMenuCheckGutterWidth;
+        labelRect.right -= kMenuHorizontalPadding;
+
+        if (itemData->hasSubmenu) {
+            labelRect.right -= kMenuArrowAreaWidth;
+        }
+
+        if (!accelText.empty()) {
+            RECT accelRect = labelRect;
+            DrawTextW(
+                drawInfo->hDC,
+                accelText.c_str(),
+                static_cast<int>(accelText.size()),
+                &accelRect,
+                DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+
+            HDC measureDc = drawInfo->hDC;
+            const SIZE accelSize = MeasureMenuSegment(measureDc, accelText);
+            labelRect.right -= accelSize.cx + kMenuLabelGap;
+        }
+
+        DrawTextW(
+            drawInfo->hDC,
+            labelText.c_str(),
+            static_cast<int>(labelText.size()),
+            &labelRect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        SelectObject(drawInfo->hDC, oldFont);
+        return true;
+    }
+
+    std::vector<RECT> GetTopMenuItemRects(HWND hwnd) {
+        RECT clientRect = {};
+        GetClientRect(hwnd, &clientRect);
+
+        std::vector<RECT> rects;
+        int currentX = kMenuBarLeftInset;
+
+        HDC hdc = GetDC(hwnd);
+        if (!hdc) {
+            return rects;
+        }
+
+        HGDIOBJ oldFont = SelectObject(hdc, GetMenuFontHandle());
+        for (const auto& item : GetTopMenuItems()) {
+            SIZE size = {};
+            GetTextExtentPoint32W(hdc, item.label, static_cast<int>(wcslen(item.label)), &size);
+            RECT rect = {
+                currentX,
+                0,
+                currentX + size.cx + (kMenuHorizontalPadding * 2),
+                kMenuBarHeight
+            };
+            rects.push_back(rect);
+            currentX = rect.right + kMenuBarItemGap;
+        }
+
+        SelectObject(hdc, oldFont);
+        ReleaseDC(hwnd, hdc);
+        return rects;
+    }
+
+    int HitTestTopMenu(HWND hwnd, int x, int y) {
+        if (y < 0 || y >= kMenuBarHeight) {
+            return -1;
+        }
+
+        const auto rects = GetTopMenuItemRects(hwnd);
+        for (size_t index = 0; index < rects.size(); ++index) {
+            const RECT& rect = rects[index];
+            if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom) {
+                return static_cast<int>(index);
+            }
+        }
+
+        return -1;
+    }
+
+    void DrawTopMenuBar(SkCanvas* canvas, HWND hwnd) {
+        const ThemePalette palette = GetCurrentThemePalette();
+
+        SkPaint backgroundPaint;
+        backgroundPaint.setAntiAlias(false);
+        backgroundPaint.setColor(palette.menuBackground);
+        canvas->drawRect(
+            SkRect::MakeXYWH(0.0f, 0.0f, static_cast<float>(g_surface->width()), static_cast<float>(kMenuBarHeight)),
+            backgroundPaint);
+
+        if (!EnsureFontSystem()) {
+            return;
+        }
+
+        SkFont menuFont;
+        menuFont.setTypeface(g_typeface);
+        menuFont.setSize(kTopMenuFontSize);
+        menuFont.setHinting(SkFontHinting::kSlight);
+        menuFont.setSubpixel(true);
+        menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+        SkFontMetrics menuMetrics;
+        menuFont.getMetrics(&menuMetrics);
+        const float menuTextHeight = menuMetrics.fDescent - menuMetrics.fAscent;
+        const float menuBaselineY =
+            std::round(((static_cast<float>(kMenuBarHeight) - menuTextHeight) * 0.5f) - menuMetrics.fAscent);
+
+        SkPaint textPaint;
+        textPaint.setAntiAlias(true);
+
+        const auto rects = GetTopMenuItemRects(hwnd);
+        const auto items = GetTopMenuItems();
+
+        for (size_t index = 0; index < rects.size() && index < items.size(); ++index) {
+            const bool isHighlighted = static_cast<int>(index) == g_hoveredTopMenuIndex ||
+                                       static_cast<int>(index) == g_activeTopMenuIndex;
+            const RECT& rect = rects[index];
+
+            if (isHighlighted) {
+                SkPaint highlightPaint;
+                highlightPaint.setAntiAlias(true);
+                highlightPaint.setColor(palette.menuSelectedBackground);
+                canvas->drawRoundRect(
+                    SkRect::MakeLTRB(
+                        static_cast<float>(rect.left),
+                        4.0f,
+                        static_cast<float>(rect.right),
+                        static_cast<float>(kMenuBarHeight - 4)),
+                    6.0f,
+                    6.0f,
+                    highlightPaint);
+            }
+
+            textPaint.setColor(isHighlighted ? palette.menuSelectedText : palette.menuText);
+            const float textX = static_cast<float>(rect.left + kMenuHorizontalPadding);
+            canvas->drawSimpleText(
+                items[index].label,
+                wcslen(items[index].label) * sizeof(wchar_t),
+                SkTextEncoding::kUTF16,
+                textX,
+                menuBaselineY,
+                menuFont,
+                textPaint);
+        }
+    }
+
+    void OpenTopMenu(HWND hwnd, int menuIndex) {
+        const auto items = GetTopMenuItems();
+        const auto rects = GetTopMenuItemRects(hwnd);
+        if (menuIndex < 0 || static_cast<size_t>(menuIndex) >= items.size() || static_cast<size_t>(menuIndex) >= rects.size()) {
+            return;
+        }
+
+        HMENU menu = items[menuIndex].menu;
+        if (!menu) {
+            return;
+        }
+
+        g_activeTopMenuIndex = menuIndex;
+        InvalidateRect(hwnd, nullptr, FALSE);
+
+        POINT screenPoint = {rects[menuIndex].left, rects[menuIndex].bottom};
+        ClientToScreen(hwnd, &screenPoint);
+        const UINT command = TrackPopupMenuEx(
+            menu,
+            TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+            screenPoint.x,
+            screenPoint.y,
+            hwnd,
+            nullptr);
+
+        g_activeTopMenuIndex = -1;
+        g_hoveredTopMenuIndex = -1;
+        InvalidateRect(hwnd, nullptr, FALSE);
+
+        if (command != 0) {
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(command, 0), 0);
+        }
     }
 
     bool EnsureFontSystem() {
@@ -447,7 +926,7 @@ namespace {
     float GetViewportHeight(HWND hwnd) {
         RECT rect;
         GetClientRect(hwnd, &rect);
-        return static_cast<float>(rect.bottom - rect.top);
+        return std::max(static_cast<float>(rect.bottom - rect.top) - GetContentTopInset(), 0.0f);
     }
 
     float GetMaxScroll(HWND hwnd) {
@@ -566,7 +1045,7 @@ namespace {
 
         return SkRect::MakeXYWH(
             g_surface->width() - kScrollbarWidth - kScrollbarMargin,
-            thumbY + kScrollbarMargin,
+            thumbY + kScrollbarMargin + GetContentTopInset(),
             kScrollbarWidth,
             thumbHeight);
     }
@@ -704,6 +1183,10 @@ namespace {
     TextHit HitTestText(float x, float viewportY) {
         TextHit hit;
         if (!EnsureFontSystem()) {
+            return hit;
+        }
+        viewportY -= GetContentTopInset();
+        if (viewportY < 0.0f) {
             return hit;
         }
 
@@ -916,8 +1399,10 @@ void Render(HWND hwnd) {
         ctx.font.setHinting(SkFontHinting::kSlight);
         ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
+        DrawTopMenuBar(canvas, hwnd);
+
         canvas->save();
-        canvas->translate(0, -g_appState.scrollOffset);
+        canvas->translate(0, GetContentTopInset() - g_appState.scrollOffset);
 
         DrawBlocks(ctx, g_appState.docLayout.blocks);
 
@@ -927,7 +1412,8 @@ void Render(HWND hwnd) {
             const char* msg = "Drag and drop a Markdown file here";
             SkRect bounds;
             ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
-            canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, g_surface->height() / 2, ctx.font, ctx.paint);
+            const float emptyStateY = GetContentTopInset() + (GetViewportHeight(hwnd) * 0.5f);
+            canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, emptyStateY, ctx.font, ctx.paint);
         }
 
         canvas->restore();
@@ -940,7 +1426,7 @@ void Render(HWND hwnd) {
             ctx.canvas->drawRoundRect(
                 SkRect::MakeXYWH(
                     g_surface->width() - kScrollbarWidth - kScrollbarMargin,
-                    kScrollbarMargin,
+                    kScrollbarMargin + GetContentTopInset(),
                     kScrollbarWidth,
                     std::max(GetViewportHeight(hwnd) - (kScrollbarMargin * 2.0f), 1.0f)),
                 5.0f,
@@ -1078,11 +1564,12 @@ void UpdateSelectionFromPoint(HWND hwnd, int x, int y) {
         g_appState.selectionFocus = hit.position;
     }
 
+    const float contentY = static_cast<float>(y) - GetContentTopInset();
     const float viewportHeight = GetViewportHeight(hwnd);
-    if (y < 0) {
-        g_appState.scrollOffset = std::max(g_appState.scrollOffset + static_cast<float>(y), 0.0f);
-    } else if (y > viewportHeight) {
-        g_appState.scrollOffset = std::min(g_appState.scrollOffset + static_cast<float>(y - viewportHeight), GetMaxScroll(hwnd));
+    if (contentY < 0) {
+        g_appState.scrollOffset = std::max(g_appState.scrollOffset + contentY, 0.0f);
+    } else if (contentY > viewportHeight) {
+        g_appState.scrollOffset = std::min(g_appState.scrollOffset + (contentY - viewportHeight), GetMaxScroll(hwnd));
     }
 }
 
@@ -1133,11 +1620,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         case WM_DESTROY:
             StopAutoScroll(hwnd);
+            CleanupMenuThemeResources();
             PostQuitMessage(0);
             return 0;
         case WM_PAINT:
             Render(hwnd);
             return 0;
+        case WM_MEASUREITEM:
+            if (HandleMeasureMenuItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lParam))) {
+                return TRUE;
+            }
+            break;
+        case WM_DRAWITEM:
+            if (HandleDrawMenuItem(reinterpret_cast<DRAWITEMSTRUCT*>(lParam))) {
+                return TRUE;
+            }
+            break;
         case WM_ERASEBKGND:
             return 1;
         case WM_DROPFILES:
@@ -1175,11 +1673,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         case WM_LBUTTONDOWN: {
+            const int x = GET_X_LPARAM(lParam);
+            const int y = GET_Y_LPARAM(lParam);
+            const int topMenuIndex = HitTestTopMenu(hwnd, x, y);
+            if (topMenuIndex >= 0) {
+                StopAutoScroll(hwnd);
+                SetFocus(hwnd);
+                OpenTopMenu(hwnd, topMenuIndex);
+                return 0;
+            }
+
             StopAutoScroll(hwnd);
             SetFocus(hwnd);
             SetCapture(hwnd);
-            const int x = GET_X_LPARAM(lParam);
-            const int y = GET_Y_LPARAM(lParam);
             if (const auto thumb = GetScrollbarThumbRect(hwnd); thumb && thumb->contains(static_cast<float>(x), static_cast<float>(y))) {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
                 g_appState.isDraggingScrollbar = true;
@@ -1208,6 +1714,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         case WM_MOUSEMOVE: {
+            if (GET_Y_LPARAM(lParam) < kMenuBarHeight) {
+                const int hoveredIndex = HitTestTopMenu(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+                if (hoveredIndex != g_hoveredTopMenuIndex) {
+                    g_hoveredTopMenuIndex = hoveredIndex;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
+            } else if (g_hoveredTopMenuIndex != -1 && g_activeTopMenuIndex == -1) {
+                g_hoveredTopMenuIndex = -1;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+
             bool isAutoScrolling = false;
             {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
@@ -1255,6 +1772,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         case WM_MBUTTONDOWN:
+            if (GET_Y_LPARAM(lParam) < kMenuBarHeight) {
+                return 0;
+            }
             SetFocus(hwnd);
             if (g_appState.isAutoScrolling) {
                 StopAutoScroll(hwnd);
@@ -1334,7 +1854,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterClassW(&wc);
 
-    HMENU menuBar = CreateMainMenu();
+    if (!CreateMenus()) {
+        MessageBoxW(nullptr, L"Menu initialization failed. The application cannot start.", L"Error", MB_ICONERROR);
+        if (shouldUninitializeCom) {
+            CoUninitialize();
+        }
+        return 1;
+    }
 
     HWND hwnd = CreateWindowExW(
         0,
@@ -1343,12 +1869,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
         NULL,
-        menuBar,
+        NULL,
         hInstance,
         NULL
     );
 
     if (hwnd == NULL) {
+        CleanupMenuThemeResources();
         if (shouldUninitializeCom) {
             CoUninitialize();
         }
