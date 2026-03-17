@@ -67,6 +67,14 @@ if (-not $env:VCINSTALLDIR) {
     Import-VSEnv
 }
 
+# Add Python to PATH
+$pythonDir = "C:\Users\User\AppData\Local\Programs\Python\Python310"
+if (Test-Path $pythonDir) {
+    $env:PATH = "$pythonDir;$env:PATH"
+} else {
+    throw "Python directory not found at $pythonDir"
+}
+
 # Handle Skia and depot_tools
 $thirdPartyDir = Join-Path $PSScriptRoot "third_party"
 $skiaDir = Join-Path $thirdPartyDir "skia"
@@ -95,11 +103,11 @@ if (-not $SkipSkia) {
     Push-Location $skiaDir
     try {
         Write-Host "Syncing Skia dependencies..." -ForegroundColor Cyan
-        python3 tools/git-sync-deps
+        python tools/git-sync-deps
 
         Write-Host "Fetching GN and Ninja..." -ForegroundColor Cyan
-        python3 bin/fetch-gn
-        python3 bin/fetch-ninja
+        python bin/fetch-gn
+        python bin/fetch-ninja
 
         $skiaOutDir = if ($Configuration -eq "Debug") { "out/Debug" } else { "out/Static" }
         $is_debug = if ($Configuration -eq "Debug") { "true" } else { "false" }
