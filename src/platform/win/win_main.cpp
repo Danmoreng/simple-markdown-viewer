@@ -1402,9 +1402,12 @@ void Render(HWND hwnd) {
         ctx.font.setHinting(SkFontHinting::kSlight);
         ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
-        DrawTopMenuBar(canvas, hwnd);
-
         canvas->save();
+        canvas->clipRect(SkRect::MakeLTRB(
+            0.0f,
+            GetContentTopInset(),
+            static_cast<float>(g_surface->width()),
+            static_cast<float>(g_surface->height())));
         canvas->translate(0, GetContentTopInset() - g_appState.scrollOffset);
 
         DrawBlocks(ctx, g_appState.docLayout.blocks);
@@ -1415,11 +1418,13 @@ void Render(HWND hwnd) {
             const char* msg = "Drag and drop a Markdown file here";
             SkRect bounds;
             ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
-            const float emptyStateY = GetContentTopInset() + (GetViewportHeight(hwnd) * 0.5f);
+            const float emptyStateY = GetViewportHeight(hwnd) * 0.5f;
             canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, emptyStateY, ctx.font, ctx.paint);
         }
 
         canvas->restore();
+
+        DrawTopMenuBar(canvas, hwnd);
 
         // Draw simple scrollbar indicator
         if (const auto thumb = GetScrollbarThumbRect(hwnd)) {
