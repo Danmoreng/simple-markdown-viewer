@@ -1,390 +1,282 @@
-\# Development Plan: Cross-Platform Read-Only Markdown Viewer
+# Development Plan: Cross-Platform Read-Only Markdown Viewer
 
+## Architecture: C++ + Skia + Native Platform Layer
 
+## Goal
 
-\## Architecture: C++ + Skia + Native Platform Layer
-
-
-
-\## Goal
-
-
-
-Build a \*\*fast, lightweight, beautiful, read-only Markdown viewer\*\* with a \*\*custom-rendered document surface\*\*.
-
-
+Build a **fast, lightweight, beautiful, read-only Markdown viewer** with a **custom-rendered document surface**.
 
 The application should:
 
+* open Markdown files and render them beautifully
 
+* support **scrolling**
 
-\* open Markdown files and render them beautifully
+* support **text selection + copy**
 
-\* support \*\*scrolling\*\*
+* be **read-only**
 
-\* support \*\*text selection + copy\*\*
+* have a **single-window UI**
 
-\* be \*\*read-only\*\*
+* use a **custom-drawn document view**
 
-\* have a \*\*single-window UI\*\*
+* use **native platform windows and event loops**
 
-\* use a \*\*custom-drawn document view\*\*
+* use **Skia** for rendering
 
-\* use \*\*native platform windows and event loops\*\*
+* be designed for **cross-platform support**
 
-\* use \*\*Skia\*\* for rendering
+* start with **Windows**, but keep the architecture ready for **macOS and Linux**
 
-\* be designed for \*\*cross-platform support\*\*
+This is **not** a general UI toolkit project.
 
-\* start with \*\*Windows\*\*, but keep the architecture ready for \*\*macOS and Linux\*\*
+It is a **narrow, document-viewer-focused application architecture**.
 
+---
 
+# Product Scope
 
-This is \*\*not\*\* a general UI toolkit project.
+## In scope for v1
 
-It is a \*\*narrow, document-viewer-focused application architecture\*\*.
+* Open a Markdown file from:
 
+  * command line argument
 
+  * native file open dialog
 
-\---
+  * drag and drop
 
+* Render Markdown as a styled document
 
+* Support:
 
-\# Product Scope
+  * paragraphs
 
+  * headings
 
+  * emphasis / strong
 
-\## In scope for v1
+  * inline code
 
+  * fenced code blocks
 
+  * blockquotes
 
-\* Open a Markdown file from:
+  * unordered and ordered lists
 
+  * horizontal rules
 
+  * links as styled text
 
-&#x20; \* command line argument
+* Smooth vertical scrolling
 
-&#x20; \* native file open dialog
+* Mouse-based text selection
 
-&#x20; \* drag and drop
+* Copy selected text to clipboard
 
-\* Render Markdown as a styled document
+* Beautiful typography and spacing
 
-\* Support:
+* Dark and light theme support
 
+* Single-window display
 
+* Fast startup
 
-&#x20; \* paragraphs
+* Small binary footprint relative to browser-based stacks
 
-&#x20; \* headings
+* Platform-specific shell layer with shared rendering/document engine
 
-&#x20; \* emphasis / strong
+## Out of scope for v1
 
-&#x20; \* inline code
+* Editing Markdown
 
-&#x20; \* fenced code blocks
+* Split source/preview mode
 
-&#x20; \* blockquotes
+* Live reload
 
-&#x20; \* unordered and ordered lists
+* Embedded browser engine
 
-&#x20; \* horizontal rules
+* Rich interactions beyond:
 
-&#x20; \* links as styled text
+  * scrolling
 
-\* Smooth vertical scrolling
+  * text selection
 
-\* Mouse-based text selection
+  * copy
 
-\* Copy selected text to clipboard
+* Image support unless easy to add
 
-\* Beautiful typography and spacing
+* Table support unless easy to add
 
-\* Dark and light theme support
+* Search
 
-\* Single-window display
+* Annotation
 
-\* Fast startup
+* Tabs / multi-document UI
 
-\* Small binary footprint relative to browser-based stacks
+* Settings dialog
 
-\* Platform-specific shell layer with shared rendering/document engine
+* Accessibility beyond basic keyboard compatibility unless specifically planned later
 
+---
 
-
-\## Out of scope for v1
-
-
-
-\* Editing Markdown
-
-\* Split source/preview mode
-
-\* Live reload
-
-\* Embedded browser engine
-
-\* Rich interactions beyond:
-
-
-
-&#x20; \* scrolling
-
-&#x20; \* text selection
-
-&#x20; \* copy
-
-\* Image support unless easy to add
-
-\* Table support unless easy to add
-
-\* Search
-
-\* Annotation
-
-\* Tabs / multi-document UI
-
-\* Settings dialog
-
-\* Accessibility beyond basic keyboard compatibility unless specifically planned later
-
-
-
-\---
-
-
-
-\# High-Level Architecture
-
-
+# High-Level Architecture
 
 The system should be divided into four major layers:
 
-
-
-\## 1. Native Platform Layer
-
-
+## 1. Native Platform Layer
 
 Responsible for:
 
+* creating the application window
 
+* receiving OS events
 
-\* creating the application window
+* mouse / keyboard input
 
-\* receiving OS events
+* clipboard integration
 
-\* mouse / keyboard input
+* file dialogs
 
-\* clipboard integration
+* drag-and-drop
 
-\* file dialogs
+* timers / invalidation / redraw scheduling
 
-\* drag-and-drop
+* DPI scaling / window resize
 
-\* timers / invalidation / redraw scheduling
+* OS integration
 
-\* DPI scaling / window resize
+This layer should be **thin** and platform-specific.
 
-\* OS integration
+### Initial target
 
+* Windows first
 
+### Planned future targets
 
-This layer should be \*\*thin\*\* and platform-specific.
+* macOS
 
-
-
-\### Initial target
-
-
-
-\* Windows first
-
-
-
-\### Planned future targets
-
-
-
-\* macOS
-
-\* Linux
-
-
+* Linux
 
 The platform layer should not contain Markdown logic or rendering decisions.
 
+---
 
-
-\---
-
-
-
-\## 2. Shared Rendering Layer
-
-
+## 2. Shared Rendering Layer
 
 Responsible for:
 
+* drawing text
 
+* drawing backgrounds
 
-\* drawing text
+* drawing selection highlights
 
-\* drawing backgrounds
+* drawing block decorations
 
-\* drawing selection highlights
+* clipping
 
-\* drawing block decorations
+* scroll offset application
 
-\* clipping
+* theme colors
 
-\* scroll offset application
+* viewport drawing
 
-\* theme colors
-
-\* viewport drawing
-
-
-
-This layer should be implemented on top of \*\*Skia\*\*.
-
-
+This layer should be implemented on top of **Skia**.
 
 Skia is the rendering backend, not the app framework.
 
+---
 
-
-\---
-
-
-
-\## 3. Shared Document Engine
-
-
+## 3. Shared Document Engine
 
 Responsible for:
 
+* reading Markdown files
 
+* parsing Markdown into an AST or block model
 
-\* reading Markdown files
+* converting parsed Markdown into a styled layout tree
 
-\* parsing Markdown into an AST or block model
+* line breaking and text layout
 
-\* converting parsed Markdown into a styled layout tree
+* block spacing
 
-\* line breaking and text layout
+* text run generation
 
-\* block spacing
+* document metrics
 
-\* text run generation
+* selection mapping
 
-\* document metrics
+* hit testing
 
-\* selection mapping
-
-\* hit testing
-
-\* extracting plain text for clipboard copy
-
-
+* extracting plain text for clipboard copy
 
 This is the core of the application.
 
+---
 
-
-\---
-
-
-
-\## 4. Application Controller Layer
-
-
+## 4. Application Controller Layer
 
 Responsible for:
 
+* opening files
 
+* reloading current file
 
-\* opening files
+* theme switching if included
 
-\* reloading current file
+* wiring platform events to document view behavior
 
-\* theme switching if included
+* maintaining app state such as:
 
-\* wiring platform events to document view behavior
+  * current file path
 
-\* maintaining app state such as:
+  * current scroll position
 
+  * current selection state
 
+  * current document layout
 
-&#x20; \* current file path
+  * current theme
 
-&#x20; \* current scroll position
+---
 
-&#x20; \* current selection state
+# Design Philosophy
 
-&#x20; \* current document layout
-
-&#x20; \* current theme
-
-
-
-\---
-
-
-
-\# Design Philosophy
-
-
-
-This app should behave like a \*\*high-quality document reader\*\*, not like a generic desktop GUI app.
-
-
+This app should behave like a **high-quality document reader**, not like a generic desktop GUI app.
 
 Design priorities:
 
+1. **fast startup**
 
+2. **beautiful text rendering**
 
-1\. \*\*fast startup\*\*
+3. **clean layout and spacing**
 
-2\. \*\*beautiful text rendering\*\*
+4. **small and maintainable architecture**
 
-3\. \*\*clean layout and spacing\*\*
+5. **cross-platform readiness**
 
-4\. \*\*small and maintainable architecture\*\*
+6. **limited interaction surface**
 
-5\. \*\*cross-platform readiness\*\*
-
-6\. \*\*limited interaction surface\*\*
-
-7\. \*\*no unnecessary controls or framework complexity\*\*
-
-
+7. **no unnecessary controls or framework complexity**
 
 Avoid building a reusable general-purpose UI framework.
 
+Instead, build a **minimal document-surface architecture**:
 
+* one window
 
-Instead, build a \*\*minimal document-surface architecture\*\*:
+* one scrollable rendered document
 
+* minimal chrome
 
+* minimal commands
 
-\* one window
+---
 
-\* one scrollable rendered document
-
-\* minimal chrome
-
-\* minimal commands
-
-
-
-\---
-
-
-
-\# Recommended Source Layout
-
-
+# Recommended Source Layout
 
 ```text
 
@@ -394,1161 +286,811 @@ Instead, build a \*\*minimal document-surface architecture\*\*:
 
 /README.md
 
-
-
-/third\_party/
+/third_party/
 
 /assets/
 
-
-
 /src/main.cpp
-
-
 
 /src/app/
 
-&#x20;   app.h
+   app.h
 
-&#x20;   app.cpp
+   app.cpp
 
-&#x20;   app\_state.h
-
-
+   app_state.h
 
 /src/platform/
 
-&#x20;   platform\_window.h
+   platform_window.h
 
-&#x20;   platform\_events.h
+   platform_events.h
 
-&#x20;   clipboard.h
+   clipboard.h
 
-&#x20;   file\_dialog.h
+   file_dialog.h
 
-&#x20;   drag\_drop.h
+   drag_drop.h
 
-&#x20;   dpi.h
-
-
+   dpi.h
 
 /src/platform/win/
 
-&#x20;   win\_main.cpp
+   win_main.cpp
 
-&#x20;   win\_window.h
+   win_window.h
 
-&#x20;   win\_window.cpp
+   win_window.cpp
 
-&#x20;   win\_clipboard.cpp
+   win_clipboard.cpp
 
-&#x20;   win\_file\_dialog.cpp
+   win_file_dialog.cpp
 
-&#x20;   win\_drag\_drop.cpp
+   win_drag_drop.cpp
 
-&#x20;   win\_dpi.cpp
+   win_dpi.cpp
 
-&#x20;   win\_skia\_surface.cpp
-
-
+   win_skia_surface.cpp
 
 /src/render/
 
-&#x20;   renderer.h
+   renderer.h
 
-&#x20;   renderer.cpp
+   renderer.cpp
 
-&#x20;   theme.h
+   theme.h
 
-&#x20;   colors.h
+   colors.h
 
-&#x20;   typography.h
+   typography.h
 
-&#x20;   draw\_context.h
+   draw_context.h
 
-&#x20;   paint\_utils.cpp
+   paint_utils.cpp
 
-&#x20;   selection\_paint.cpp
-
-
+   selection_paint.cpp
 
 /src/markdown/
 
-&#x20;   markdown\_loader.h
+   markdown_loader.h
 
-&#x20;   markdown\_loader.cpp
+   markdown_loader.cpp
 
-&#x20;   markdown\_ast.h
+   markdown_ast.h
 
-&#x20;   markdown\_parser.h
+   markdown_parser.h
 
-&#x20;   markdown\_parser.cpp
-
-
+   markdown_parser.cpp
 
 /src/layout/
 
-&#x20;   document\_model.h
+   document_model.h
 
-&#x20;   document\_model.cpp
+   document_model.cpp
 
-&#x20;   document\_layout.h
+   document_layout.h
 
-&#x20;   document\_layout.cpp
+   document_layout.cpp
 
-&#x20;   text\_layout.h
+   text_layout.h
 
-&#x20;   text\_layout.cpp
+   text_layout.cpp
 
-&#x20;   line\_breaking.cpp
+   line_breaking.cpp
 
-&#x20;   block\_layout.cpp
-
-
+   block_layout.cpp
 
 /src/view/
 
-&#x20;   document\_view.h
+   document_view.h
 
-&#x20;   document\_view.cpp
+   document_view.cpp
 
-&#x20;   hit\_test.h
+   hit_test.h
 
-&#x20;   hit\_test.cpp
+   hit_test.cpp
 
-&#x20;   selection\_model.h
+   selection_model.h
 
-&#x20;   selection\_model.cpp
+   selection_model.cpp
 
-&#x20;   scrolling\_model.h
+   scrolling_model.h
 
-&#x20;   scrolling\_model.cpp
-
-
+   scrolling_model.cpp
 
 /src/util/
 
-&#x20;   utf8.h
+   utf8.h
 
-&#x20;   utf8.cpp
+   utf8.cpp
 
-&#x20;   file\_io.h
+   file_io.h
 
-&#x20;   file\_io.cpp
+   file_io.cpp
 
-&#x20;   string\_utils.h
+   string_utils.h
 
-&#x20;   geometry.h
+   geometry.h
 
-&#x20;   result.h
+   result.h
 
-&#x20;   log.h
-
-
+   log.h
 
 /resources/
 
-&#x20;   app.rc
+   app.rc
 
-&#x20;   manifest.xml
+   manifest.xml
 
 ```
 
-
-
 This can be simplified, but the separation of concerns should remain.
 
+---
 
+# Core Technical Decisions
 
-\---
+## 1. Language
 
-
-
-\# Core Technical Decisions
-
-
-
-\## 1. Language
-
-
-
-Use \*\*C++20\*\* if practical, otherwise \*\*C++17\*\*.
-
-
+Use **C++20** if practical, otherwise **C++17**.
 
 Preferred style:
 
+* RAII
 
+* explicit ownership
 
-\* RAII
+* minimal heap churn in hot paths
 
-\* explicit ownership
+* modern standard library containers and utilities
 
-\* minimal heap churn in hot paths
+* narrow interfaces between layers
 
-\* modern standard library containers and utilities
+---
 
-\* narrow interfaces between layers
+## 2. Rendering Backend
 
-
-
-\---
-
-
-
-\## 2. Rendering Backend
-
-
-
-Use \*\*Skia\*\* as the 2D renderer.
-
-
+Use **Skia** as the 2D renderer.
 
 Skia is responsible for:
 
+* text drawing
 
+* shape drawing
 
-\* text drawing
+* clipping
 
-\* shape drawing
+* antialiasing
 
-\* clipping
+* color fills
 
-\* antialiasing
-
-\* color fills
-
-\* selection highlight rendering
-
-
+* selection highlight rendering
 
 Do not use HTML/CSS/web rendering.
 
+---
 
-
-\---
-
-
-
-\## 3. Markdown Parsing
-
-
+## 3. Markdown Parsing
 
 Use one of these approaches:
 
-
-
-\### Option A: Minimal internal parser
-
-
+### Option A: Minimal internal parser
 
 Good if you want tight scope and full control.
 
-
-
-\### Option B: Small third-party Markdown parser library
-
-
+### Option B: Small third-party Markdown parser library
 
 Recommended if:
 
+* the library is lightweight
 
+* it has a permissive license
 
-\* the library is lightweight
+* it gives stable parsing
 
-\* it has a permissive license
-
-\* it gives stable parsing
-
-\* it does not force HTML rendering
-
-
+* it does not force HTML rendering
 
 Preferred approach for v1:
 
+* use a lightweight Markdown parser to produce an AST or event stream
 
+* convert that into your own internal document model
 
-\* use a lightweight Markdown parser to produce an AST or event stream
-
-\* convert that into your own internal document model
-
-
-
-Do \*\*not\*\* tie the architecture to HTML generation.
-
-
+Do **not** tie the architecture to HTML generation.
 
 The Markdown parser should be treated as a syntax front-end, not the renderer.
 
+---
 
-
-\---
-
-
-
-\## 4. Text Layout
-
-
+## 4. Text Layout
 
 This is the most important subsystem.
 
-
-
 The document renderer must support:
 
+* font selection
 
+* block spacing
 
-\* font selection
+* line wrapping
 
-\* block spacing
+* inline style runs
 
-\* line wrapping
+* code span styling
 
-\* inline style runs
+* selection range painting
 
-\* code span styling
-
-\* selection range painting
-
-\* mapping between screen coordinates and text positions
-
-
+* mapping between screen coordinates and text positions
 
 Text layout should be implemented in a reusable but narrow way:
 
+* enough for a Markdown document renderer
 
+* not a full rich-text editor engine
 
-\* enough for a Markdown document renderer
+---
 
-\* not a full rich-text editor engine
-
-
-
-\---
-
-
-
-\# Document Pipeline
-
-
+# Document Pipeline
 
 The rendering pipeline should be:
 
+## Step 1: Load file
 
+* read UTF-8 Markdown file
 
-\## Step 1: Load file
+* detect BOM if necessary
 
+* store original source text
 
+## Step 2: Parse Markdown
 
-\* read UTF-8 Markdown file
+* generate AST or block/inline parse tree
 
-\* detect BOM if necessary
-
-\* store original source text
-
-
-
-\## Step 2: Parse Markdown
-
-
-
-\* generate AST or block/inline parse tree
-
-
-
-\## Step 3: Build internal document model
-
-
+## Step 3: Build internal document model
 
 Convert Markdown structures into a document model containing:
 
+* block nodes
 
+* inline runs
 
-\* block nodes
+* style spans
 
-\* inline runs
+* plain text mapping info
 
-\* style spans
+* source range mapping if useful
 
-\* plain text mapping info
-
-\* source range mapping if useful
-
-
-
-\## Step 4: Layout
-
-
+## Step 4: Layout
 
 Compute layout for the current viewport width:
 
+* line breaks
 
+* block positions
 
-\* line breaks
+* text runs
 
-\* block positions
+* code block rectangles
 
-\* text runs
+* quote bars
 
-\* code block rectangles
+* list indentation
 
-\* quote bars
+* total document height
 
-\* list indentation
-
-\* total document height
-
-
-
-\## Step 5: Render
-
-
+## Step 5: Render
 
 Render the visible portion of the layout tree using Skia:
 
+* background
 
+* blocks
 
-\* background
+* text
 
-\* blocks
+* selections
 
-\* text
+* decorations
 
-\* selections
-
-\* decorations
-
-
-
-\## Step 6: Hit testing
-
-
+## Step 6: Hit testing
 
 Map mouse coordinates to:
 
+* text positions
 
+* selectable text offsets
 
-\* text positions
+* line ranges
 
-\* selectable text offsets
-
-\* line ranges
-
-
-
-\## Step 7: Clipboard extraction
-
-
+## Step 7: Clipboard extraction
 
 Convert selected logical text range into plain text and place on clipboard.
 
+---
 
+# Visual Design Direction
 
-\---
+This app should feel like a **beautiful Markdown reader**, not a generic developer utility.
 
+## Design goals
 
+* generous whitespace
 
-\# Visual Design Direction
+* excellent typography
 
+* calm color palette
 
+* subtle block styling
 
-This app should feel like a \*\*beautiful Markdown reader\*\*, not a generic developer utility.
+* smooth text selection
 
+* clear hierarchy between headings, body text, code, and quotes
 
+* dark mode and light mode
 
-\## Design goals
+* minimal chrome
 
+## Rendering style suggestions
 
+* centered reading column with max width
 
-\* generous whitespace
+* body text optimized for readability
 
-\* excellent typography
+* distinct heading scale
 
-\* calm color palette
+* code blocks with subtle background and padding
 
-\* subtle block styling
+* blockquotes with a vertical accent rule
 
-\* smooth text selection
+* lists with careful indentation
 
-\* clear hierarchy between headings, body text, code, and quotes
+* soft selection color
 
-\* dark mode and light mode
+* optional document top padding and bottom padding
 
-\* minimal chrome
-
-
-
-\## Rendering style suggestions
-
-
-
-\* centered reading column with max width
-
-\* body text optimized for readability
-
-\* distinct heading scale
-
-\* code blocks with subtle background and padding
-
-\* blockquotes with a vertical accent rule
-
-\* lists with careful indentation
-
-\* soft selection color
-
-\* optional document top padding and bottom padding
-
-
-
-\## Important note
-
-
+## Important note
 
 Do not attempt flashy UI or animation-heavy behavior in v1.
 
 The beauty should come from:
 
+* typography
 
+* spacing
 
-\* typography
+* rhythm
 
-\* spacing
+* rendering quality
 
-\* rhythm
+---
 
-\* rendering quality
+# Interaction Model
 
-
-
-\---
-
-
-
-\# Interaction Model
-
-
-
-\## Supported interactions
-
-
+## Supported interactions
 
 Only these interactions should exist in v1:
 
+* scroll with mouse wheel / touchpad / scrollbar
 
+* click and drag to select text
 
-\* scroll with mouse wheel / touchpad / scrollbar
+* copy selected text
 
-\* click and drag to select text
+* open file
 
-\* copy selected text
+* drag and drop file
 
-\* open file
-
-\* drag and drop file
-
-
-
-\## Unsupported interactions
-
-
+## Unsupported interactions
 
 Do not add:
 
+* editing
 
+* cursor insertion
 
-\* editing
+* link clicking
 
-\* cursor insertion
+* inline widgets
 
-\* link clicking
+* folding
 
-\* inline widgets
+* toolbar-heavy UI
 
-\* folding
-
-\* toolbar-heavy UI
-
-\* context-sensitive editing controls
-
-
+* context-sensitive editing controls
 
 This narrow interaction scope is what makes the custom-rendered architecture practical.
 
+---
 
-
-\---
-
-
-
-\# Selection Model
-
-
+# Selection Model
 
 Implement a lightweight text selection system.
 
+## Requirements
 
+* mouse down starts selection
 
-\## Requirements
+* drag updates selection
 
+* mouse up finalizes selection
 
+* selection paints correctly across:
 
-\* mouse down starts selection
+  * lines
 
-\* drag updates selection
+  * paragraphs
 
-\* mouse up finalizes selection
+  * headings
 
-\* selection paints correctly across:
+  * code blocks
 
+  * quotes
 
+* `Ctrl+C` copies plain text selection
 
-&#x20; \* lines
+* empty click clears selection
 
-&#x20; \* paragraphs
-
-&#x20; \* headings
-
-&#x20; \* code blocks
-
-&#x20; \* quotes
-
-\* `Ctrl+C` copies plain text selection
-
-\* empty click clears selection
-
-
-
-\## Internal model
-
-
+## Internal model
 
 Selection should be stored in logical document text coordinates, not screen coordinates.
 
-
-
 Suggested shape:
-
-
 
 ```cpp
 
 struct TextPosition {
 
-&#x20;   size\_t blockIndex;
+   size_t blockIndex;
 
-&#x20;   size\_t textOffsetInBlock;
+   size_t textOffsetInBlock;
 
 };
 
-
-
 struct SelectionRange {
 
-&#x20;   TextPosition anchor;
+   TextPosition anchor;
 
-&#x20;   TextPosition focus;
+   TextPosition focus;
 
-&#x20;   bool isActive;
+   bool isActive;
 
 };
 
 ```
 
-
-
 You may later normalize to ordered ranges.
 
+---
 
-
-\---
-
-
-
-\# Scrolling Model
-
-
+# Scrolling Model
 
 Implement a simple vertical scroll model.
 
+## Requirements
 
+* support wheel scrolling
 
-\## Requirements
+* support trackpad smooth scrolling where feasible
 
+* clamp scroll offset
 
+* relayout on width changes
 
-\* support wheel scrolling
+* maintain stable selection painting under scrolling
 
-\* support trackpad smooth scrolling where feasible
+* redraw only what is necessary
 
-\* clamp scroll offset
+## Model
 
-\* relayout on width changes
+* store `scrollY`
 
-\* maintain stable selection painting under scrolling
+* document layout computes `documentHeight`
 
-\* redraw only what is necessary
+* viewport height comes from platform window
 
+* scroll offset affects render transform / visible block range
 
+---
 
-\## Model
+# Markdown Feature Support Plan
 
+## v1 required block features
 
+* heading levels 1-6
 
-\* store `scrollY`
+* paragraph
 
-\* document layout computes `documentHeight`
+* unordered list
 
-\* viewport height comes from platform window
+* ordered list
 
-\* scroll offset affects render transform / visible block range
+* blockquote
 
+* fenced code block
 
+* thematic break
 
-\---
+## v1 required inline features
 
+* plain text
 
+* emphasis
 
-\# Markdown Feature Support Plan
+* strong emphasis
 
+* inline code
 
+* links rendered as styled text only
 
-\## v1 required block features
+## Optional for v1.1
 
+* tables
 
+* images
 
-\* heading levels 1-6
+* strikethrough
 
-\* paragraph
-
-\* unordered list
-
-\* ordered list
-
-\* blockquote
-
-\* fenced code block
-
-\* thematic break
-
-
-
-\## v1 required inline features
-
-
-
-\* plain text
-
-\* emphasis
-
-\* strong emphasis
-
-\* inline code
-
-\* links rendered as styled text only
-
-
-
-\## Optional for v1.1
-
-
-
-\* tables
-
-\* images
-
-\* strikethrough
-
-\* task lists
-
-
+* task lists
 
 Avoid overloading v1.
 
 A clean subset with strong rendering quality is better than partial support for everything.
 
+---
 
+# Layout Engine Plan
 
-\---
-
-
-
-\# Layout Engine Plan
-
-
-
-\## Core responsibility
-
-
+## Core responsibility
 
 The layout engine must convert the Markdown document model into positioned visual fragments.
 
-
-
-\## Suggested concepts
-
-
+## Suggested concepts
 
 ```cpp
 
 struct InlineRun {
 
-&#x20;   TextStyle style;
+   TextStyle style;
 
-&#x20;   std::string\_view text;
+   std::string_view text;
 
-&#x20;   size\_t sourceStart;
+   size_t sourceStart;
 
-&#x20;   size\_t sourceEnd;
+   size_t sourceEnd;
 
 };
-
-
 
 struct LineFragment {
 
-&#x20;   float x;
+   float x;
 
-&#x20;   float y;
+   float y;
 
-&#x20;   float width;
+   float width;
 
-&#x20;   float height;
+   float height;
 
-&#x20;   std::vector<InlineRun> runs;
+   std::vector<InlineRun> runs;
 
 };
 
-
-
 struct BlockLayout {
 
-&#x20;   BlockType type;
+   BlockType type;
 
-&#x20;   float x;
+   float x;
 
-&#x20;   float y;
+   float y;
 
-&#x20;   float width;
+   float width;
 
-&#x20;   float height;
+   float height;
 
-&#x20;   std::vector<LineFragment> lines;
+   std::vector<LineFragment> lines;
 
 };
 
 ```
 
-
-
 You may need richer structures for selection mapping and hit-testing.
 
+## Layout rules
 
+* define a document column width
 
-\## Layout rules
+* wrap lines to that width
 
+* place blocks vertically with spacing rules
 
+* maintain internal text offset mapping for each line/run
 
-\* define a document column width
+* use consistent padding/margins per block type
 
-\* wrap lines to that width
+---
 
-\* place blocks vertically with spacing rules
+# Rendering Plan
 
-\* maintain internal text offset mapping for each line/run
+## Render order
 
-\* use consistent padding/margins per block type
+1. window background
 
+2. document column background if any
 
+3. block backgrounds
 
-\---
+4. selection highlights
 
+5. text
 
+6. block decorations
 
-\# Rendering Plan
+7. optional edge fades / shadow if desired
 
+## Render responsibilities by block type
 
+### Paragraph
 
-\## Render order
+* normal text
 
+* standard line height
 
+### Headings
 
-1\. window background
+* larger font size
 
-2\. document column background if any
+* stronger weight
 
-3\. block backgrounds
+* increased spacing above/below
 
-4\. selection highlights
+### Code blocks
 
-5\. text
+* monospaced font
 
-6\. block decorations
+* rounded rectangle background
 
-7\. optional edge fades / shadow if desired
+* inner padding
 
+### Blockquotes
 
+* left accent bar
 
-\## Render responsibilities by block type
+* slightly different text color
 
+* indentation
 
+### Lists
 
-\### Paragraph
+* bullet or number markers
 
+* hanging indentation
 
+### Horizontal rules
 
-\* normal text
+* subtle line separator with vertical spacing
 
-\* standard line height
+---
 
-
-
-\### Headings
-
-
-
-\* larger font size
-
-\* stronger weight
-
-\* increased spacing above/below
-
-
-
-\### Code blocks
-
-
-
-\* monospaced font
-
-\* rounded rectangle background
-
-\* inner padding
-
-
-
-\### Blockquotes
-
-
-
-\* left accent bar
-
-\* slightly different text color
-
-\* indentation
-
-
-
-\### Lists
-
-
-
-\* bullet or number markers
-
-\* hanging indentation
-
-
-
-\### Horizontal rules
-
-
-
-\* subtle line separator with vertical spacing
-
-
-
-\---
-
-
-
-\# Hit Testing Plan
-
-
+# Hit Testing Plan
 
 To support selection, implement hit testing from screen coordinates to logical text positions.
 
+## Requirements
 
+* map mouse position to nearest line
 
-\## Requirements
+* map x position into nearest text cluster
 
+* support dragging above/below viewport
 
+* support selection across blocks
 
-\* map mouse position to nearest line
-
-\* map x position into nearest text cluster
-
-\* support dragging above/below viewport
-
-\* support selection across blocks
-
-
-
-\## Strategy
-
-
+## Strategy
 
 Each laid-out line should retain enough metadata to map:
 
+* visual x,y
 
+* text run ranges
 
-\* visual x,y
-
-\* text run ranges
-
-\* grapheme/cluster boundaries if feasible
-
-
+* grapheme/cluster boundaries if feasible
 
 The hit test should return the nearest valid text position.
 
+---
 
+# Clipboard Plan
 
-\---
+The copied selection should be **plain text only** in v1.
 
+## Requirements
 
+* preserve line breaks sensibly
 
-\# Clipboard Plan
+* preserve paragraph boundaries
 
+* preserve code block content text
 
-
-The copied selection should be \*\*plain text only\*\* in v1.
-
-
-
-\## Requirements
-
-
-
-\* preserve line breaks sensibly
-
-\* preserve paragraph boundaries
-
-\* preserve code block content text
-
-\* do not copy Markdown syntax unless intentionally selecting source text representation is part of the model
-
-
+* do not copy Markdown syntax unless intentionally selecting source text representation is part of the model
 
 Important design choice:
 
-The app is a \*\*viewer of rendered Markdown\*\*, so selection/copy should copy the \*\*rendered text content\*\*, not raw Markdown markup.
-
-
+The app is a **viewer of rendered Markdown**, so selection/copy should copy the **rendered text content**, not raw Markdown markup.
 
 Example:
 
+* `**Hello**` copies as `Hello`
 
+* backticks around inline code are not copied unless intentionally represented as visible content
 
-\* `\*\*Hello\*\*` copies as `Hello`
+---
 
-\* backticks around inline code are not copied unless intentionally represented as visible content
+# Platform Layer Plan
 
-
-
-\---
-
-
-
-\# Platform Layer Plan
-
-
-
-\## Windows v1 platform implementation
-
-
+## Windows v1 platform implementation
 
 Implement a thin Win32 shell:
 
+* `WinMain`
 
+* custom window class
 
-\* `WinMain`
+* message loop
 
-\* custom window class
+* high-DPI awareness
 
-\* message loop
+* resize handling
 
-\* high-DPI awareness
+* mouse / keyboard input
 
-\* resize handling
+* file open dialog
 
-\* mouse / keyboard input
+* clipboard access
 
-\* file open dialog
+* drag-and-drop support
 
-\* clipboard access
+* Skia surface integration
 
-\* drag-and-drop support
-
-\* Skia surface integration
-
-
-
-\## Future platform abstraction
-
-
+## Future platform abstraction
 
 Define abstract interfaces for:
 
+* window events
 
+* clipboard
 
-\* window events
+* file open
 
-\* clipboard
+* redraw scheduling
 
-\* file open
-
-\* redraw scheduling
-
-\* time / animation hooks if ever needed
-
-
+* time / animation hooks if ever needed
 
 Then provide implementations for:
 
+* Windows
 
+* macOS later
 
-\* Windows
-
-\* macOS later
-
-\* Linux later
-
-
+* Linux later
 
 Do not over-abstract too early.
 
 The shared interface should remain small.
 
+---
 
-
-\---
-
-
-
-\# Skia Integration Plan
-
-
+# Skia Integration Plan
 
 The coding AI should choose one Skia integration path for Windows and structure it so other platforms can follow later.
 
-
-
-\## Suggested initial rendering backend
-
-
+## Suggested initial rendering backend
 
 For Windows v1:
 
+* use a Skia backend that is practical and stable for desktop rendering
 
-
-\* use a Skia backend that is practical and stable for desktop rendering
-
-\* keep the surface creation isolated behind a platform rendering adapter
-
-
+* keep the surface creation isolated behind a platform rendering adapter
 
 Example abstraction:
-
-
 
 ```cpp
 
@@ -1556,641 +1098,434 @@ class RenderSurface {
 
 public:
 
-&#x20;   virtual \~RenderSurface() = default;
+   virtual \~RenderSurface() = default;
 
-&#x20;   virtual int width() const = 0;
+   virtual int width() const = 0;
 
-&#x20;   virtual int height() const = 0;
+   virtual int height() const = 0;
 
-&#x20;   virtual SkCanvas\* beginFrame() = 0;
+   virtual SkCanvas* beginFrame() = 0;
 
-&#x20;   virtual void endFrame() = 0;
+   virtual void endFrame() = 0;
 
 };
 
 ```
 
-
-
 The actual Skia surface creation details should remain hidden in the Windows platform implementation.
 
+---
 
+# Milestones
 
-\---
-
-
-
-\# Milestones
-
-
-
-\## Milestone 1: Project skeleton
-
-
+## Milestone 1: Project skeleton
 
 Deliverables:
 
+* CMake project
 
+* Windows app entry point
 
-\* CMake project
+* native window
 
-\* Windows app entry point
+* redraw loop
 
-\* native window
-
-\* redraw loop
-
-\* Skia clears window background
-
-
+* Skia clears window background
 
 Success criteria:
 
+* app launches and paints a custom background
 
+---
 
-\* app launches and paints a custom background
-
-
-
-\---
-
-
-
-\## Milestone 2: Build system and dependency integration
-
-
+## Milestone 2: Build system and dependency integration
 
 Deliverables:
 
+* CMake setup
 
+* `build.ps1`
 
-\* CMake setup
+* Skia integration
 
-\* `build.ps1`
+* Debug and Release builds
 
-\* Skia integration
+* optional Ninja support
 
-\* Debug and Release builds
-
-\* optional Ninja support
-
-\* MSVC environment import in PowerShell
-
-
+* MSVC environment import in PowerShell
 
 Success criteria:
 
+* project builds from PowerShell on Windows
 
+* Skia links correctly
 
-\* project builds from PowerShell on Windows
+* executable launches
 
-\* Skia links correctly
+### Important build requirement
 
-\* executable launches
+As with your previous app, generate a **PowerShell build script** that:
 
+* imports the Visual Studio environment
 
+* supports Ninja optionally
 
-\### Important build requirement
+* configures and builds CMake
 
+* handles generator mismatch
 
-
-As with your previous app, generate a \*\*PowerShell build script\*\* that:
-
-
-
-\* imports the Visual Studio environment
-
-\* supports Ninja optionally
-
-\* configures and builds CMake
-
-\* handles generator mismatch
-
-\* supports clean builds
-
-
+* supports clean builds
 
 Use the same build philosophy as the previous plan.
 
+---
 
-
-\---
-
-
-
-\## Milestone 3: File loading
-
-
+## Milestone 3: File loading
 
 Deliverables:
 
+* command line file open
 
+* file open dialog
 
-\* command line file open
+* drag-and-drop
 
-\* file open dialog
-
-\* drag-and-drop
-
-\* UTF-8 file loading
-
-
+* UTF-8 file loading
 
 Success criteria:
 
+* app can open Markdown file and store source text
 
+---
 
-\* app can open Markdown file and store source text
-
-
-
-\---
-
-
-
-\## Milestone 4: Markdown parsing and document model
-
-
+## Milestone 4: Markdown parsing and document model
 
 Deliverables:
 
+* parse Markdown into AST or intermediate model
 
+* convert to internal document representation
 
-\* parse Markdown into AST or intermediate model
-
-\* convert to internal document representation
-
-\* support required block and inline feature subset
-
-
+* support required block and inline feature subset
 
 Success criteria:
 
+* parsed structure is correct for basic Markdown files
 
+---
 
-\* parsed structure is correct for basic Markdown files
-
-
-
-\---
-
-
-
-\## Milestone 5: Typography and layout engine
-
-
+## Milestone 5: Typography and layout engine
 
 Deliverables:
 
+* paragraph layout
 
+* heading layout
 
-\* paragraph layout
+* basic list layout
 
-\* heading layout
+* code block layout
 
-\* basic list layout
+* blockquote layout
 
-\* code block layout
-
-\* blockquote layout
-
-\* total document height computation
-
-
+* total document height computation
 
 Success criteria:
 
+* document renders with clean spacing and correct wrapping
 
+---
 
-\* document renders with clean spacing and correct wrapping
-
-
-
-\---
-
-
-
-\## Milestone 6: Rendering
-
-
+## Milestone 6: Rendering
 
 Deliverables:
 
+* draw all required block types
 
+* implement theme colors
 
-\* draw all required block types
+* implement reading column
 
-\* implement theme colors
-
-\* implement reading column
-
-\* implement clipping and viewport rendering
-
-
+* implement clipping and viewport rendering
 
 Success criteria:
 
+* Markdown document looks polished and readable
 
+---
 
-\* Markdown document looks polished and readable
-
-
-
-\---
-
-
-
-\## Milestone 7: Scrolling
-
-
+## Milestone 7: Scrolling
 
 Deliverables:
 
+* wheel scrolling
 
+* scrollbar or native equivalent
 
-\* wheel scrolling
+* viewport clipping
 
-\* scrollbar or native equivalent
-
-\* viewport clipping
-
-\* stable repaint behavior
-
-
+* stable repaint behavior
 
 Success criteria:
 
+* long documents scroll smoothly
 
+---
 
-\* long documents scroll smoothly
-
-
-
-\---
-
-
-
-\## Milestone 8: Selection and copy
-
-
+## Milestone 8: Selection and copy
 
 Deliverables:
 
+* hit testing
 
+* drag selection
 
-\* hit testing
+* selection painting
 
-\* drag selection
-
-\* selection painting
-
-\* clipboard copy via `Ctrl+C`
-
-
+* clipboard copy via `Ctrl+C`
 
 Success criteria:
 
+* text can be selected and copied correctly
 
+---
 
-\* text can be selected and copied correctly
-
-
-
-\---
-
-
-
-\## Milestone 9: Polish
-
-
+## Milestone 9: Polish
 
 Deliverables:
 
+* app title updates with file name
 
+* dark/light theme
 
-\* app title updates with file name
+* improved spacing and rendering refinement
 
-\* dark/light theme
+* graceful error messages
 
-\* improved spacing and rendering refinement
-
-\* graceful error messages
-
-\* empty file handling
-
-
+* empty file handling
 
 Success criteria:
 
+* app feels finished and coherent
 
+---
 
-\* app feels finished and coherent
+# Build System Requirements
 
-
-
-\---
-
-
-
-\# Build System Requirements
-
-
-
-\## CMake
-
-
+## CMake
 
 Use modern CMake and structure the project cleanly.
 
-
-
 Required properties:
 
+* Windows build support first
 
+* C++17 or C++20
 
-\* Windows build support first
+* warnings enabled
 
-\* C++17 or C++20
+* Unicode build
 
-\* warnings enabled
+* Skia integration configurable
 
-\* Unicode build
+* optional static runtime if desired
 
-\* Skia integration configurable
-
-\* optional static runtime if desired
-
-
-
-\## PowerShell build script
-
-
+## PowerShell build script
 
 Create `build.ps1` with these capabilities:
 
+* strict mode
 
+* MSVC auto-import via `vswhere.exe` + `vcvars64.bat`
 
-\* strict mode
+* optional `-UseNinja`
 
-\* MSVC auto-import via `vswhere.exe` + `vcvars64.bat`
+* `-Clean`
 
-\* optional `-UseNinja`
+* `-Configuration Debug|Release`
 
-\* `-Clean`
+* optional custom build directory
 
-\* `-Configuration Debug|Release`
+* generator mismatch cleanup
 
-\* optional custom build directory
-
-\* generator mismatch cleanup
-
-\* optional run smoke test
-
-
+* optional run smoke test
 
 Recommended parameters:
 
-
-
 ```powershell
 
-\[CmdletBinding()]
+[CmdletBinding()]
 
 param (
 
-&#x20;   \[switch]$Clean,
+   [switch]$Clean,
 
-&#x20;   \[switch]$UseNinja,
+   [switch]$UseNinja,
 
-&#x20;   \[ValidateSet("Debug", "Release")]
+   [ValidateSet("Debug", "Release")]
 
-&#x20;   \[string]$Configuration = "Release",
+   [string]$Configuration = "Release",
 
-&#x20;   \[string]$BuildDir = "",
+   [string]$BuildDir = "",
 
-&#x20;   \[string]$Target = "mdviewer",
+   [string]$Target = "mdviewer",
 
-&#x20;   \[switch]$RunSmokeTest
+   [switch]$RunSmokeTest
 
 )
 
 ```
 
-
-
 Smoke test idea:
 
+* launch executable with a sample Markdown file
 
+* verify process starts successfully
 
-\* launch executable with a sample Markdown file
+---
 
-\* verify process starts successfully
-
-
-
-\---
-
-
-
-\# Performance Requirements
-
-
+# Performance Requirements
 
 The app should aim for:
 
+* very fast startup
 
+* low idle memory use
 
-\* very fast startup
+* efficient rendering of long documents
 
-\* low idle memory use
+* no browser engine
 
-\* efficient rendering of long documents
+* no heavyweight framework runtime
 
-\* no browser engine
+* layout recalculation only when needed:
 
-\* no heavyweight framework runtime
+  * file changes
 
-\* layout recalculation only when needed:
+  * window width changes
 
-
-
-&#x20; \* file changes
-
-&#x20; \* window width changes
-
-&#x20; \* theme changes
-
-
+  * theme changes
 
 Optimize for:
 
+1. simplicity
 
+2. text rendering quality
 
-1\. simplicity
+3. responsiveness
 
-2\. text rendering quality
+4. maintainability
 
-3\. responsiveness
+---
 
-4\. maintainability
-
-
-
-\---
-
-
-
-\# Error Handling Requirements
-
-
+# Error Handling Requirements
 
 Show clear native error messages for:
 
+* file open failure
 
+* unsupported encoding
 
-\* file open failure
+* Markdown parse failure if applicable
 
-\* unsupported encoding
+* Skia initialization failure
 
-\* Markdown parse failure if applicable
+* clipboard errors
 
-\* Skia initialization failure
+* empty document
 
-\* clipboard errors
-
-\* empty document
-
-\* missing font fallback if needed
-
-
+* missing font fallback if needed
 
 Use standard native message boxes in v1.
 
+---
 
-
-\---
-
-
-
-\# Future Cross-Platform Strategy
-
-
+# Future Cross-Platform Strategy
 
 Design Windows v1 so the shared layers remain reusable.
 
+## Shared across all platforms
 
+* Markdown parsing
 
-\## Shared across all platforms
+* document model
 
+* layout engine
 
+* selection model
 
-\* Markdown parsing
+* scrolling model
 
-\* document model
+* rendering commands / paint logic
 
-\* layout engine
+* theme system
 
-\* selection model
+## Platform-specific
 
-\* scrolling model
+* window creation
 
-\* rendering commands / paint logic
+* event loop
 
-\* theme system
+* Skia surface binding
 
+* clipboard
 
+* file dialogs
 
-\## Platform-specific
+* drag-and-drop
 
+* DPI / scaling integration
 
+## Porting order recommendation
 
-\* window creation
+1. Windows
 
-\* event loop
+2. macOS
 
-\* Skia surface binding
-
-\* clipboard
-
-\* file dialogs
-
-\* drag-and-drop
-
-\* DPI / scaling integration
-
-
-
-\## Porting order recommendation
-
-
-
-1\. Windows
-
-2\. macOS
-
-3\. Linux
-
-
+3. Linux
 
 Do not attempt all three at once.
 
+---
 
-
-\---
-
-
-
-\# Non-Goals
-
-
+# Non-Goals
 
 The coding AI should explicitly avoid:
 
+* building a generic widget toolkit
 
+* implementing editing
 
-\* building a generic widget toolkit
+* supporting every Markdown extension immediately
 
-\* implementing editing
+* embedding Chromium/WebView
 
-\* supporting every Markdown extension immediately
+* creating a multi-pane IDE-style UI
 
-\* embedding Chromium/WebView
+* over-engineering the platform abstraction too early
 
-\* creating a multi-pane IDE-style UI
+* adding plugins or scripting
 
-\* over-engineering the platform abstraction too early
+---
 
-\* adding plugins or scripting
+# Final instruction to the coding AI
 
+Implement a **small, high-quality, read-only Markdown viewer** using:
 
+* **C++**
 
-\---
+* **Skia**
 
+* **a thin native platform layer**
 
+* **custom-rendered document layout**
 
-\# Final instruction to the coding AI
+* **only scrolling + text selection + copy as interaction**
 
+* **Windows first**
 
+* **cross-platform-ready architecture**
 
-Implement a \*\*small, high-quality, read-only Markdown viewer\*\* using:
+The result should feel like a **beautiful, lightweight document reader**, not a browser shell and not a full text editor.
 
-
-
-\* \*\*C++\*\*
-
-\* \*\*Skia\*\*
-
-\* \*\*a thin native platform layer\*\*
-
-\* \*\*custom-rendered document layout\*\*
-
-\* \*\*only scrolling + text selection + copy as interaction\*\*
-
-\* \*\*Windows first\*\*
-
-\* \*\*cross-platform-ready architecture\*\*
-
-
-
-The result should feel like a \*\*beautiful, lightweight document reader\*\*, not a browser shell and not a full text editor.
 
