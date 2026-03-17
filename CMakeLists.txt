@@ -16,14 +16,16 @@ FetchContent_MakeAvailable(md4c)
 
 # Skia - We will build this using official GN/Ninja tools via build.ps1
 # The build script will place Skia in third_party/skia
-set(SKIA_DIR "${CMAKE_CURRENT_SOURCE_MACHINE_DIR}/third_party/skia" CACHE PATH "Path to Skia source")
-set(SKIA_OUT_DIR "${SKIA_DIR}/out/Static" CACHE PATH "Path to Skia build output")
+set(SKIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/skia" CACHE PATH "Path to Skia source")
+set(SKIA_OUT_DIR "${SKIA_DIR}/out/Static" CACHE PATH "Path to the non-Debug Skia build output")
+set(SKIA_DEBUG_OUT_DIR "${SKIA_DIR}/out/Debug" CACHE PATH "Path to the Debug Skia build output")
 
 # Source files
 set(SOURCES
     src/main.cpp
     src/platform/win/win_main.cpp
     src/util/file_io.cpp
+    src/util/skia_font_utils.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
 )
@@ -46,7 +48,8 @@ target_include_directories(mdviewer PRIVATE
 
 target_link_libraries(mdviewer PRIVATE 
     md4c
-    ${SKIA_OUT_DIR}/skia.lib
+    $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
+    $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
     # Windows dependencies for Skia
     windowscodecs.lib
     dwrite.lib
@@ -59,6 +62,7 @@ target_link_libraries(mdviewer PRIVATE
 # Basic Windows flags
 if(MSVC)
     target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
+    target_compile_definitions(mdviewer PRIVATE UNICODE _UNICODE)
     # Match Skia's static runtime
     set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

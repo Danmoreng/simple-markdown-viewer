@@ -13,6 +13,16 @@ param (
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Assert-LastExitCode {
+    param(
+        [string]$CommandName
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$CommandName failed with exit code $LASTEXITCODE."
+    }
+}
+
 function Import-VSEnv {
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path $vswhere)) {
@@ -115,6 +125,7 @@ if (-not $SkipSkia) {
     if (-not (Test-Path $depotToolsDir)) {
         Write-Host "Cloning depot_tools..." -ForegroundColor Cyan
         git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $depotToolsDir
+        Assert-LastExitCode "git clone depot_tools"
     }
 
     # Add depot_tools to PATH for this process
@@ -125,16 +136,20 @@ if (-not $SkipSkia) {
     if (-not (Test-Path $skiaDir)) {
         Write-Host "Cloning official Skia repository..." -ForegroundColor Cyan
         git clone https://skia.googlesource.com/skia.git $skiaDir
+        Assert-LastExitCode "git clone skia"
     }
 
     Push-Location $skiaDir
     try {
         Write-Host "Syncing Skia dependencies..." -ForegroundColor Cyan
         python tools/git-sync-deps
+        Assert-LastExitCode "python tools/git-sync-deps"
 
         Write-Host "Fetching GN and Ninja..." -ForegroundColor Cyan
         python bin/fetch-gn
+        Assert-LastExitCode "python bin/fetch-gn"
         python bin/fetch-ninja
+        Assert-LastExitCode "python bin/fetch-ninja"
 
         $skiaOutDir = if ($Configuration -eq "Debug") { "out/Debug" } else { "out/Static" }
         $is_debug = if ($Configuration -eq "Debug") { "true" } else { "false" }
@@ -147,9 +162,11 @@ if (-not $SkipSkia) {
         $ninjaPath = if (Test-Path "bin/ninja.exe") { "bin/ninja.exe" } else { "ninja" }
 
         & $gnPath gen $skiaOutDir --args="$gnArgs"
+        Assert-LastExitCode "$gnPath gen"
 
         Write-Host "Building Skia..." -ForegroundColor Cyan
         & $ninjaPath -C $skiaOutDir skia
+        Assert-LastExitCode "$ninjaPath -C $skiaOutDir skia"
     }
     finally {
         Pop-Location
@@ -170,6 +187,20 @@ if ($currentGenerator -and $currentGenerator -ne $generator) {
 }
 
 $skiaOutPath = if ($Configuration -eq "Debug") { "$skiaDir/out/Debug" } else { "$skiaDir/out/Static" }
+$md4cSourceDir = Join-Path $PSScriptRoot "build\_deps\md4c-src"
+if (-not (Test-Path $md4cSourceDir)) {
+    $md4cSourceDir = Join-Path $BuildDir "_deps\md4c-src"
+}
+$cmakeFilesDir = Join-Path $BuildDir "CMakeFiles"
+$pkgRedirectsDir = Join-Path $cmakeFilesDir "pkgRedirects"
+
+if (-not (Test-Path $cmakeFilesDir)) {
+    New-Item -ItemType Directory -Path $cmakeFilesDir | Out-Null
+}
+
+if (-not (Test-Path $pkgRedirectsDir)) {
+    New-Item -ItemType Directory -Path $pkgRedirectsDir | Out-Null
+}
 
 Write-Host "Configuring CMake with $generator..." -ForegroundColor Cyan
 $configureArgs = @(
@@ -177,15 +208,21 @@ $configureArgs = @(
     "-B", $BuildDir, 
     "-G", $generator,
     "-DSKIA_DIR=$skiaDir",
-    "-DSKIA_OUT_DIR=$skiaOutPath"
+    "-DSKIA_OUT_DIR=$skiaOutPath",
+    "-DSKIA_DEBUG_OUT_DIR=$skiaDir/out/Debug"
 )
+if (Test-Path $md4cSourceDir) {
+    $configureArgs += "-DFETCHCONTENT_SOURCE_DIR_MD4C=$md4cSourceDir"
+}
 if ($generator -eq "Ninja") {
     $configureArgs += "-DCMAKE_BUILD_TYPE=$Configuration"
 }
 cmake @configureArgs
+Assert-LastExitCode "cmake configure"
 
 Write-Host "Building target $Target ($Configuration)..." -ForegroundColor Cyan
 cmake --build $BuildDir --config $Configuration --target $Target
+Assert-LastExitCode "cmake build"
 
 if ($RunSmokeTest) {
     Write-Host "Running smoke test..." -ForegroundColor Cyan

@@ -1,5 +1,6 @@
 #include "markdown_parser.h"
 #include "md4c.h"
+#include <cctype>
 #include <stack>
 #include <vector>
 
@@ -19,6 +20,95 @@ struct ParserContext {
         return blockStack.top();
     }
 };
+
+static std::string NormalizeMarkdown(const std::string& source) {
+    auto normalizeLine = [](std::string_view line) {
+        std::string normalized(line);
+        size_t indent = 0;
+        while (indent < normalized.size() && (normalized[indent] == ' ' || normalized[indent] == '\t')) {
+            indent++;
+        }
+
+        if (indent >= normalized.size()) {
+            return normalized;
+        }
+
+        auto needsSpace = [&](size_t index) {
+            return index < normalized.size() &&
+                   normalized[index] != ' ' &&
+                   normalized[index] != '\t';
+        };
+
+        if (normalized[indent] == '>') {
+            if (needsSpace(indent + 1)) {
+                normalized.insert(indent + 1, 1, ' ');
+            }
+            return normalized;
+        }
+
+        size_t hashCount = 0;
+        while (indent + hashCount < normalized.size() &&
+               normalized[indent + hashCount] == '#' &&
+               hashCount < 6) {
+            hashCount++;
+        }
+        if (hashCount > 0 && needsSpace(indent + hashCount)) {
+            normalized.insert(indent + hashCount, 1, ' ');
+            return normalized;
+        }
+
+        if ((normalized[indent] == '*' || normalized[indent] == '-' || normalized[indent] == '+') &&
+            indent + 1 < normalized.size() &&
+            normalized[indent + 1] != normalized[indent] &&
+            needsSpace(indent + 1)) {
+            normalized.insert(indent + 1, 1, ' ');
+            return normalized;
+        }
+
+        size_t numberEnd = indent;
+        while (numberEnd < normalized.size() &&
+               std::isdigit(static_cast<unsigned char>(normalized[numberEnd]))) {
+            numberEnd++;
+        }
+        if (numberEnd > indent &&
+            numberEnd < normalized.size() &&
+            (normalized[numberEnd] == '.' || normalized[numberEnd] == ')') &&
+            needsSpace(numberEnd + 1)) {
+            normalized.insert(numberEnd + 1, 1, ' ');
+        }
+
+        return normalized;
+    };
+
+    std::string normalized;
+    normalized.reserve(source.size() + 16);
+
+    size_t lineStart = 0;
+    while (lineStart < source.size()) {
+        size_t lineEnd = source.find('\n', lineStart);
+        if (lineEnd == std::string::npos) {
+            lineEnd = source.size();
+        }
+
+        size_t contentEnd = lineEnd;
+        bool hasCarriageReturn = contentEnd > lineStart && source[contentEnd - 1] == '\r';
+        if (hasCarriageReturn) {
+            contentEnd--;
+        }
+
+        normalized += normalizeLine(std::string_view(source.data() + lineStart, contentEnd - lineStart));
+        if (hasCarriageReturn) {
+            normalized += '\r';
+        }
+        if (lineEnd < source.size()) {
+            normalized += '\n';
+        }
+
+        lineStart = lineEnd + 1;
+    }
+
+    return normalized;
+}
 
 static BlockType MapBlockType(MD_BLOCKTYPE type, void* detail) {
     switch (type) {
@@ -56,6 +146,10 @@ static InlineStyle MapSpanType(MD_SPANTYPE type) {
 }
 
 static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
+    if (type == MD_BLOCK_DOC) {
+        return 0;
+    }
+
     auto* ctx = static_cast<ParserContext*>(userdata);
     
     Block block;
@@ -75,6 +169,10 @@ static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
 static int LeaveBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
     (void)type;
     (void)detail;
+    if (type == MD_BLOCK_DOC) {
+        return 0;
+    }
+
     auto* ctx = static_cast<ParserContext*>(userdata);
     if (!ctx->blockStack.empty()) {
         ctx->blockStack.pop();
@@ -100,12 +198,24 @@ static int LeaveSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
 }
 
 static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
-    (void)type;
     auto* ctx = static_cast<ParserContext*>(userdata);
     auto* currentBlock = ctx->CurrentBlock();
     if (!currentBlock) return 0;
 
-    std::string str(text, size);
+    std::string str;
+    switch (type) {
+        case MD_TEXT_BR:
+        case MD_TEXT_SOFTBR:
+            str = "\n";
+            break;
+        case MD_TEXT_NULLCHAR:
+            str = "\xEF\xBF\xBD";
+            break;
+        default:
+            str.assign(text, size);
+            break;
+    }
+
     InlineStyle currentStyle = ctx->styleStack.back();
 
     if (!currentBlock->inlineRuns.empty() && currentBlock->inlineRuns.back().style == currentStyle) {
@@ -119,16 +229,17 @@ static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, voi
 
 DocumentModel MarkdownParser::Parse(const std::string& source) {
     ParserContext ctx;
+    const std::string normalizedSource = NormalizeMarkdown(source);
     MD_PARSER parser = {0};
     parser.abi_version = 0;
-    parser.flags = MD_DIALECT_GITHUB;
+    parser.flags = MD_DIALECT_GITHUB | MD_FLAG_PERMISSIVEATXHEADERS;
     parser.enter_block = EnterBlockCallback;
     parser.leave_block = LeaveBlockCallback;
     parser.enter_span = EnterSpanCallback;
     parser.leave_span = LeaveSpanCallback;
     parser.text = TextCallback;
 
-    md_parse(source.c_str(), static_cast<MD_SIZE>(source.size()), &parser, &ctx);
+    md_parse(normalizedSource.c_str(), static_cast<MD_SIZE>(normalizedSource.size()), &parser, &ctx);
 
     return std::move(ctx.doc);
 }
