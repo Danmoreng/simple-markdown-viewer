@@ -34,6 +34,7 @@ set(HEADERS
 add_executable(mdviewer WIN32 ${SOURCES} ${HEADERS})
 
 target_include_directories(mdviewer PRIVATE src)
+target_link_libraries(mdviewer PRIVATE md4c)
 
 # Basic Windows flags
 if(MSVC)
