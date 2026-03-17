@@ -24,6 +24,8 @@ set(SOURCES
     src/main.cpp
     src/platform/win/win_main.cpp
     src/util/file_io.cpp
+    src/markdown/markdown_parser.cpp
+    src/layout/layout_engine.cpp
 )
 
 # Headers
@@ -38,6 +40,7 @@ target_include_directories(mdviewer PRIVATE
     ${SKIA_DIR}
     ${SKIA_DIR}/include/core
     ${SKIA_DIR}/include/config
+    ${md4c_SOURCE_DIR}/src
 )
 
 target_link_libraries(mdviewer PRIVATE 
@@ -53,7 +56,7 @@ target_link_libraries(mdviewer PRIVATE
 
 # Basic Windows flags
 if(MSVC)
-    target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8)
+    target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
     # Match Skia's static runtime
     set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

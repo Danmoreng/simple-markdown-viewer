@@ -26,6 +26,7 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkTypeface.h"
+#include "include/core/SkFontTypes.h"
 #pragma warning(pop)
 
 namespace {
@@ -54,6 +55,9 @@ void Render(HWND hwnd) {
     {
         std::lock_guard<std::mutex> lock(g_appState.mtx);
         
+        canvas->save();
+        canvas->translate(0, -g_appState.scrollOffset);
+
         SkPaint paint;
         paint.setAntiAlias(true);
 
@@ -69,6 +73,7 @@ void Render(HWND hwnd) {
                     float fontSize = 16.0f;
                     if (block.type == mdviewer::BlockType::Heading1) fontSize = 32.0f;
                     else if (block.type == mdviewer::BlockType::Heading2) fontSize = 24.0f;
+                    else if (block.type == mdviewer::BlockType::Heading3) fontSize = 20.0f;
                     
                     font.setSize(fontSize);
                     if (run.style == mdviewer::InlineStyle::Strong) {
@@ -91,6 +96,8 @@ void Render(HWND hwnd) {
             font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
             canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, g_surface->height() / 2, font, paint);
         }
+
+        canvas->restore();
     }
 
     // Flush surface and copy to window
@@ -164,6 +171,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_DROPFILES:
             OnDropFiles(hwnd, (HDROP)wParam);
             return 0;
+        case WM_MOUSEWHEEL: {
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.scrollOffset -= static_cast<float>(delta);
+                if (g_appState.scrollOffset < 0) g_appState.scrollOffset = 0;
+                
+                // Limit scroll offset to total document height minus window height
+                RECT rect;
+                GetClientRect(hwnd, &rect);
+                float windowHeight = static_cast<float>(rect.bottom - rect.top);
+                float maxScroll = g_appState.docLayout.totalHeight - windowHeight;
+                if (maxScroll < 0) maxScroll = 0;
+                if (g_appState.scrollOffset > maxScroll) g_appState.scrollOffset = maxScroll;
+            }
+            InvalidateRect(hwnd, NULL, FALSE);
+            return 0;
+        }
         case WM_SIZE: {
             UpdateSurface(hwnd);
             if (!g_appState.sourceText.empty()) {
