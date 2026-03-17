@@ -8,11 +8,18 @@
 
 namespace mdviewer {
 
+enum class ThemeMode {
+    Light,
+    Sepia,
+    Dark
+};
+
 struct AppState {
     std::filesystem::path currentFilePath;
     std::string sourceText;
     DocumentModel docModel;
     DocumentLayout docLayout;
+    ThemeMode theme = ThemeMode::Light;
     float scrollOffset = 0.0f;
     bool isSelecting = false;
     bool isDraggingScrollbar = false;

@@ -61,6 +61,9 @@ namespace {
     constexpr UINT_PTR kCommandExit = 1002;
     constexpr UINT_PTR kCommandSelectFont = 1003;
     constexpr UINT_PTR kCommandUseDefaultFont = 1004;
+    constexpr UINT_PTR kCommandThemeLight = 1101;
+    constexpr UINT_PTR kCommandThemeSepia = 1102;
+    constexpr UINT_PTR kCommandThemeDark = 1103;
 
     struct RenderContext {
         SkCanvas* canvas;
@@ -72,6 +75,92 @@ namespace {
         size_t position = 0;
         bool valid = false;
     };
+
+    struct ThemePalette {
+        SkColor windowBackground;
+        SkColor emptyStateText;
+        SkColor bodyText;
+        SkColor headingText;
+        SkColor blockquoteText;
+        SkColor codeText;
+        SkColor linkText;
+        SkColor selectionFill;
+        SkColor codeBlockBackground;
+        SkColor codeInlineBackground;
+        SkColor blockquoteAccent;
+        SkColor listMarker;
+        SkColor thematicBreak;
+        SkColor scrollbarTrack;
+        SkColor scrollbarThumb;
+    };
+
+    ThemePalette GetThemePalette(mdviewer::ThemeMode theme) {
+        switch (theme) {
+            case mdviewer::ThemeMode::Sepia:
+                return {
+                    SkColorSetRGB(246, 238, 220),
+                    SkColorSetRGB(123, 99, 71),
+                    SkColorSetRGB(73, 58, 41),
+                    SkColorSetRGB(55, 40, 24),
+                    SkColorSetRGB(118, 93, 65),
+                    SkColorSetRGB(146, 67, 39),
+                    SkColorSetRGB(124, 76, 22),
+                    SkColorSetARGB(120, 196, 162, 102),
+                    SkColorSetRGB(236, 225, 203),
+                    SkColorSetRGB(232, 220, 196),
+                    SkColorSetRGB(180, 150, 110),
+                    SkColorSetRGB(131, 104, 75),
+                    SkColorSetRGB(197, 181, 151),
+                    SkColorSetARGB(28, 92, 68, 37),
+                    SkColorSetARGB(128, 118, 88, 57)
+                };
+            case mdviewer::ThemeMode::Dark:
+                return {
+                    SkColorSetRGB(22, 24, 29),
+                    SkColorSetRGB(122, 130, 145),
+                    SkColorSetRGB(224, 228, 235),
+                    SkColorSetRGB(248, 249, 252),
+                    SkColorSetRGB(160, 170, 186),
+                    SkColorSetRGB(255, 165, 118),
+                    SkColorSetRGB(120, 180, 255),
+                    SkColorSetARGB(125, 66, 114, 179),
+                    SkColorSetRGB(37, 41, 48),
+                    SkColorSetRGB(44, 48, 57),
+                    SkColorSetRGB(94, 104, 120),
+                    SkColorSetRGB(154, 163, 179),
+                    SkColorSetRGB(66, 72, 84),
+                    SkColorSetARGB(40, 255, 255, 255),
+                    SkColorSetARGB(150, 188, 194, 205)
+                };
+            case mdviewer::ThemeMode::Light:
+            default:
+                return {
+                    SK_ColorWHITE,
+                    SK_ColorGRAY,
+                    SkColorSetRGB(36, 39, 45),
+                    SkColorSetRGB(28, 31, 38),
+                    SkColorSetRGB(86, 92, 105),
+                    SkColorSetRGB(165, 46, 84),
+                    SkColorSetRGB(26, 92, 200),
+                    SkColorSetARGB(110, 102, 165, 255),
+                    SkColorSetRGB(245, 246, 248),
+                    SkColorSetRGB(241, 243, 245),
+                    SkColorSetRGB(196, 204, 217),
+                    SkColorSetRGB(90, 96, 110),
+                    SkColorSetRGB(210, 214, 220),
+                    SkColorSetARGB(24, 0, 0, 0),
+                    SkColorSetARGB(120, 100, 100, 100)
+                };
+        }
+    }
+
+    mdviewer::ThemeMode GetCurrentThemeMode() {
+        return g_appState.theme;
+    }
+
+    ThemePalette GetCurrentThemePalette() {
+        return GetThemePalette(GetCurrentThemeMode());
+    }
 
     HMENU CreateMainMenu() {
         HMENU menuBar = CreateMenu();
@@ -98,6 +187,18 @@ namespace {
 
         AppendMenuW(viewMenu, MF_STRING, kCommandSelectFont, L"Select &Font...");
         AppendMenuW(viewMenu, MF_STRING, kCommandUseDefaultFont, L"Use &Default Font");
+        AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
+
+        HMENU themeMenu = CreatePopupMenu();
+        if (!themeMenu) {
+            DestroyMenu(menuBar);
+            return nullptr;
+        }
+
+        AppendMenuW(themeMenu, MF_STRING, kCommandThemeLight, L"&Light");
+        AppendMenuW(themeMenu, MF_STRING, kCommandThemeSepia, L"&Sepia");
+        AppendMenuW(themeMenu, MF_STRING, kCommandThemeDark, L"&Dark");
+        AppendMenuW(viewMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"&Theme");
         AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
 
         return menuBar;
@@ -187,10 +288,23 @@ namespace {
             return;
         }
 
+        mdviewer::ThemeMode currentTheme = mdviewer::ThemeMode::Light;
+        {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            currentTheme = g_appState.theme;
+        }
+
         EnableMenuItem(
             menuBar,
             kCommandUseDefaultFont,
             MF_BYCOMMAND | (g_selectedFontFamily.empty() ? MF_GRAYED : MF_ENABLED));
+        CheckMenuRadioItem(
+            menuBar,
+            kCommandThemeLight,
+            kCommandThemeDark,
+            currentTheme == mdviewer::ThemeMode::Sepia ? kCommandThemeSepia :
+            (currentTheme == mdviewer::ThemeMode::Dark ? kCommandThemeDark : kCommandThemeLight),
+            MF_BYCOMMAND);
         DrawMenuBar(hwnd);
     }
 
@@ -285,19 +399,20 @@ namespace {
     }
 
     SkColor GetTextColor(mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
+        const ThemePalette palette = GetCurrentThemePalette();
         if (blockType == mdviewer::BlockType::Blockquote) {
-            return SkColorSetRGB(86, 92, 105);
+            return palette.blockquoteText;
         }
         if (inlineStyle == mdviewer::InlineStyle::Code) {
-            return SkColorSetRGB(165, 46, 84);
+            return palette.codeText;
         }
         if (inlineStyle == mdviewer::InlineStyle::Link) {
-            return SkColorSetRGB(26, 92, 200);
+            return palette.linkText;
         }
         if (IsHeading(blockType)) {
-            return SkColorSetRGB(28, 31, 38);
+            return palette.headingText;
         }
-        return SkColorSetRGB(36, 39, 45);
+        return palette.bodyText;
     }
 
     float GetContentX(const mdviewer::BlockLayout& block) {
@@ -387,6 +502,8 @@ namespace {
             return;
         }
 
+        const ThemePalette palette = GetCurrentThemePalette();
+
         const size_t selectionStart = GetSelectionStart();
         const size_t selectionEnd = GetSelectionEnd();
         float currentX = GetContentX(block);
@@ -409,7 +526,7 @@ namespace {
 
             SkPaint highlightPaint;
             highlightPaint.setAntiAlias(true);
-            highlightPaint.setColor(SkColorSetARGB(110, 102, 165, 255));
+            highlightPaint.setColor(palette.selectionFill);
             ctx.canvas->drawRect(
                 SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
                 highlightPaint);
@@ -541,10 +658,12 @@ namespace {
                              const mdviewer::BlockLayout& block,
                              mdviewer::BlockType parentType,
                              size_t siblingIndex) {
+        const ThemePalette palette = GetCurrentThemePalette();
+
         if (block.type == mdviewer::BlockType::CodeBlock) {
             SkPaint backgroundPaint;
             backgroundPaint.setAntiAlias(true);
-            backgroundPaint.setColor(SkColorSetRGB(245, 246, 248));
+            backgroundPaint.setColor(palette.codeBlockBackground);
             ctx.canvas->drawRoundRect(
                 SkRect::MakeLTRB(
                     block.bounds.left() - kCodeBlockPaddingX,
@@ -557,7 +676,7 @@ namespace {
         } else if (block.type == mdviewer::BlockType::Blockquote) {
             SkPaint accentPaint;
             accentPaint.setAntiAlias(true);
-            accentPaint.setColor(SkColorSetRGB(196, 204, 217));
+            accentPaint.setColor(palette.blockquoteAccent);
             ctx.canvas->drawRoundRect(
                 SkRect::MakeXYWH(
                     block.bounds.left(),
@@ -575,7 +694,7 @@ namespace {
             }
 
             ConfigureFont(ctx, mdviewer::BlockType::Paragraph, mdviewer::InlineStyle::Plain);
-            ctx.paint.setColor(SkColorSetRGB(90, 96, 110));
+            ctx.paint.setColor(palette.listMarker);
             const float markerBaseline = firstLine->y + firstLine->height - kTextBaselineOffset;
             const float markerX = block.bounds.left() - kListMarkerGap;
 
@@ -589,6 +708,7 @@ namespace {
     }
 
     void DrawLine(RenderContext& ctx, const mdviewer::BlockLayout& block, const mdviewer::LineLayout& line) {
+        const ThemePalette palette = GetCurrentThemePalette();
         float currentX = GetContentX(block);
 
         for (const auto& run : line.runs) {
@@ -602,7 +722,7 @@ namespace {
             if (run.style == mdviewer::InlineStyle::Code && !run.text.empty()) {
                 SkPaint chipPaint;
                 chipPaint.setAntiAlias(true);
-                chipPaint.setColor(SkColorSetRGB(241, 243, 245));
+                chipPaint.setColor(palette.codeInlineBackground);
                 ctx.canvas->drawRoundRect(
                     SkRect::MakeLTRB(
                         currentX - 4.0f,
@@ -636,7 +756,7 @@ void DrawBlocks(RenderContext& ctx,
     for (size_t index = 0; index < blocks.size(); ++index) {
         const auto& block = blocks[index];
         if (block.type == mdviewer::BlockType::ThematicBreak) {
-            ctx.paint.setColor(SkColorSetRGB(210, 214, 220));
+            ctx.paint.setColor(GetCurrentThemePalette().thematicBreak);
             ctx.paint.setStrokeWidth(1.0f);
             ctx.canvas->drawLine(block.bounds.left(), block.bounds.centerY(), block.bounds.right(), block.bounds.centerY(), ctx.paint);
         } else {
@@ -677,7 +797,8 @@ void Render(HWND hwnd) {
     }
 
     SkCanvas* canvas = g_surface->getCanvas();
-    canvas->clear(SK_ColorWHITE);
+    const ThemePalette palette = GetCurrentThemePalette();
+    canvas->clear(palette.windowBackground);
 
     {
         std::lock_guard<std::mutex> lock(g_appState.mtx);
@@ -697,7 +818,7 @@ void Render(HWND hwnd) {
 
         if (g_appState.sourceText.empty()) {
             ctx.font.setSize(20.0f);
-            ctx.paint.setColor(SK_ColorGRAY);
+            ctx.paint.setColor(palette.emptyStateText);
             const char* msg = "Drag and drop a Markdown file here";
             SkRect bounds;
             ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
@@ -710,7 +831,7 @@ void Render(HWND hwnd) {
         if (const auto thumb = GetScrollbarThumbRect(hwnd)) {
             SkPaint trackPaint;
             trackPaint.setAntiAlias(true);
-            trackPaint.setColor(SkColorSetARGB(24, 0, 0, 0));
+            trackPaint.setColor(palette.scrollbarTrack);
             ctx.canvas->drawRoundRect(
                 SkRect::MakeXYWH(
                     g_surface->width() - kScrollbarWidth - kScrollbarMargin,
@@ -721,7 +842,7 @@ void Render(HWND hwnd) {
                 5.0f,
                 trackPaint);
 
-            ctx.paint.setColor(SkColorSetARGB(120, 100, 100, 100));
+            ctx.paint.setColor(palette.scrollbarThumb);
             ctx.canvas->drawRoundRect(*thumb, 5.0f, 5.0f, ctx.paint);
         }
     }
@@ -819,6 +940,16 @@ void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {
     }
 
     RelayoutCurrentDocument(hwnd);
+    UpdateMenuState(hwnd);
+    InvalidateRect(hwnd, NULL, FALSE);
+}
+
+void ApplyTheme(HWND hwnd, mdviewer::ThemeMode theme) {
+    {
+        std::lock_guard<std::mutex> lock(g_appState.mtx);
+        g_appState.theme = theme;
+        g_appState.needsRepaint = true;
+    }
     UpdateMenuState(hwnd);
     InvalidateRect(hwnd, NULL, FALSE);
 }
@@ -923,6 +1054,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     if (!g_selectedFontFamily.empty()) {
                         ApplySelectedFont(hwnd, L"");
                     }
+                    return 0;
+                case kCommandThemeLight:
+                    ApplyTheme(hwnd, mdviewer::ThemeMode::Light);
+                    return 0;
+                case kCommandThemeSepia:
+                    ApplyTheme(hwnd, mdviewer::ThemeMode::Sepia);
+                    return 0;
+                case kCommandThemeDark:
+                    ApplyTheme(hwnd, mdviewer::ThemeMode::Dark);
                     return 0;
             }
             break;
