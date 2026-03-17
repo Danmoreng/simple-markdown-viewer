@@ -42,17 +42,18 @@ namespace {
         SkPaint paint;
         SkFont font;
     };
+
+    void EnsureFontSystem() {
+        if (!g_fontMgr) {
+            g_fontMgr = SkFontMgr_New_DirectWrite();
+        }
+        if (!g_typeface && g_fontMgr) {
+            g_typeface = g_fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
+        }
+    }
 }
 
 void DrawBlocks(RenderContext& ctx, const std::vector<mdviewer::BlockLayout>& blocks) {
-    if (!g_fontMgr) {
-        g_fontMgr = SkFontMgr_New_DirectWrite();
-    }
-    if (!g_typeface) {
-        g_typeface = g_fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
-    }
-    ctx.font.setTypeface(g_typeface);
-
     for (const auto& block : blocks) {
         if (block.type == mdviewer::BlockType::ThematicBreak) {
             ctx.paint.setColor(SK_ColorLTGRAY);
@@ -101,6 +102,8 @@ void UpdateSurface(HWND hwnd) {
 void Render(HWND hwnd) {
     if (!g_surface) return;
 
+    EnsureFontSystem();
+
     SkCanvas* canvas = g_surface->getCanvas();
     canvas->clear(SK_ColorWHITE);
 
@@ -110,6 +113,7 @@ void Render(HWND hwnd) {
         RenderContext ctx;
         ctx.canvas = canvas;
         ctx.paint.setAntiAlias(true);
+        ctx.font.setTypeface(g_typeface);
 
         canvas->save();
         canvas->translate(0, -g_appState.scrollOffset);
@@ -127,6 +131,7 @@ void Render(HWND hwnd) {
 
         canvas->restore();
 
+        // Draw simple scrollbar indicator
         RECT rect;
         GetClientRect(hwnd, &rect);
         float windowHeight = static_cast<float>(rect.bottom - rect.top);
@@ -157,6 +162,11 @@ void Render(HWND hwnd) {
                       0, 0, pixmap.width(), pixmap.height(),
                       pixmap.addr(), &bmi, DIB_RGB_COLORS, SRCCOPY);
 
+        EndPaint(hwnd, &ps);
+    } else {
+        // Fallback Begin/EndPaint to clear update region if peekPixels fails
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
         EndPaint(hwnd, &ps);
     }
 }

@@ -49,6 +49,7 @@ target_link_libraries(mdviewer PRIVATE
     ${SKIA_OUT_DIR}/skia.lib
     # Windows dependencies for Skia
     windowscodecs.lib
+    dwrite.lib
     usp10.lib
     ole32.lib
     user32.lib
