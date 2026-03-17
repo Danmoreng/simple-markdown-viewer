@@ -40,6 +40,7 @@ target_include_directories(mdviewer PRIVATE
     ${SKIA_DIR}
     ${SKIA_DIR}/include/core
     ${SKIA_DIR}/include/config
+    ${SKIA_DIR}/include/ports
     ${md4c_SOURCE_DIR}/src
 )
 

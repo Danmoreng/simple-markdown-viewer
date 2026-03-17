@@ -25,13 +25,17 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkFont.h"
+#include "include/core/SkFontMgr.h"
 #include "include/core/SkTypeface.h"
 #include "include/core/SkFontTypes.h"
+#include "include/ports/SkTypeface_win.h"
 #pragma warning(pop)
 
 namespace {
     mdviewer::AppState g_appState;
     sk_sp<SkSurface> g_surface;
+    sk_sp<SkTypeface> g_typeface;
+    sk_sp<SkFontMgr> g_fontMgr;
 
     struct RenderContext {
         SkCanvas* canvas;
@@ -41,6 +45,14 @@ namespace {
 }
 
 void DrawBlocks(RenderContext& ctx, const std::vector<mdviewer::BlockLayout>& blocks) {
+    if (!g_fontMgr) {
+        g_fontMgr = SkFontMgr_New_DirectWrite();
+    }
+    if (!g_typeface) {
+        g_typeface = g_fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
+    }
+    ctx.font.setTypeface(g_typeface);
+
     for (const auto& block : blocks) {
         if (block.type == mdviewer::BlockType::ThematicBreak) {
             ctx.paint.setColor(SK_ColorLTGRAY);
@@ -62,7 +74,6 @@ void DrawBlocks(RenderContext& ctx, const std::vector<mdviewer::BlockLayout>& bl
                         ctx.paint.setColor(SkColorSetRGB(199, 37, 78));
                     }
                     
-                    // Note: In a real app, we'd swap typefaces for Bold/Italic here
                     ctx.canvas->drawString(run.text.c_str(), currentX, line.y + line.height - 5.0f, ctx.font, ctx.paint);
                     currentX += ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
                 }
@@ -116,7 +127,6 @@ void Render(HWND hwnd) {
 
         canvas->restore();
 
-        // Draw simple scrollbar indicator
         RECT rect;
         GetClientRect(hwnd, &rect);
         float windowHeight = static_cast<float>(rect.bottom - rect.top);

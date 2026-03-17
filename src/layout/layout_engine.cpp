@@ -9,6 +9,7 @@
 #include "include/core/SkTypeface.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontTypes.h"
+#include "include/ports/SkTypeface_win.h"
 #pragma warning(pop)
 
 namespace mdviewer {
@@ -19,8 +20,12 @@ public:
     float horizontalMargin = 40.0f;
     float availableWidth;
     SkFont font;
+    sk_sp<SkFontMgr> fontMgr;
 
-    LayoutContext(float width) : availableWidth(width - (horizontalMargin * 2.0f)) {}
+    LayoutContext(float width) : availableWidth(width - (horizontalMargin * 2.0f)) {
+        fontMgr = SkFontMgr_New_DirectWrite();
+        font.setTypeface(fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Normal()));
+    }
 
     void LayoutBlocks(const std::vector<Block>& blocks, std::vector<BlockLayout>& layouts, float indent = 0.0f) {
         for (const auto& block : blocks) {
@@ -45,10 +50,7 @@ public:
             if (block.type == BlockType::ThematicBreak) {
                 currentY += 20.0f;
             } else {
-                // Layout inline runs with wrapping
                 LayoutRuns(block.inlineRuns, bl.lines, blockIndent, lineHeight);
-                
-                // Recursively layout children (for nested lists, etc.)
                 if (!block.children.empty()) {
                     LayoutBlocks(block.children, bl.children, blockIndent + 20.0f);
                 }
@@ -78,7 +80,6 @@ private:
                 size_t bytesConsumed = FindBreakPoint(textPtr, endPtr - textPtr, wrapWidth - currentX);
                 
                 if (bytesConsumed == 0 && currentX > 0) {
-                    // Could not fit even one char, and we're not at start of line. Wrap.
                     lines.push_back(std::move(currentLine));
                     currentY += lineHeight;
                     currentLine = {currentY, lineHeight, {}};
@@ -86,7 +87,7 @@ private:
                     continue;
                 }
 
-                if (bytesConsumed == 0) bytesConsumed = 1; // Force at least one char
+                if (bytesConsumed == 0) bytesConsumed = 1;
 
                 currentLine.runs.push_back({run.style, std::string(textPtr, bytesConsumed)});
                 
@@ -128,7 +129,6 @@ private:
             }
         }
 
-        // Try to snap to whitespace
         if (best < length) {
             size_t lastSpace = 0;
             for (size_t i = 0; i < best; ++i) {
