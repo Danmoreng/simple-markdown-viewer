@@ -43,9 +43,11 @@ namespace {
     mdviewer::AppState g_appState;
     sk_sp<SkSurface> g_surface;
     sk_sp<SkTypeface> g_typeface;
+    sk_sp<SkTypeface> g_boldTypeface;
     sk_sp<SkTypeface> g_headingTypeface;
     sk_sp<SkTypeface> g_codeTypeface;
     sk_sp<SkFontMgr> g_fontMgr;
+    std::wstring g_selectedFontFamily;
 
     constexpr float kTextBaselineOffset = 5.0f;
     constexpr float kCodeBlockPaddingX = 12.0f;
@@ -55,6 +57,10 @@ namespace {
     constexpr float kListMarkerGap = 16.0f;
     constexpr float kScrollbarWidth = 10.0f;
     constexpr float kScrollbarMargin = 4.0f;
+    constexpr UINT_PTR kCommandOpenFile = 1001;
+    constexpr UINT_PTR kCommandExit = 1002;
+    constexpr UINT_PTR kCommandSelectFont = 1003;
+    constexpr UINT_PTR kCommandUseDefaultFont = 1004;
 
     struct RenderContext {
         SkCanvas* canvas;
@@ -67,20 +73,145 @@ namespace {
         bool valid = false;
     };
 
+    HMENU CreateMainMenu() {
+        HMENU menuBar = CreateMenu();
+        if (!menuBar) {
+            return nullptr;
+        }
+
+        HMENU fileMenu = CreatePopupMenu();
+        if (!fileMenu) {
+            DestroyMenu(menuBar);
+            return nullptr;
+        }
+
+        AppendMenuW(fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+        AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(fileMenu, MF_STRING, kCommandExit, L"E&xit");
+        AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"&File");
+
+        HMENU viewMenu = CreatePopupMenu();
+        if (!viewMenu) {
+            DestroyMenu(menuBar);
+            return nullptr;
+        }
+
+        AppendMenuW(viewMenu, MF_STRING, kCommandSelectFont, L"Select &Font...");
+        AppendMenuW(viewMenu, MF_STRING, kCommandUseDefaultFont, L"Use &Default Font");
+        AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
+
+        return menuBar;
+    }
+
+    std::optional<std::filesystem::path> ShowOpenFileDialog(HWND hwnd) {
+        wchar_t fileBuffer[MAX_PATH] = {};
+        OPENFILENAMEW dialog = {};
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = hwnd;
+        dialog.lpstrFilter =
+            L"Markdown Files (*.md;*.markdown;*.txt)\0*.md;*.markdown;*.txt\0"
+            L"All Files (*.*)\0*.*\0";
+        dialog.lpstrFile = fileBuffer;
+        dialog.nMaxFile = static_cast<DWORD>(std::size(fileBuffer));
+        dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+        dialog.lpstrDefExt = L"md";
+
+        if (!GetOpenFileNameW(&dialog)) {
+            return std::nullopt;
+        }
+
+        return std::filesystem::path(fileBuffer);
+    }
+
+    std::string WideToUtf8(const std::wstring& text) {
+        if (text.empty()) {
+            return {};
+        }
+
+        const int utf8Length = WideCharToMultiByte(
+            CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+        if (utf8Length <= 0) {
+            return {};
+        }
+
+        std::string utf8(static_cast<size_t>(utf8Length), '\0');
+        WideCharToMultiByte(
+            CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), utf8.data(), utf8Length, nullptr, nullptr);
+        return utf8;
+    }
+
+    void ResetResolvedTypefaces() {
+        g_typeface.reset();
+        g_boldTypeface.reset();
+        g_headingTypeface.reset();
+        g_codeTypeface.reset();
+    }
+
+    sk_sp<SkTypeface> CreateDocumentTypeface(SkFontStyle style) {
+        if (!g_fontMgr) {
+            return nullptr;
+        }
+
+        if (!g_selectedFontFamily.empty()) {
+            const std::string utf8Family = WideToUtf8(g_selectedFontFamily);
+            if (auto typeface = mdviewer::CreateStyledTypeface(g_fontMgr, utf8Family.c_str(), style)) {
+                return typeface;
+            }
+        }
+
+        return mdviewer::CreateDefaultTypeface(g_fontMgr, style);
+    }
+
+    std::optional<std::wstring> ShowFontDialog(HWND hwnd) {
+        LOGFONTW logFont = {};
+        if (!g_selectedFontFamily.empty()) {
+            lstrcpynW(logFont.lfFaceName, g_selectedFontFamily.c_str(), LF_FACESIZE);
+        }
+
+        CHOOSEFONTW dialog = {};
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = hwnd;
+        dialog.lpLogFont = &logFont;
+        dialog.Flags = CF_SCREENFONTS | CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT | CF_NOSIZESEL;
+
+        if (!ChooseFontW(&dialog)) {
+            return std::nullopt;
+        }
+
+        return std::wstring(logFont.lfFaceName);
+    }
+
+    void UpdateMenuState(HWND hwnd) {
+        HMENU menuBar = GetMenu(hwnd);
+        if (!menuBar) {
+            return;
+        }
+
+        EnableMenuItem(
+            menuBar,
+            kCommandUseDefaultFont,
+            MF_BYCOMMAND | (g_selectedFontFamily.empty() ? MF_GRAYED : MF_ENABLED));
+        DrawMenuBar(hwnd);
+    }
+
     bool EnsureFontSystem() {
         if (!g_fontMgr) {
             g_fontMgr = mdviewer::CreateFontManager();
         }
 
         if (!g_typeface) {
-            g_typeface = mdviewer::CreateDefaultTypeface(g_fontMgr);
+            g_typeface = CreateDocumentTypeface(SkFontStyle::Normal());
         }
 
-        if (!g_headingTypeface && g_fontMgr) {
-            g_headingTypeface = g_fontMgr->matchFamilyStyle(nullptr, SkFontStyle::Bold());
-            if (!g_headingTypeface) {
-                g_headingTypeface = g_fontMgr->legacyMakeTypeface(nullptr, SkFontStyle::Bold());
+        if (!g_boldTypeface) {
+            g_boldTypeface = CreateDocumentTypeface(SkFontStyle::Bold());
+            if (!g_boldTypeface) {
+                g_boldTypeface = g_typeface;
             }
+        }
+
+        if (!g_headingTypeface) {
+            g_headingTypeface = g_boldTypeface;
             if (!g_headingTypeface) {
                 g_headingTypeface = g_typeface;
             }
@@ -95,7 +226,11 @@ namespace {
             }
         }
 
-        return g_fontMgr != nullptr && g_typeface != nullptr && g_headingTypeface != nullptr && g_codeTypeface != nullptr;
+        return g_fontMgr != nullptr &&
+               g_typeface != nullptr &&
+               g_boldTypeface != nullptr &&
+               g_headingTypeface != nullptr &&
+               g_codeTypeface != nullptr;
     }
 
     bool IsHeading(mdviewer::BlockType blockType) {
@@ -137,12 +272,14 @@ namespace {
     void ConfigureFont(RenderContext& ctx, mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
         const bool isCode = blockType == mdviewer::BlockType::CodeBlock || inlineStyle == mdviewer::InlineStyle::Code;
         const bool isHeading = IsHeading(blockType);
-        ctx.font.setTypeface(isCode ? g_codeTypeface : (isHeading ? g_headingTypeface : g_typeface));
+        const bool isStrong = inlineStyle == mdviewer::InlineStyle::Strong;
+        ctx.font.setTypeface(
+            isCode ? g_codeTypeface : (isHeading ? g_headingTypeface : (isStrong ? g_boldTypeface : g_typeface)));
         ctx.font.setSize(isCode ? GetBlockFontSize(mdviewer::BlockType::CodeBlock) : GetBlockFontSize(blockType));
         ctx.font.setSubpixel(!isHeading);
         ctx.font.setHinting(SkFontHinting::kSlight);
         ctx.font.setEdging(isHeading ? SkFont::Edging::kAntiAlias : SkFont::Edging::kSubpixelAntiAlias);
-        ctx.font.setEmbolden(inlineStyle == mdviewer::InlineStyle::Strong && !isHeading);
+        ctx.font.setEmbolden(false);
         ctx.font.setSkewX(inlineStyle == mdviewer::InlineStyle::Emphasis ? -0.18f : 0.0f);
         ctx.font.setScaleX(1.0f);
     }
@@ -641,6 +778,51 @@ void LoadFile(HWND hwnd, const std::filesystem::path& path) {
     }
 }
 
+void RelayoutCurrentDocument(HWND hwnd) {
+    if (!EnsureFontSystem()) {
+        return;
+    }
+
+    mdviewer::DocumentModel docModel;
+    {
+        std::lock_guard<std::mutex> lock(g_appState.mtx);
+        if (g_appState.sourceText.empty()) {
+            return;
+        }
+        docModel = g_appState.docModel;
+    }
+
+    RECT rect;
+    GetClientRect(hwnd, &rect);
+    const float width = static_cast<float>(rect.right - rect.left);
+    auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get());
+
+    {
+        std::lock_guard<std::mutex> lock(g_appState.mtx);
+        g_appState.docLayout = std::move(layout);
+        ClampScrollOffset(hwnd);
+        g_appState.needsRepaint = true;
+    }
+}
+
+void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {
+    const std::wstring previousFamily = g_selectedFontFamily;
+    g_selectedFontFamily = familyName;
+    ResetResolvedTypefaces();
+
+    if (!EnsureFontSystem()) {
+        g_selectedFontFamily = previousFamily;
+        ResetResolvedTypefaces();
+        EnsureFontSystem();
+        MessageBoxW(hwnd, L"The selected font could not be loaded.", L"Error", MB_ICONERROR);
+        return;
+    }
+
+    RelayoutCurrentDocument(hwnd);
+    UpdateMenuState(hwnd);
+    InvalidateRect(hwnd, NULL, FALSE);
+}
+
 void OnDropFiles(HWND hwnd, HDROP hDrop) {
     UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
     if (count > 0) {
@@ -709,6 +891,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_CREATE:
             DragAcceptFiles(hwnd, TRUE);
             UpdateSurface(hwnd);
+            UpdateMenuState(hwnd);
             return 0;
         case WM_DESTROY:
             PostQuitMessage(0);
@@ -721,6 +904,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_DROPFILES:
             OnDropFiles(hwnd, (HDROP)wParam);
             return 0;
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case kCommandOpenFile:
+                    if (const auto path = ShowOpenFileDialog(hwnd)) {
+                        LoadFile(hwnd, *path);
+                    }
+                    return 0;
+                case kCommandExit:
+                    PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                    return 0;
+                case kCommandSelectFont:
+                    if (const auto familyName = ShowFontDialog(hwnd)) {
+                        ApplySelectedFont(hwnd, *familyName);
+                    }
+                    return 0;
+                case kCommandUseDefaultFont:
+                    if (!g_selectedFontFamily.empty()) {
+                        ApplySelectedFont(hwnd, L"");
+                    }
+                    return 0;
+            }
+            break;
         case WM_LBUTTONDOWN: {
             SetFocus(hwnd);
             SetCapture(hwnd);
@@ -804,16 +1009,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         case WM_SIZE: {
             UpdateSurface(hwnd);
-            if (!g_appState.sourceText.empty()) {
-                float width = static_cast<float>(LOWORD(lParam));
-                auto layout = mdviewer::LayoutEngine::ComputeLayout(g_appState.docModel, width, g_typeface.get());
-                {
-                    std::lock_guard<std::mutex> lock(g_appState.mtx);
-                    g_appState.docLayout = std::move(layout);
-                    ClampScrollOffset(hwnd);
-                    g_appState.needsRepaint = true;
-                }
-            }
+            RelayoutCurrentDocument(hwnd);
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
@@ -844,6 +1040,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterClassW(&wc);
 
+    HMENU menuBar = CreateMainMenu();
+
     HWND hwnd = CreateWindowExW(
         0,
         CLASS_NAME,
@@ -851,7 +1049,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
         NULL,
-        NULL,
+        menuBar,
         hInstance,
         NULL
     );

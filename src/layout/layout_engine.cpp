@@ -17,14 +17,15 @@ namespace mdviewer {
 class LayoutContext {
 public:
     float currentY = 20.0f;
-    float horizontalMargin = 40.0f;
+    float leftMargin = 40.0f;
+    float rightMargin = 104.0f;
     float availableWidth;
     size_t currentTextOffset = 0;
     std::string plainText;
     SkFont font;
 
     LayoutContext(float width, SkTypeface* typeface)
-        : availableWidth(std::max(width - (horizontalMargin * 2.0f), 1.0f)) {
+        : availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)) {
         if (typeface) {
             font.setTypeface(sk_ref_sp(typeface));
         }
@@ -60,7 +61,7 @@ public:
                 }
             }
 
-            bl.bounds = SkRect::MakeXYWH(horizontalMargin + blockIndent, blockTop, availableWidth - blockIndent, currentY - blockTop);
+            bl.bounds = SkRect::MakeXYWH(leftMargin + blockIndent, blockTop, availableWidth - blockIndent, currentY - blockTop);
             bl.textLength = currentTextOffset - bl.textStart;
             layouts.push_back(std::move(bl));
             currentY += spacing;
@@ -100,10 +101,11 @@ private:
 
                 const char* newlinePtr = std::find(textPtr, endPtr, '\n');
                 const size_t remainingLength = static_cast<size_t>(newlinePtr - textPtr);
-                size_t bytesConsumed = FindBreakPoint(textPtr, endPtr - textPtr, wrapWidth - currentX);
-                if (remainingLength < bytesConsumed || newlinePtr != endPtr) {
-                    bytesConsumed = std::min(bytesConsumed, remainingLength);
-                }
+                size_t bytesConsumed = FindBreakPoint(
+                    textPtr,
+                    remainingLength,
+                    wrapWidth - currentX,
+                    currentX <= 0.0f);
                 
                 if (bytesConsumed == 0 && currentX > 0) {
                     PushCurrentLine(lines, currentLine, lineHeight);
@@ -111,7 +113,9 @@ private:
                     continue;
                 }
 
-                if (bytesConsumed == 0) bytesConsumed = 1;
+                if (bytesConsumed == 0) {
+                    bytesConsumed = remainingLength;
+                }
 
                 currentLine.runs.push_back({run.style, std::string(textPtr, bytesConsumed), currentTextOffset});
                 currentLine.textLength += bytesConsumed;
@@ -135,7 +139,11 @@ private:
         }
     }
 
-    size_t FindBreakPoint(const char* text, size_t length, float maxWidth) {
+    static bool IsBreakableWhitespace(char ch) {
+        return ch == ' ' || ch == '\t';
+    }
+
+    size_t FindBreakPoint(const char* text, size_t length, float maxWidth, bool allowOverflowWord) {
         if (length == 0 || maxWidth <= 0.0f) {
             return 0;
         }
@@ -165,12 +173,27 @@ private:
         if (best < length) {
             size_t lastSpace = 0;
             for (size_t i = 0; i < best; ++i) {
-                if (text[i] == ' ') lastSpace = i + 1;
+                if (IsBreakableWhitespace(text[i])) {
+                    lastSpace = i + 1;
+                }
             }
-            if (lastSpace > 0) return lastSpace;
+            if (lastSpace > 0) {
+                return lastSpace;
+            }
+        } else {
+            return best;
         }
 
-        return best;
+        if (!allowOverflowWord) {
+            return 0;
+        }
+
+        size_t wordEnd = 0;
+        while (wordEnd < length && !IsBreakableWhitespace(text[wordEnd])) {
+            ++wordEnd;
+        }
+
+        return wordEnd > 0 ? wordEnd : best;
     }
 };
 
