@@ -32,6 +32,47 @@
 namespace {
     mdviewer::AppState g_appState;
     sk_sp<SkSurface> g_surface;
+
+    struct RenderContext {
+        SkCanvas* canvas;
+        SkPaint paint;
+        SkFont font;
+    };
+}
+
+void DrawBlocks(RenderContext& ctx, const std::vector<mdviewer::BlockLayout>& blocks) {
+    for (const auto& block : blocks) {
+        if (block.type == mdviewer::BlockType::ThematicBreak) {
+            ctx.paint.setColor(SK_ColorLTGRAY);
+            ctx.paint.setStrokeWidth(1.0f);
+            ctx.canvas->drawLine(block.bounds.left(), block.bounds.centerY(), block.bounds.right(), block.bounds.centerY(), ctx.paint);
+        } else {
+            float fontSize = 16.0f;
+            if (block.type == mdviewer::BlockType::Heading1) fontSize = 32.0f;
+            else if (block.type == mdviewer::BlockType::Heading2) fontSize = 24.0f;
+            else if (block.type == mdviewer::BlockType::Heading3) fontSize = 20.0f;
+            
+            ctx.font.setSize(fontSize);
+
+            for (const auto& line : block.lines) {
+                float currentX = block.bounds.left();
+                for (const auto& run : line.runs) {
+                    ctx.paint.setColor(SK_ColorBLACK);
+                    if (run.style == mdviewer::InlineStyle::Code) {
+                        ctx.paint.setColor(SkColorSetRGB(199, 37, 78));
+                    }
+                    
+                    // Note: In a real app, we'd swap typefaces for Bold/Italic here
+                    ctx.canvas->drawString(run.text.c_str(), currentX, line.y + line.height - 5.0f, ctx.font, ctx.paint);
+                    currentX += ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+                }
+            }
+
+            if (!block.children.empty()) {
+                DrawBlocks(ctx, block.children);
+            }
+        }
+    }
 }
 
 void UpdateSurface(HWND hwnd) {
@@ -55,52 +96,40 @@ void Render(HWND hwnd) {
     {
         std::lock_guard<std::mutex> lock(g_appState.mtx);
         
+        RenderContext ctx;
+        ctx.canvas = canvas;
+        ctx.paint.setAntiAlias(true);
+
         canvas->save();
         canvas->translate(0, -g_appState.scrollOffset);
 
-        SkPaint paint;
-        paint.setAntiAlias(true);
-
-        for (const auto& block : g_appState.docLayout.blocks) {
-            // Draw block background for debug
-            // paint.setColor(SkColorSetARGB(30, 0, 0, 255));
-            // canvas->drawRect(block.bounds, paint);
-
-            for (const auto& line : block.lines) {
-                float currentX = block.bounds.left();
-                for (const auto& run : line.runs) {
-                    SkFont font;
-                    float fontSize = 16.0f;
-                    if (block.type == mdviewer::BlockType::Heading1) fontSize = 32.0f;
-                    else if (block.type == mdviewer::BlockType::Heading2) fontSize = 24.0f;
-                    else if (block.type == mdviewer::BlockType::Heading3) fontSize = 20.0f;
-                    
-                    font.setSize(fontSize);
-                    if (run.style == mdviewer::InlineStyle::Strong) {
-                        // font.setEmbolden(true); // Simplified
-                    }
-
-                    paint.setColor(SK_ColorBLACK);
-                    canvas->drawString(run.text.c_str(), currentX, line.y + line.height - 5.0f, font, paint);
-                    currentX += font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
-                }
-            }
-        }
+        DrawBlocks(ctx, g_appState.docLayout.blocks);
 
         if (g_appState.sourceText.empty()) {
-            SkFont font;
-            font.setSize(20.0f);
-            paint.setColor(SK_ColorGRAY);
+            ctx.font.setSize(20.0f);
+            ctx.paint.setColor(SK_ColorGRAY);
             const char* msg = "Drag and drop a Markdown file here";
             SkRect bounds;
-            font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
-            canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, g_surface->height() / 2, font, paint);
+            ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
+            canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, g_surface->height() / 2, ctx.font, ctx.paint);
         }
 
         canvas->restore();
+
+        // Draw simple scrollbar indicator
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+        float windowHeight = static_cast<float>(rect.bottom - rect.top);
+        if (g_appState.docLayout.totalHeight > windowHeight) {
+            float scrollRatio = windowHeight / g_appState.docLayout.totalHeight;
+            float thumbHeight = windowHeight * scrollRatio;
+            float thumbY = (g_appState.scrollOffset / g_appState.docLayout.totalHeight) * windowHeight;
+            
+            ctx.paint.setColor(SkColorSetARGB(100, 100, 100, 100));
+            ctx.canvas->drawRect(SkRect::MakeXYWH(g_surface->width() - 8.0f, thumbY, 6.0f, thumbHeight), ctx.paint);
+        }
     }
 
-    // Flush surface and copy to window
     SkPixmap pixmap;
     if (g_surface->peekPixels(&pixmap)) {
         PAINTSTRUCT ps;
@@ -109,7 +138,7 @@ void Render(HWND hwnd) {
         BITMAPINFO bmi = {};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = pixmap.width();
-        bmi.bmiHeader.biHeight = -pixmap.height(); // Top-down
+        bmi.bmiHeader.biHeight = -pixmap.height();
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
@@ -167,7 +196,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             Render(hwnd);
             return 0;
         case WM_ERASEBKGND:
-            return 1; // Prevent flicker
+            return 1;
         case WM_DROPFILES:
             OnDropFiles(hwnd, (HDROP)wParam);
             return 0;
@@ -178,7 +207,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 g_appState.scrollOffset -= static_cast<float>(delta);
                 if (g_appState.scrollOffset < 0) g_appState.scrollOffset = 0;
                 
-                // Limit scroll offset to total document height minus window height
                 RECT rect;
                 GetClientRect(hwnd, &rect);
                 float windowHeight = static_cast<float>(rect.bottom - rect.top);
