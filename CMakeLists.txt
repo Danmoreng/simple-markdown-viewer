@@ -32,8 +32,23 @@ set(HEADERS
 
 add_executable(mdviewer WIN32 ${SOURCES} ${HEADERS})
 
-target_include_directories(mdviewer PRIVATE src)
-target_link_libraries(mdviewer PRIVATE md4c)
+target_include_directories(mdviewer PRIVATE 
+    src
+    ${SKIA_DIR}
+    ${SKIA_DIR}/include/core
+    ${SKIA_DIR}/include/config
+)
+
+target_link_libraries(mdviewer PRIVATE 
+    md4c
+    ${SKIA_OUT_DIR}/skia.lib
+    # Windows dependencies for Skia
+    windowscodecs.lib
+    usp10.lib
+    ole32.lib
+    user32.lib
+    gdi32.lib
+)
 
 # Basic Windows flags
 if(MSVC)
