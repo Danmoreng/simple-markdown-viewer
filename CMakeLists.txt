@@ -23,6 +23,7 @@ set(SKIA_OUT_DIR "${SKIA_DIR}/out/Static" CACHE PATH "Path to Skia build output"
 set(SOURCES
     src/main.cpp
     src/platform/win/win_main.cpp
+    src/util/file_io.cpp
 )
 
 # Headers
@@ -53,4 +54,7 @@ target_link_libraries(mdviewer PRIVATE
 # Basic Windows flags
 if(MSVC)
     target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8)
+    # Match Skia's static runtime
+    set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
