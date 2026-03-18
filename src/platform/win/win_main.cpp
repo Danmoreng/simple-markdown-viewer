@@ -31,6 +31,7 @@
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
 #include "platform/win/win_menu.h"
+#include "platform/win/win_surface.h"
 #include "render/theme.h"
 #include "render/typography.h"
 #include "util/file_io.h"
@@ -53,7 +54,6 @@
 #include "include/core/SkData.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkSamplingOptions.h"
-#include "include/core/SkPath.h"
 #pragma warning(pop)
 
 void AdjustBaseFontSize(HWND hwnd, float delta);
@@ -966,15 +966,7 @@ namespace {
             }
 
             void UpdateSurface(HWND hwnd) {
-            RECT rect;
-            GetClientRect(hwnd, &rect);
-            int width = rect.right - rect.left;
-            int height = rect.bottom - rect.top;
-
-            if (width <= 0 || height <= 0) return;
-
-            SkImageInfo info = SkImageInfo::MakeN32Premul(width, height);
-            g_surface = SkSurfaces::Raster(info);
+            mdviewer::win::EnsureRasterSurfaceSize(hwnd, g_surface);
             }
 
             void Render(HWND hwnd) {
@@ -1113,29 +1105,7 @@ namespace {
                 }
                 }
 
-                SkPixmap pixmap;            if (g_surface->peekPixels(&pixmap)) {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hwnd, &ps);
-
-            BITMAPINFO bmi = {};
-            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = pixmap.width();
-            bmi.bmiHeader.biHeight = -pixmap.height();
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB;
-
-            StretchDIBits(hdc, 0, 0, pixmap.width(), pixmap.height(),
-                        0, 0, pixmap.width(), pixmap.height(),
-                        pixmap.addr(), &bmi, DIB_RGB_COLORS, SRCCOPY);
-
-            EndPaint(hwnd, &ps);
-            } else {
-            // Fallback Begin/EndPaint to clear update region if peekPixels fails
-            PAINTSTRUCT ps;
-            BeginPaint(hwnd, &ps);
-            EndPaint(hwnd, &ps);
-            }
+                mdviewer::win::PresentRasterSurface(hwnd, g_surface.get());
             }
 
             bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
