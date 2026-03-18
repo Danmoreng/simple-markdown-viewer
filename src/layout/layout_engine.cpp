@@ -50,11 +50,16 @@ public:
             font.getMetrics(&metrics);
             float lineHeight = metrics.fDescent - metrics.fAscent + metrics.fLeading;
 
-            float blockTop = currentY;
             float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
 
             if (block.type == BlockType::CodeBlock) {
-                currentY += 16.0f; // kCodeBlockPaddingY
+                currentY += 16.0f; // External Margin Top
+            }
+
+            float blockTop = currentY;
+
+            if (block.type == BlockType::CodeBlock) {
+                currentY += 8.0f; // Internal Padding Top
             }
 
             if (block.type == BlockType::ThematicBreak) {
@@ -67,10 +72,15 @@ public:
             }
 
             if (block.type == BlockType::CodeBlock) {
-                currentY += 16.0f; // kCodeBlockPaddingY
+                currentY += 8.0f; // Internal Padding Bottom
             }
 
             bl.bounds = SkRect::MakeXYWH(leftMargin + blockIndent, blockTop, availableWidth - blockIndent, currentY - blockTop);
+
+            if (block.type == BlockType::CodeBlock) {
+                currentY += 16.0f; // External Margin Bottom
+            }
+
             bl.textLength = currentTextOffset - bl.textStart;
             layouts.push_back(std::move(bl));
             currentY += spacing;

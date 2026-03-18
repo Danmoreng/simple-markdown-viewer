@@ -100,8 +100,9 @@ namespace {
     }
 
     constexpr float kTextBaselineOffset = 5.0f;
-    constexpr float kCodeBlockPaddingX = 12.0f;
-    constexpr float kCodeBlockPaddingY = 16.0f;
+    constexpr float kCodeBlockPaddingX = 8.0f;
+    constexpr float kCodeBlockPaddingY = 8.0f;
+    constexpr float kCodeBlockMarginY = 16.0f;
     constexpr float kBlockquoteAccentWidth = 4.0f;
     constexpr float kBlockquoteTextInset = 18.0f;
     constexpr float kListMarkerGap = 16.0f;
@@ -253,8 +254,8 @@ namespace {
                     SkColorSetRGB(165, 46, 84),
                     SkColorSetRGB(26, 92, 200),
                     SkColorSetARGB(110, 102, 165, 255),
-                    SkColorSetRGB(245, 246, 248),
-                    SkColorSetRGB(241, 243, 245),
+                    SkColorSetRGB(215, 218, 222),
+                    SkColorSetRGB(225, 228, 232),
                     SkColorSetRGB(196, 204, 217),
                     SkColorSetRGB(90, 96, 110),
                     SkColorSetRGB(210, 214, 220),
