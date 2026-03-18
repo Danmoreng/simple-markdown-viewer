@@ -101,7 +101,12 @@ namespace {
         mdviewer::InlineStyle style = mdviewer::InlineStyle::Plain;
     };
 
-    std::map<std::string, sk_sp<SkImage>> g_imageCache;
+    struct CachedImageEntry {
+        sk_sp<SkImage> baseImage;
+        std::map<uint64_t, sk_sp<SkImage>> scaledImages;
+    };
+
+    std::map<std::string, CachedImageEntry> g_imageCache;
 
     mdviewer::ThemeMode GetCurrentThemeMode() {
         return g_appState.theme;
@@ -525,9 +530,34 @@ namespace {
         return true;
     }
 
-    void PreloadImage(const std::string& url, const std::filesystem::path& baseDir) {
-        if (g_imageCache.find(url) != g_imageCache.end()) {
-            return;
+    uint64_t MakeScaledImageKey(float width, float height) {
+        const uint32_t roundedWidth = static_cast<uint32_t>(std::max(1.0f, std::round(width)));
+        const uint32_t roundedHeight = static_cast<uint32_t>(std::max(1.0f, std::round(height)));
+        return (static_cast<uint64_t>(roundedWidth) << 32) | roundedHeight;
+    }
+
+    sk_sp<SkImage> CreateRasterImageFromFile(const std::filesystem::path& imagePath) {
+        if (!std::filesystem::exists(imagePath)) {
+            return nullptr;
+        }
+
+        auto data = SkData::MakeFromFileName(imagePath.string().c_str());
+        if (!data) {
+            return nullptr;
+        }
+
+        auto image = SkImages::DeferredFromEncodedData(data);
+        if (!image) {
+            return nullptr;
+        }
+
+        return image->makeRasterImage();
+    }
+
+    sk_sp<SkImage> GetOrLoadBaseImage(const std::string& url, const std::filesystem::path& baseDir) {
+        auto& entry = g_imageCache[url];
+        if (entry.baseImage) {
+            return entry.baseImage;
         }
 
         std::filesystem::path imagePath = url;
@@ -535,15 +565,56 @@ namespace {
             imagePath = baseDir / url;
         }
 
-        if (std::filesystem::exists(imagePath)) {
-            auto data = SkData::MakeFromFileName(imagePath.string().c_str());
-            if (data) {
-                auto image = SkImages::DeferredFromEncodedData(data);
-                if (image) {
-                    g_imageCache[url] = image;
-                }
-            }
+        entry.baseImage = CreateRasterImageFromFile(imagePath);
+        return entry.baseImage;
+    }
+
+    sk_sp<SkImage> GetCachedScaledImage(const std::string& url, const std::filesystem::path& baseDir, float displayWidth, float displayHeight) {
+        sk_sp<SkImage> baseImage = GetOrLoadBaseImage(url, baseDir);
+        if (!baseImage) {
+            return nullptr;
         }
+
+        const int targetWidth = std::max(1, static_cast<int>(std::round(displayWidth)));
+        const int targetHeight = std::max(1, static_cast<int>(std::round(displayHeight)));
+        if (baseImage->width() == targetWidth && baseImage->height() == targetHeight) {
+            return baseImage;
+        }
+
+        auto& entry = g_imageCache[url];
+        const uint64_t scaledKey = MakeScaledImageKey(static_cast<float>(targetWidth), static_cast<float>(targetHeight));
+        auto it = entry.scaledImages.find(scaledKey);
+        if (it != entry.scaledImages.end()) {
+            return it->second;
+        }
+
+        const auto info = SkImageInfo::MakeN32Premul(targetWidth, targetHeight);
+        auto surface = SkSurfaces::Raster(info);
+        if (!surface) {
+            return baseImage;
+        }
+
+        SkCanvas* scaleCanvas = surface->getCanvas();
+        scaleCanvas->clear(SK_ColorTRANSPARENT);
+        scaleCanvas->drawImageRect(
+            baseImage,
+            SkRect::MakeXYWH(0.0f, 0.0f, static_cast<float>(targetWidth), static_cast<float>(targetHeight)),
+            SkSamplingOptions(SkFilterMode::kLinear));
+
+        auto scaledImage = surface->makeImageSnapshot();
+        if (scaledImage) {
+            scaledImage = scaledImage->makeRasterImage();
+        }
+        if (scaledImage) {
+            entry.scaledImages[scaledKey] = scaledImage;
+            return scaledImage;
+        }
+
+        return baseImage;
+    }
+
+    void PreloadImage(const std::string& url, const std::filesystem::path& baseDir) {
+        GetOrLoadBaseImage(url, baseDir);
     }
 
     void PreloadImages(const mdviewer::DocumentModel& doc, const std::filesystem::path& baseDir) {
@@ -566,7 +637,7 @@ namespace {
             mdviewer::win::EnsureRasterSurfaceSize(hwnd, g_surface);
             }
 
-            void Render(HWND hwnd) {
+    void Render(HWND hwnd) {
             if (!g_surface) return;
 
             if (!EnsureFontSystem()) {
@@ -602,32 +673,15 @@ namespace {
                         .scrollbarWidth = kScrollbarWidth,
                         .scrollbarMargin = kScrollbarMargin,
                         .currentTickCount = GetTickCount64(),
+                        .visibleDocumentTop = g_appState.scrollOffset,
+                        .visibleDocumentBottom = g_appState.scrollOffset + GetViewportHeight(hwnd),
                         .scrollbarThumbRect = GetScrollbarThumbRect(hwnd),
-                        .resolveImage = [&](const std::string& url) -> sk_sp<SkImage> {
-                            auto it = g_imageCache.find(url);
-                            if (it != g_imageCache.end()) {
-                                return it->second;
-                            }
-
-                            std::filesystem::path imagePath = url;
-                            if (imagePath.is_relative()) {
-                                imagePath = g_appState.currentFilePath.parent_path() / url;
-                            }
-
-                            if (!std::filesystem::exists(imagePath)) {
-                                return nullptr;
-                            }
-
-                            auto data = SkData::MakeFromFileName(imagePath.string().c_str());
-                            if (!data) {
-                                return nullptr;
-                            }
-
-                            auto image = SkImages::DeferredFromEncodedData(data);
-                            if (image) {
-                                g_imageCache[url] = image;
-                            }
-                            return image;
+                        .resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
+                            return GetCachedScaledImage(
+                                url,
+                                g_appState.currentFilePath.parent_path(),
+                                displayWidth,
+                                displayHeight);
                         },
                         .addCodeBlockButton = [&](const SkRect& rect, size_t start, size_t end) {
                             g_appState.codeBlockButtons.push_back({rect, {start, end}});
@@ -661,8 +715,8 @@ namespace {
 
             auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
                 auto it = g_imageCache.find(url);
-                if (it != g_imageCache.end() && it->second) {
-                    return {static_cast<float>(it->second->width()), static_cast<float>(it->second->height())};
+                if (it != g_imageCache.end() && it->second.baseImage) {
+                    return {static_cast<float>(it->second.baseImage->width()), static_cast<float>(it->second.baseImage->height())};
                 }
                 return {0.0f, 0.0f};
             };
@@ -740,8 +794,8 @@ namespace {
 
             auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
             auto it = g_imageCache.find(url);
-            if (it != g_imageCache.end() && it->second) {
-                return {static_cast<float>(it->second->width()), static_cast<float>(it->second->height())};
+            if (it != g_imageCache.end() && it->second.baseImage) {
+                return {static_cast<float>(it->second.baseImage->width()), static_cast<float>(it->second.baseImage->height())};
             }
             return {0.0f, 0.0f};
             };

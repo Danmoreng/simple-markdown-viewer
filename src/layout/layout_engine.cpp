@@ -122,7 +122,11 @@ private:
                 }
 
                 if (isSingleImageBlock) {
-                    imgDisplayW = wrapWidth * 0.9f;
+                    const float maxBlockImageWidth = wrapWidth * 0.9f;
+                    imgDisplayW = hasActualSize
+                        ? std::min(maxBlockImageWidth, actualW)
+                        : maxBlockImageWidth;
+                    imgDisplayW = std::max(imgDisplayW, 1.0f);
                     float aspect = hasActualSize ? (actualH / actualW) : 0.618f;
                     imgDisplayH = imgDisplayW * aspect;
                 } else {

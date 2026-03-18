@@ -203,10 +203,10 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
         const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
 
         if (run.style == InlineStyle::Image && !run.url.empty()) {
-            const sk_sp<SkImage> image = params.resolveImage ? params.resolveImage(run.url) : nullptr;
-
             const float displayW = run.imageWidth;
             const float displayH = run.imageHeight;
+            const sk_sp<SkImage> image =
+                params.resolveImage ? params.resolveImage(run.url, displayW, displayH) : nullptr;
             float drawX = currentX;
             const float blockW = block.bounds.width();
             if (displayW > blockW * 0.8f) {
@@ -270,6 +270,10 @@ void DrawBlocks(
     BlockType parentType = BlockType::Paragraph) {
     for (size_t index = 0; index < blocks.size(); ++index) {
         const auto& block = blocks[index];
+        if (block.bounds.bottom() < params.visibleDocumentTop || block.bounds.top() > params.visibleDocumentBottom) {
+            continue;
+        }
+
         if (block.type == BlockType::ThematicBreak) {
             ctx.paint.setColor(params.palette.thematicBreak);
             ctx.paint.setStrokeWidth(1.0f);
