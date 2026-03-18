@@ -70,7 +70,7 @@ namespace {
 
     void OnGoBack(HWND hwnd);
     void OnGoForward(HWND hwnd);
-    void LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
+    bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
 
     bool IsMarkdownFile(const std::filesystem::path& path) {
         std::string ext = path.extension().string();
@@ -112,6 +112,7 @@ namespace {
     constexpr UINT_PTR kAutoScrollTimerId = 2001;
     constexpr UINT_PTR kCopiedFeedbackTimerId = 2002;
     constexpr UINT kAutoScrollTimerMs = 16;
+    constexpr int kLinkClickSlop = 4;
     constexpr int kMenuHorizontalPadding = 12;
     constexpr int kMenuVerticalPadding = 6;
     constexpr int kMenuCheckGutterWidth = 26;
@@ -1164,7 +1165,26 @@ namespace {
             thumbHeight);
     }
 
+    size_t GetRunTextEnd(const mdviewer::RunLayout& run) {
+        if (run.style == mdviewer::InlineStyle::Image) {
+            return run.textStart;
+        }
+        return run.textStart + run.text.size();
+    }
+
+    float GetRunVisualWidth(RenderContext& ctx, mdviewer::BlockType blockType, const mdviewer::RunLayout& run) {
+        if (run.style == mdviewer::InlineStyle::Image) {
+            return run.imageWidth;
+        }
+        ConfigureFont(ctx, blockType, run.style);
+        return ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+    }
+
     size_t FindTextPositionInRun(RenderContext& ctx, mdviewer::BlockType blockType, const mdviewer::RunLayout& run, float xInRun) {
+        if (run.style == mdviewer::InlineStyle::Image) {
+            return run.textStart;
+        }
+
         ConfigureFont(ctx, blockType, run.style);
 
         if (xInRun <= 0.0f) {
@@ -1208,11 +1228,11 @@ namespace {
 
         for (const auto& run : line.runs) {
             const size_t runStart = run.textStart;
-            const size_t runEnd = run.textStart + run.text.size();
+            const size_t runEnd = GetRunTextEnd(run);
+            const float runWidth = GetRunVisualWidth(ctx, block.type, run);
 
             if (selectionEnd <= runStart || selectionStart >= runEnd) {
-                ConfigureFont(ctx, block.type, run.style);
-                currentX += ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+                currentX += runWidth;
                 continue;
             }
 
@@ -1229,7 +1249,7 @@ namespace {
                 SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
                 highlightPaint);
 
-            currentX += ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+            currentX += runWidth;
         }
     }
 
@@ -1259,10 +1279,9 @@ namespace {
                 bool foundRun = false;
 
                 for (const auto& run : line.runs) {
-                    ConfigureFont(ctx, block.type, run.style);
-                    const float runWidth = ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+                    const float runWidth = GetRunVisualWidth(ctx, block.type, run);
                     const float runEndX = currentX + runWidth;
-                    fallbackPosition = run.textStart + run.text.size();
+                    fallbackPosition = GetRunTextEnd(run);
 
                     if (x <= runEndX || &run == &line.runs.back()) {
                         bestHit.position = FindTextPositionInRun(ctx, block.type, run, x - currentX);
@@ -1763,10 +1782,10 @@ namespace {
             }
             }
 
-            void LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
+            bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
             if (!EnsureFontSystem()) {
             MessageBoxW(hwnd, L"Font initialization failed. The document cannot be rendered.", L"Error", MB_ICONERROR);
-            return;
+            return false;
             }
 
             auto content = mdviewer::ReadFileToString(path);
@@ -1781,7 +1800,7 @@ namespace {
                 docModel.blocks.push_back(std::move(block));
             } else {
                 MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
-                return;
+                return false;
             }
 
             // Pre-load images to get their sizes for layout
@@ -1806,36 +1825,42 @@ namespace {
             SetWindowTextW(hwnd, title.c_str());
 
             InvalidateRect(hwnd, NULL, FALSE);
+            return true;
             } else {
             MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
+            return false;
             }
             }
 
             void OnGoBack(HWND hwnd) {
             std::filesystem::path target;
+            size_t targetIndex = 0;
             {
             std::lock_guard<std::mutex> lock(g_appState.mtx);
             if (g_appState.CanGoBack()) {
-                g_appState.historyIndex--;
-                target = g_appState.history[g_appState.historyIndex];
+                targetIndex = g_appState.historyIndex - 1;
+                target = g_appState.history[targetIndex];
             }
             }
-            if (!target.empty()) {
-            LoadFile(hwnd, target, false);
+            if (!target.empty() && LoadFile(hwnd, target, false)) {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.historyIndex = targetIndex;
             }
             }
 
             void OnGoForward(HWND hwnd) {
             std::filesystem::path target;
+            size_t targetIndex = 0;
             {
             std::lock_guard<std::mutex> lock(g_appState.mtx);
             if (g_appState.CanGoForward()) {
-                g_appState.historyIndex++;
-                target = g_appState.history[g_appState.historyIndex];
+                targetIndex = g_appState.historyIndex + 1;
+                target = g_appState.history[targetIndex];
             }
             }
-            if (!target.empty()) {
-            LoadFile(hwnd, target, false);
+            if (!target.empty() && LoadFile(hwnd, target, false)) {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.historyIndex = targetIndex;
             }
             }
 
@@ -2151,11 +2176,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
 
             auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
-            if (hit.valid && !hit.url.empty()) {
-                const bool forceExternal = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                HandleLinkClick(hwnd, hit.url, forceExternal);
-                return 0;
-            }
 
             // Check code block copy buttons
             {
@@ -2187,11 +2207,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 g_appState.isDraggingScrollbar = true;
                 g_appState.isSelecting = false;
                 g_appState.scrollbarDragOffset = static_cast<float>(y) - thumb->top();
+                g_appState.pendingLinkClick = false;
+                g_appState.pendingLinkForceExternal = false;
+                g_appState.pendingLinkPressX = 0;
+                g_appState.pendingLinkPressY = 0;
+                g_appState.pendingLinkUrl.clear();
             } else if (x >= g_surface->width() - static_cast<int>(kScrollbarWidth + (kScrollbarMargin * 2.0f)) && GetScrollbarThumbRect(hwnd)) {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
                 g_appState.isDraggingScrollbar = true;
                 g_appState.isSelecting = false;
                 g_appState.scrollbarDragOffset = GetScrollbarThumbRect(hwnd)->height() * 0.5f;
+                g_appState.pendingLinkClick = false;
+                g_appState.pendingLinkForceExternal = false;
+                g_appState.pendingLinkPressX = 0;
+                g_appState.pendingLinkPressY = 0;
+                g_appState.pendingLinkUrl.clear();
                 UpdateScrollOffsetFromThumb(hwnd, y);
             } else {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
@@ -2204,6 +2234,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     g_appState.selectionAnchor = 0;
                     g_appState.selectionFocus = 0;
                 }
+                g_appState.pendingLinkClick = hit.valid && !hit.url.empty();
+                g_appState.pendingLinkForceExternal = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                g_appState.pendingLinkPressX = x;
+                g_appState.pendingLinkPressY = y;
+                g_appState.pendingLinkUrl = g_appState.pendingLinkClick ? hit.url : "";
             }
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
@@ -2272,6 +2307,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ClampScrollOffset(hwnd);
                 InvalidateRect(hwnd, NULL, FALSE);
             } else if (g_appState.isSelecting) {
+                if (g_appState.pendingLinkClick) {
+                    const int dx = GET_X_LPARAM(lParam) - g_appState.pendingLinkPressX;
+                    const int dy = GET_Y_LPARAM(lParam) - g_appState.pendingLinkPressY;
+                    if ((dx * dx) + (dy * dy) <= (kLinkClickSlop * kLinkClickSlop)) {
+                        return 0;
+                    }
+                    g_appState.pendingLinkClick = false;
+                    g_appState.pendingLinkForceExternal = false;
+                    g_appState.pendingLinkUrl.clear();
+                }
                 UpdateSelectionFromPoint(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
                 ClampScrollOffset(hwnd);
                 InvalidateRect(hwnd, NULL, FALSE);
@@ -2279,17 +2324,62 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         case WM_LBUTTONUP: {
+            const int x = GET_X_LPARAM(lParam);
+            const int y = GET_Y_LPARAM(lParam);
+            const auto releaseHit = HitTestText(static_cast<float>(x), static_cast<float>(y));
+
+            bool shouldUpdateSelection = false;
+            bool activateLink = false;
+            bool forceExternal = false;
+            std::string linkUrl;
+
+            {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.isDraggingScrollbar = false;
+                if (g_appState.isSelecting) {
+                    if (g_appState.pendingLinkClick) {
+                        activateLink = releaseHit.valid &&
+                                       !releaseHit.url.empty() &&
+                                       releaseHit.url == g_appState.pendingLinkUrl;
+                        forceExternal = g_appState.pendingLinkForceExternal;
+                        linkUrl = g_appState.pendingLinkUrl;
+                        if (activateLink) {
+                            g_appState.selectionAnchor = 0;
+                            g_appState.selectionFocus = 0;
+                        } else {
+                            shouldUpdateSelection = true;
+                        }
+                    } else {
+                        shouldUpdateSelection = true;
+                    }
+                }
+
+                g_appState.pendingLinkClick = false;
+                g_appState.pendingLinkForceExternal = false;
+                g_appState.pendingLinkUrl.clear();
+                g_appState.pendingLinkPressX = 0;
+                g_appState.pendingLinkPressY = 0;
+            }
+
             ReleaseCapture();
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            g_appState.isDraggingScrollbar = false;
-            if (g_appState.isSelecting) {
-                UpdateSelectionFromPoint(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+
+            if (shouldUpdateSelection) {
+                UpdateSelectionFromPoint(hwnd, x, y);
             }
-            g_appState.isSelecting = false;
-            if (!g_appState.HasSelection()) {
-                g_appState.selectionAnchor = 0;
-                g_appState.selectionFocus = 0;
+
+            {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.isSelecting = false;
+                if (!g_appState.HasSelection()) {
+                    g_appState.selectionAnchor = 0;
+                    g_appState.selectionFocus = 0;
+                }
             }
+
+            if (activateLink) {
+                HandleLinkClick(hwnd, linkUrl, forceExternal);
+            }
+
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
@@ -2373,6 +2463,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_CAPTURECHANGED:
             if (reinterpret_cast<HWND>(lParam) != hwnd) {
                 StopAutoScroll(hwnd);
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.pendingLinkClick = false;
+                g_appState.pendingLinkForceExternal = false;
+                g_appState.pendingLinkPressX = 0;
+                g_appState.pendingLinkPressY = 0;
+                g_appState.pendingLinkUrl.clear();
                 InvalidateRect(hwnd, NULL, FALSE);
             }
             return 0;

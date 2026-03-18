@@ -34,6 +34,11 @@ struct AppState {
     bool needsRepaint = true;
     std::string hoveredUrl;
     uint64_t copiedFeedbackTimeout = 0; // Tick count when feedback should expire
+    bool pendingLinkClick = false;
+    bool pendingLinkForceExternal = false;
+    int pendingLinkPressX = 0;
+    int pendingLinkPressY = 0;
+    std::string pendingLinkUrl;
     
     // Maps code block button regions to the range of text in that code block
     std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;
@@ -87,6 +92,14 @@ struct AppState {
         selectionAnchor = 0;
         selectionFocus = 0;
         needsRepaint = true;
+        hoveredUrl.clear();
+        copiedFeedbackTimeout = 0;
+        pendingLinkClick = false;
+        pendingLinkForceExternal = false;
+        pendingLinkPressX = 0;
+        pendingLinkPressY = 0;
+        pendingLinkUrl.clear();
+        codeBlockButtons.clear();
     }
 };
 
