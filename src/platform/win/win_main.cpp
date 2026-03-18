@@ -129,6 +129,7 @@ namespace {
     constexpr int kMenuBarItemGap = 8;
     constexpr int kMenuBarTopPadding = 7;
     constexpr int kMenuBarBottomPadding = 8;
+    constexpr float kTopMenuFontSize = 17.5f;
     constexpr int kInitialWindowWidth = 900;
     constexpr int kInitialWindowHeight = 1200;
     constexpr UINT_PTR kCommandOpenFile = 1001;
@@ -778,7 +779,7 @@ namespace {
 
         SkFont menuFont;
         menuFont.setTypeface(g_typeface);
-        menuFont.setSize(mdviewer::GetTopMenuFontSize(g_appState.baseFontSize));
+        menuFont.setSize(kTopMenuFontSize);
         menuFont.setHinting(SkFontHinting::kSlight);
         menuFont.setSubpixel(true);
         menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
