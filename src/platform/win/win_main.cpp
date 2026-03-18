@@ -25,6 +25,8 @@
 
 #include "app/app_config.h"
 #include "app/app_state.h"
+#include "app/document_loader.h"
+#include "app/link_resolver.h"
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
 #include "render/theme.h"
@@ -77,33 +79,6 @@ namespace {
     void OnGoBack(HWND hwnd);
     void OnGoForward(HWND hwnd);
     bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
-
-    bool IsMarkdownFile(const std::filesystem::path& path) {
-        std::string ext = path.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
-        return (ext == ".md" || ext == ".markdown");
-    }
-
-    bool IsDefinitelyTextFile(const std::filesystem::path& path) {
-        std::string ext = path.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
-        if (ext == ".txt" || ext == ".log" || ext == ".ini" || ext == ".conf" || ext == ".json" || ext == ".xml" || ext == ".yml" || ext == ".yaml") return true;
-        
-        std::string name = path.filename().string();
-        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c){ return std::tolower(c); });
-        if (name == "license" || name == "license.txt" || name == "copying" || name == "notice" || name == "third_party_notices" || name == "readme") return true;
-        
-        return false;
-    }
-
-    bool ProbeIsText(const std::string& content) {
-        // Check for null bytes in the first 4KB as a heuristic for binary files
-        size_t checkSize = std::min(content.size(), (size_t)4096);
-        for (size_t i = 0; i < checkSize; ++i) {
-            if (content[i] == '\0') return false;
-        }
-        return true;
-    }
 
     constexpr float kTextBaselineOffset = 5.0f;
     constexpr float kCodeBlockPaddingX = 8.0f;
@@ -1783,23 +1758,18 @@ namespace {
             return false;
             }
 
-            auto content = mdviewer::ReadFileToString(path);
-            if (content) {
-            mdviewer::DocumentModel docModel;
-            if (IsMarkdownFile(path)) {
-                docModel = mdviewer::MarkdownParser::Parse(*content);
-            } else if (IsDefinitelyTextFile(path) || ProbeIsText(*content)) {
-                mdviewer::Block block;
-                block.type = mdviewer::BlockType::Paragraph;
-                block.inlineRuns.push_back({mdviewer::InlineStyle::Plain, *content, ""});
-                docModel.blocks.push_back(std::move(block));
-            } else {
+            auto result = mdviewer::LoadDocumentFromPath(path);
+            if (result.status == mdviewer::DocumentLoadStatus::BinaryFile) {
                 MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
+                return false;
+            }
+            if (result.status == mdviewer::DocumentLoadStatus::FileReadError) {
+                MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
                 return false;
             }
 
             // Pre-load images to get their sizes for layout
-            PreloadImages(docModel, path.parent_path());
+            PreloadImages(result.docModel, path.parent_path());
             RECT rect;
             GetClientRect(hwnd, &rect);
             float width = static_cast<float>(rect.right - rect.left);
@@ -1813,23 +1783,19 @@ namespace {
             };
 
             auto layout = mdviewer::LayoutEngine::ComputeLayout(
-                docModel,
+                result.docModel,
                 width,
                 g_typeface.get(),
                 g_appState.baseFontSize,
                 imageSizeProvider);
 
-            g_appState.SetFile(path, std::move(*content), std::move(docModel), std::move(layout), pushHistory);
+            g_appState.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
 
             std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
             SetWindowTextW(hwnd, title.c_str());
 
             InvalidateRect(hwnd, NULL, FALSE);
             return true;
-            } else {
-            MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
-            return false;
-            }
             }
 
             void OnGoBack(HWND hwnd) {
@@ -1867,102 +1833,20 @@ namespace {
             void HandleLinkClick(HWND hwnd, const std::string& url, bool forceExternal) {
             if (url.empty()) return;
 
-            // 1. Separate fragment/query from the path
-            std::string pathPart = url;
-            std::string fragment;
-            size_t hashPos = pathPart.find('#');
-            if (hashPos != std::string::npos) {
-            fragment = pathPart.substr(hashPos);
-            pathPart = pathPart.substr(0, hashPos);
-            }
-            size_t queryPos = pathPart.find('?');
-            if (queryPos != std::string::npos) {
-            pathPart = pathPart.substr(0, queryPos);
-            }
-
-            // 2. Simple URL decoding for local paths (e.g., %20 to space)
-            auto UrlDecode = [](const std::string& str) {
-            std::string res;
-            for (size_t i = 0; i < str.length(); ++i) {
-                if (str[i] == '%' && i + 2 < str.length()) {
-                    int value = 0;
-                    std::stringstream ss;
-                    ss << std::hex << str.substr(i + 1, 2);
-                    ss >> value;
-                    res += static_cast<char>(value);
-                    i += 2;
-                } else if (str[i] == '+') {
-                    res += ' ';
-                } else {
-                    res += str[i];
-                }
-            }
-            return res;
-            };
-
-            std::string decodedPath = UrlDecode(pathPart);
-            std::cout << "Link Clicked: " << url << " (decoded path: " << decodedPath << ", forceExternal: " << forceExternal << ")" << std::endl;
-
-            if (url.find("http://") == 0 || url.find("https://") == 0) {
-                std::cout << "  Opening web link in browser" << std::endl;
-                ShellExecuteA(NULL, "open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
-            } else if (url.find("file://") == 0) {
-                std::string localPath = url.substr(7);
-                // Remove leading slash if it's like file:///C:/...
-                if (localPath.size() > 1 && localPath[0] == '/' && localPath[2] == ':') {
-                    localPath = localPath.substr(1);
-                }
-                localPath = UrlDecode(localPath);
-                // Strip fragment from file:// too if present
-                size_t fHash = localPath.find('#');
-                if (fHash != std::string::npos) localPath = localPath.substr(0, fHash);
-
-                std::filesystem::path targetPath(localPath);
-                std::cout << "  Opening file:// link: " << targetPath << std::endl;
-
-                if (!forceExternal && (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath))) {
-                    std::cout << "  Loading internally via LoadFile" << std::endl;
-                    LoadFile(hwnd, targetPath);
-                } else {
-                    // For extensionless or unknown files, probe the content first
-                    auto content = mdviewer::ReadFileToString(targetPath);
-                    if (!forceExternal && content && ProbeIsText(*content)) {
-                         std::cout << "  Probed as text, loading internally" << std::endl;
-                         LoadFile(hwnd, targetPath);
-                    } else {
-                         std::cout << "  Probed as binary, missing, or forceExternal, opening via ShellExecuteW" << std::endl;
-                         ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
-                    }
-                }
-            } else {
-                std::filesystem::path currentDir = g_appState.currentFilePath.parent_path();
-                std::filesystem::path targetPath = currentDir / decodedPath;
-
-                if (!std::filesystem::exists(targetPath)) {
-                    // Try absolute path
-                    targetPath = std::filesystem::path(decodedPath);
-                }
-
-                std::cout << "  Resolved target path: " << targetPath << " (exists: " << std::filesystem::exists(targetPath) << ")" << std::endl;
-
-                if (std::filesystem::exists(targetPath)) {
-                    if (!forceExternal && (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath))) {
-                        std::cout << "  Loading internally via LoadFile" << std::endl;
-                        LoadFile(hwnd, targetPath);
-                    } else {
-                        // For extensionless or unknown files, probe the content first
-                        auto content = mdviewer::ReadFileToString(targetPath);
-                        if (!forceExternal && content && ProbeIsText(*content)) {
-                             std::cout << "  Probed as text, loading internally" << std::endl;
-                             LoadFile(hwnd, targetPath);
-                        } else {
-                             std::cout << "  Probed as binary, missing, or forceExternal, opening via ShellExecuteW" << std::endl;
-                             ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
-                        }
-                    }
-                } else {
-                    std::cout << "  Target file does not exist." << std::endl;
-                }
+            const auto target = mdviewer::ResolveLinkTarget(g_appState.currentFilePath, url, forceExternal);
+            switch (target.kind) {
+                case mdviewer::LinkTargetKind::InternalDocument:
+                    LoadFile(hwnd, target.path);
+                    break;
+                case mdviewer::LinkTargetKind::ExternalUrl:
+                    ShellExecuteA(NULL, "open", target.externalUrl.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                case mdviewer::LinkTargetKind::ExternalPath:
+                    ShellExecuteW(NULL, L"open", target.path.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                case mdviewer::LinkTargetKind::Invalid:
+                default:
+                    break;
             }
             }            void RelayoutCurrentDocument(HWND hwnd) {
             if (!EnsureFontSystem()) {

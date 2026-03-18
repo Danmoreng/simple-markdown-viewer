@@ -24,6 +24,8 @@ set(SKIA_DEBUG_OUT_DIR "${SKIA_DIR}/out/Debug" CACHE PATH "Path to the Debug Ski
 set(SOURCES
     src/main.cpp
     src/app/app_config.cpp
+    src/app/document_loader.cpp
+    src/app/link_resolver.cpp
     src/platform/win/win_main.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
