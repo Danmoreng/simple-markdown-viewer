@@ -6,6 +6,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <filesystem>
+#include <optional>
+#include <vector>
+
 #include "render/theme.h"
 
 class SkCanvas;
@@ -29,7 +33,13 @@ inline constexpr UINT_PTR kCommandZoomIn = 1204;
 
 bool CreateMenus(const ThemePalette& palette);
 void CleanupMenus();
-void UpdateMenuState(HWND hwnd, ThemeMode currentTheme, bool hasCustomFont, const ThemePalette& palette);
+void UpdateMenuState(
+    HWND hwnd,
+    ThemeMode currentTheme,
+    bool hasCustomFont,
+    const ThemePalette& palette,
+    const std::vector<std::filesystem::path>& recentFiles);
+std::optional<std::filesystem::path> GetRecentFileForCommand(UINT_PTR commandId);
 
 bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo);
 bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& palette);

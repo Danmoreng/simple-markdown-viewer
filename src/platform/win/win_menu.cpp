@@ -34,6 +34,8 @@ constexpr int kMenuLabelGap = 12;
 constexpr int kMenuBarLeftInset = 12;
 constexpr int kMenuBarItemGap = 8;
 constexpr float kTopMenuFontSize = 17.5f;
+constexpr UINT_PTR kCommandRecentFileBase = 1400;
+constexpr size_t kMaxRecentFiles = 8;
 
 struct MenuItemData {
     std::wstring text;
@@ -49,6 +51,7 @@ struct TopMenuItem {
 HMENU g_fileMenu = nullptr;
 HMENU g_viewMenu = nullptr;
 HMENU g_themeMenu = nullptr;
+std::vector<std::filesystem::path> g_recentFiles;
 HBRUSH g_menuBackgroundBrush = nullptr;
 HFONT g_menuFont = nullptr;
 bool g_ownsMenuFont = false;
@@ -95,6 +98,18 @@ std::pair<std::wstring, std::wstring> SplitMenuText(const std::wstring& text) {
     }
 
     return {text.substr(0, tabPos), text.substr(tabPos + 1)};
+}
+
+std::wstring EscapeMenuText(const std::wstring& text) {
+    std::wstring escaped;
+    escaped.reserve(text.size());
+    for (wchar_t ch : text) {
+        if (ch == L'&') {
+            escaped.push_back(L'&');
+        }
+        escaped.push_back(ch);
+    }
+    return escaped;
 }
 
 SIZE MeasureMenuSegment(HDC hdc, const std::wstring& text) {
@@ -318,10 +333,38 @@ void CleanupMenus() {
     g_themeMenu = nullptr;
 }
 
-void UpdateMenuState(HWND hwnd, ThemeMode currentTheme, bool hasCustomFont, const ThemePalette& palette) {
+void UpdateMenuState(
+    HWND hwnd,
+    ThemeMode currentTheme,
+    bool hasCustomFont,
+    const ThemePalette& palette,
+    const std::vector<std::filesystem::path>& recentFiles) {
     if (!g_viewMenu || !g_themeMenu) {
         return;
     }
+
+    g_recentFiles = recentFiles;
+    if (g_fileMenu) {
+        while (GetMenuItemCount(g_fileMenu) > 0) {
+            DeleteMenu(g_fileMenu, 0, MF_BYPOSITION);
+        }
+
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+        if (!g_recentFiles.empty()) {
+            AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
+            const size_t recentCount = std::min(g_recentFiles.size(), kMaxRecentFiles);
+            for (size_t index = 0; index < recentCount; ++index) {
+                const std::wstring path = EscapeMenuText(g_recentFiles[index].wstring());
+                const std::wstring label = L"&" + std::to_wstring(index + 1) + L" " + path;
+                AppendMenuW(g_fileMenu, MF_STRING, kCommandRecentFileBase + index, label.c_str());
+            }
+        }
+        AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandExit, L"E&xit");
+    }
+    g_menuItemData.clear();
+    ConfigureOwnerDrawMenu(g_fileMenu);
+    ConfigureOwnerDrawMenu(g_viewMenu);
 
     EnableMenuItem(
         g_viewMenu,
@@ -335,6 +378,19 @@ void UpdateMenuState(HWND hwnd, ThemeMode currentTheme, bool hasCustomFont, cons
         (currentTheme == ThemeMode::Dark ? kCommandThemeDark : kCommandThemeLight),
         MF_BYCOMMAND);
     RefreshMenuThemeResources(hwnd, palette);
+}
+
+std::optional<std::filesystem::path> GetRecentFileForCommand(UINT_PTR commandId) {
+    if (commandId < kCommandRecentFileBase) {
+        return std::nullopt;
+    }
+
+    const size_t index = static_cast<size_t>(commandId - kCommandRecentFileBase);
+    if (index >= g_recentFiles.size() || index >= kMaxRecentFiles) {
+        return std::nullopt;
+    }
+
+    return g_recentFiles[index];
 }
 
 bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo) {

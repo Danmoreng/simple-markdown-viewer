@@ -62,6 +62,8 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
             } catch (...) {
                 config.baseFontSize = kDefaultBaseFontSize;
             }
+        } else if (key.rfind("recent_file_", 0) == 0 && !value.empty()) {
+            config.recentFilesUtf8.push_back(value);
         }
     }
 
@@ -78,6 +80,9 @@ bool SaveAppConfig(const std::filesystem::path& path, const AppConfig& config) {
     output << "theme=" << ThemeModeToString(config.theme) << '\n';
     output << "font_family=" << config.fontFamilyUtf8 << '\n';
     output << "base_font_size=" << ClampBaseFontSize(config.baseFontSize) << '\n';
+    for (size_t index = 0; index < config.recentFilesUtf8.size(); ++index) {
+        output << "recent_file_" << index << '=' << config.recentFilesUtf8[index] << '\n';
+    }
     return output.good();
 }
 

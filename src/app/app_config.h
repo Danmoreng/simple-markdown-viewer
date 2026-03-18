@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "render/theme.h"
 
@@ -12,6 +13,7 @@ struct AppConfig {
     ThemeMode theme = ThemeMode::Light;
     std::string fontFamilyUtf8;
     float baseFontSize = 17.0f;
+    std::vector<std::string> recentFilesUtf8;
 };
 
 std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path);

@@ -6,6 +6,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <filesystem>
 #include <functional>
 #include <optional>
 
@@ -13,6 +14,7 @@ namespace mdviewer::win {
 
 struct WindowCommandHandlers {
     std::function<void()> openFile;
+    std::function<void(const std::filesystem::path&)> openRecentFile;
     std::function<void()> exitApp;
     std::function<void()> selectFont;
     std::function<void()> useDefaultFont;

@@ -71,6 +71,7 @@ namespace {
     sk_sp<SkFontMgr> g_fontMgr;
     std::wstring g_selectedFontFamily;
     std::filesystem::path g_configPath;
+    std::vector<std::filesystem::path> g_recentFiles;
 
     void OnGoBack(HWND hwnd);
     void OnGoForward(HWND hwnd);
@@ -87,6 +88,7 @@ namespace {
     constexpr int kInitialWindowWidth = 900;
     constexpr int kInitialWindowHeight = 1200;
     constexpr int kAppIconResourceId = 101;
+    constexpr size_t kMaxRecentFiles = 8;
 
     struct RenderContext {
         SkCanvas* canvas;
@@ -121,7 +123,8 @@ namespace {
             hwnd,
             g_appState.theme,
             !g_selectedFontFamily.empty(),
-            GetCurrentThemePalette());
+            GetCurrentThemePalette(),
+            g_recentFiles);
     }
 
     bool EnsureFontSystem();
@@ -195,6 +198,25 @@ namespace {
         return executablePath.parent_path() / L"mdviewer.ini";
     }
 
+    std::filesystem::path NormalizeRecentFilePath(const std::filesystem::path& path) {
+        try {
+            return std::filesystem::absolute(path).lexically_normal();
+        } catch (...) {
+            return path.lexically_normal();
+        }
+    }
+
+    void AddRecentFile(const std::filesystem::path& path) {
+        const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
+        g_recentFiles.erase(
+            std::remove(g_recentFiles.begin(), g_recentFiles.end(), normalizedPath),
+            g_recentFiles.end());
+        g_recentFiles.insert(g_recentFiles.begin(), normalizedPath);
+        if (g_recentFiles.size() > kMaxRecentFiles) {
+            g_recentFiles.resize(kMaxRecentFiles);
+        }
+    }
+
     void SaveCurrentConfig() {
         if (g_configPath.empty()) {
             return;
@@ -204,6 +226,10 @@ namespace {
         config.theme = g_appState.theme;
         config.fontFamilyUtf8 = WideToUtf8(g_selectedFontFamily);
         config.baseFontSize = g_appState.baseFontSize;
+        config.recentFilesUtf8.reserve(g_recentFiles.size());
+        for (const auto& recentFile : g_recentFiles) {
+            config.recentFilesUtf8.push_back(WideToUtf8(recentFile.wstring()));
+        }
         mdviewer::SaveAppConfig(g_configPath, config);
     }
 
@@ -215,12 +241,20 @@ namespace {
             g_appState.theme = mdviewer::ThemeMode::Light;
             g_appState.baseFontSize = mdviewer::kDefaultBaseFontSize;
             g_selectedFontFamily.clear();
+            g_recentFiles.clear();
             return;
         }
 
         g_appState.theme = config->theme;
         g_appState.baseFontSize = mdviewer::ClampBaseFontSize(config->baseFontSize);
         g_selectedFontFamily = Utf8ToWide(config->fontFamilyUtf8);
+        g_recentFiles.clear();
+        for (const auto& recentFileUtf8 : config->recentFilesUtf8) {
+            const auto recentFile = NormalizeRecentFilePath(Utf8ToWide(recentFileUtf8));
+            if (!recentFile.empty()) {
+                AddRecentFile(recentFile);
+            }
+        }
     }
 
     void ResetResolvedTypefaces() {
@@ -703,7 +737,7 @@ namespace {
                 mdviewer::win::PresentRasterSurface(hwnd, g_surface.get());
             }
 
-            bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
+    bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
             if (!EnsureFontSystem()) {
             MessageBoxW(hwnd, L"Font initialization failed. The document cannot be rendered.", L"Error", MB_ICONERROR);
             return false;
@@ -744,6 +778,9 @@ namespace {
 
             std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
             SetWindowTextW(hwnd, title.c_str());
+            AddRecentFile(path);
+            SaveCurrentConfig();
+            SyncMenuState(hwnd);
 
             InvalidateRect(hwnd, NULL, FALSE);
             return true;
@@ -1001,6 +1038,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     if (const auto path = ShowOpenFileDialog(hwnd)) {
                         LoadFile(hwnd, *path);
                     }
+                        },
+                        .openRecentFile = [&](const std::filesystem::path& path) {
+                            LoadFile(hwnd, path);
                         },
                         .exitApp = [&]() {
                             PostMessageW(hwnd, WM_CLOSE, 0, 0);

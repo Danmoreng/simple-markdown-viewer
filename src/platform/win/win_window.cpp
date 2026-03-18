@@ -58,6 +58,13 @@ int RunMessageLoop() {
 }
 
 bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& handlers) {
+    if (const auto recentFile = GetRecentFileForCommand(commandId)) {
+        if (handlers.openRecentFile) {
+            handlers.openRecentFile(*recentFile);
+        }
+        return true;
+    }
+
     switch (commandId) {
         case kCommandOpenFile:
             if (handlers.openFile) {
