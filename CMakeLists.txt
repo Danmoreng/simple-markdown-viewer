@@ -28,6 +28,7 @@ set(SOURCES
     src/app/link_resolver.cpp
     src/app/viewer_controller.cpp
     src/platform/win/win_main.cpp
+    src/platform/win/win_menu.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
     src/markdown/markdown_parser.cpp

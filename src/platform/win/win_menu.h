@@ -1,0 +1,52 @@
+#pragma once
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#include "render/theme.h"
+
+class SkCanvas;
+class SkTypeface;
+
+namespace mdviewer::win {
+
+inline constexpr int kMenuBarHeight = 42;
+
+inline constexpr UINT_PTR kCommandOpenFile = 1001;
+inline constexpr UINT_PTR kCommandExit = 1002;
+inline constexpr UINT_PTR kCommandSelectFont = 1003;
+inline constexpr UINT_PTR kCommandUseDefaultFont = 1004;
+inline constexpr UINT_PTR kCommandThemeLight = 1101;
+inline constexpr UINT_PTR kCommandThemeSepia = 1102;
+inline constexpr UINT_PTR kCommandThemeDark = 1103;
+inline constexpr UINT_PTR kCommandGoBack = 1201;
+inline constexpr UINT_PTR kCommandGoForward = 1202;
+inline constexpr UINT_PTR kCommandZoomOut = 1203;
+inline constexpr UINT_PTR kCommandZoomIn = 1204;
+
+bool CreateMenus(const ThemePalette& palette);
+void CleanupMenus();
+void UpdateMenuState(HWND hwnd, ThemeMode currentTheme, bool hasCustomFont, const ThemePalette& palette);
+
+bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo);
+bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& palette);
+
+int HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth);
+bool UpdateTopMenuHover(HWND hwnd, int x, int y, int surfaceWidth);
+UINT OpenTopMenu(HWND hwnd, int menuIndex);
+
+void DrawTopMenuBar(
+    SkCanvas* canvas,
+    HWND hwnd,
+    int surfaceWidth,
+    SkTypeface* typeface,
+    const ThemePalette& palette,
+    bool canGoBack,
+    bool canGoForward,
+    bool canZoomOut,
+    bool canZoomIn);
+
+} // namespace mdviewer::win
