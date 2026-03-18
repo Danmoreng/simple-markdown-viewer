@@ -33,6 +33,7 @@
 #include "platform/win/win_menu.h"
 #include "platform/win/win_surface.h"
 #include "platform/win/win_window.h"
+#include "render/document_renderer.h"
 #include "render/theme.h"
 #include "render/typography.h"
 #include "util/file_io.h"
@@ -56,7 +57,6 @@
 #include "include/core/SkFontTypes.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImage.h"
-#include "include/core/SkSamplingOptions.h"
 #pragma warning(pop)
 
 void AdjustBaseFontSize(HWND hwnd, float delta);
@@ -76,13 +76,7 @@ namespace {
     void OnGoForward(HWND hwnd);
     bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
 
-    constexpr float kTextBaselineOffset = 5.0f;
-    constexpr float kCodeBlockPaddingX = 8.0f;
-    constexpr float kCodeBlockPaddingY = 8.0f;
     constexpr float kCodeBlockMarginY = 16.0f;
-    constexpr float kBlockquoteAccentWidth = 4.0f;
-    constexpr float kBlockquoteTextInset = 18.0f;
-    constexpr float kListMarkerGap = 16.0f;
     constexpr float kScrollbarWidth = 10.0f;
     constexpr float kScrollbarMargin = 4.0f;
     constexpr float kAutoScrollDeadZone = 2.0f;
@@ -312,72 +306,22 @@ namespace {
                g_codeTypeface != nullptr;
     }
 
-    bool IsHeading(mdviewer::BlockType blockType) {
-        return blockType == mdviewer::BlockType::Heading1 ||
-               blockType == mdviewer::BlockType::Heading2 ||
-               blockType == mdviewer::BlockType::Heading3 ||
-               blockType == mdviewer::BlockType::Heading4 ||
-               blockType == mdviewer::BlockType::Heading5 ||
-               blockType == mdviewer::BlockType::Heading6;
-    }
-
-    const mdviewer::LineLayout* FindFirstLine(const mdviewer::BlockLayout& block) {
-        if (!block.lines.empty()) {
-            return &block.lines.front();
-        }
-
-        for (const auto& child : block.children) {
-            if (const auto* line = FindFirstLine(child)) {
-                return line;
-            }
-        }
-
-        return nullptr;
-    }
-
     void ConfigureFont(RenderContext& ctx, mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
-        const bool isCode = blockType == mdviewer::BlockType::CodeBlock || inlineStyle == mdviewer::InlineStyle::Code;
-        const bool isHeading = IsHeading(blockType);
-        const bool isStrong = inlineStyle == mdviewer::InlineStyle::Strong;
-        ctx.font.setTypeface(
-            isCode ? g_codeTypeface : (isHeading ? g_headingTypeface : (isStrong ? g_boldTypeface : g_typeface)));
-        ctx.font.setSize(
-            isCode
-                ? mdviewer::GetBlockFontSize(mdviewer::BlockType::CodeBlock, g_appState.baseFontSize)
-                : mdviewer::GetBlockFontSize(blockType, g_appState.baseFontSize));
-        ctx.font.setSubpixel(!isHeading);
-        ctx.font.setHinting(SkFontHinting::kSlight);
-        ctx.font.setEdging(isHeading ? SkFont::Edging::kAntiAlias : SkFont::Edging::kSubpixelAntiAlias);
-        ctx.font.setEmbolden(false);
-        ctx.font.setSkewX(inlineStyle == mdviewer::InlineStyle::Emphasis ? -0.18f : 0.0f);
-        ctx.font.setScaleX(1.0f);
-    }
-
-    SkColor GetTextColor(mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
-        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
-        if (blockType == mdviewer::BlockType::Blockquote) {
-            return palette.blockquoteText;
-        }
-        if (inlineStyle == mdviewer::InlineStyle::Code) {
-            return palette.codeText;
-        }
-        if (inlineStyle == mdviewer::InlineStyle::Link) {
-            return palette.linkText;
-        }
-        if (IsHeading(blockType)) {
-            return palette.headingText;
-        }
-        return palette.bodyText;
+        mdviewer::ConfigureDocumentFont(
+            ctx.font,
+            mdviewer::DocumentTypefaceSet{
+                .regular = g_typeface.get(),
+                .bold = g_boldTypeface.get(),
+                .heading = g_headingTypeface.get(),
+                .code = g_codeTypeface.get(),
+            },
+            blockType,
+            inlineStyle,
+            g_appState.baseFontSize);
     }
 
     float GetContentX(const mdviewer::BlockLayout& block) {
-        if (block.type == mdviewer::BlockType::CodeBlock) {
-            return block.bounds.left() + kCodeBlockPaddingX;
-        }
-        if (block.type == mdviewer::BlockType::Blockquote) {
-            return block.bounds.left() + kBlockquoteTextInset;
-        }
-        return block.bounds.left();
+        return mdviewer::GetDocumentContentX(block);
     }
 
     size_t GetSelectionStart() {
@@ -434,40 +378,6 @@ namespace {
     bool TickAutoScroll(HWND hwnd) {
         std::lock_guard<std::mutex> lock(g_appState.mtx);
         return mdviewer::TickAutoScroll(g_appState, GetMaxScroll(hwnd), kAutoScrollDeadZone);
-    }
-
-    void DrawAutoScrollIndicator(SkCanvas* canvas) {
-        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
-        if (!g_appState.isAutoScrolling) {
-            return;
-        }
-        const float originX = g_appState.autoScrollOriginX;
-        const float originY = g_appState.autoScrollOriginY;
-
-        SkPaint fillPaint;
-        fillPaint.setAntiAlias(true);
-        fillPaint.setColor(palette.autoScrollIndicatorFill);
-        canvas->drawCircle(originX, originY, 15.0f, fillPaint);
-
-        SkPaint ringPaint;
-        ringPaint.setAntiAlias(true);
-        ringPaint.setColor(palette.autoScrollIndicator);
-        ringPaint.setStyle(SkPaint::kStroke_Style);
-        ringPaint.setStrokeWidth(1.8f);
-        canvas->drawCircle(originX, originY, 15.0f, ringPaint);
-        canvas->drawLine(originX - 7.0f, originY, originX + 7.0f, originY, ringPaint);
-        canvas->drawLine(originX, originY - 7.0f, originX, originY + 7.0f, ringPaint);
-
-        SkPaint arrowPaint;
-        arrowPaint.setAntiAlias(true);
-        arrowPaint.setColor(palette.autoScrollIndicator);
-        arrowPaint.setStyle(SkPaint::kStroke_Style);
-        arrowPaint.setStrokeWidth(1.8f);
-
-        canvas->drawLine(originX - 4.0f, originY - 7.0f, originX, originY - 11.0f, arrowPaint);
-        canvas->drawLine(originX, originY - 11.0f, originX + 4.0f, originY - 7.0f, arrowPaint);
-        canvas->drawLine(originX - 4.0f, originY + 7.0f, originX, originY + 11.0f, arrowPaint);
-        canvas->drawLine(originX, originY + 11.0f, originX + 4.0f, originY + 7.0f, arrowPaint);
     }
 
     std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd) {
@@ -537,44 +447,6 @@ namespace {
         }
 
         return run.textStart + bestOffset;
-    }
-
-    void DrawSelectionForLine(RenderContext& ctx, const mdviewer::BlockLayout& block, const mdviewer::LineLayout& line) {
-        if (!g_appState.HasSelection()) {
-            return;
-        }
-
-        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
-
-        const size_t selectionStart = GetSelectionStart();
-        const size_t selectionEnd = GetSelectionEnd();
-        float currentX = GetContentX(block);
-
-        for (const auto& run : line.runs) {
-            const size_t runStart = run.textStart;
-            const size_t runEnd = GetRunTextEnd(run);
-            const float runWidth = GetRunVisualWidth(ctx, block.type, run);
-
-            if (selectionEnd <= runStart || selectionStart >= runEnd) {
-                currentX += runWidth;
-                continue;
-            }
-
-            ConfigureFont(ctx, block.type, run.style);
-            const size_t highlightStart = std::max(selectionStart, runStart) - runStart;
-            const size_t highlightEnd = std::min(selectionEnd, runEnd) - runStart;
-            const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8);
-            const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8);
-
-            SkPaint highlightPaint;
-            highlightPaint.setAntiAlias(true);
-            highlightPaint.setColor(palette.selectionFill);
-            ctx.canvas->drawRect(
-                SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
-                highlightPaint);
-
-            currentX += runWidth;
-        }
     }
 
     TextHit HitTestText(float x, float viewportY) {
@@ -653,186 +525,6 @@ namespace {
         return true;
     }
 
-    void DrawCopyIcon(SkCanvas* canvas, float x, float y, float size, SkColor color) {
-        SkPaint paint;
-        paint.setAntiAlias(true);
-        paint.setColor(color);
-        paint.setStyle(SkPaint::kStroke_Style);
-        paint.setStrokeWidth(1.5f);
-        paint.setStrokeCap(SkPaint::kRound_Cap);
-        paint.setStrokeJoin(SkPaint::kRound_Join);
-
-        // Main clipboard body
-        SkRect body = SkRect::MakeXYWH(x + size * 0.2f, y + size * 0.3f, size * 0.6f, size * 0.6f);
-        canvas->drawRoundRect(body, 2.0f, 2.0f, paint);
-
-        // Clipboard top clip
-        SkRect clip = SkRect::MakeXYWH(x + size * 0.35f, y + size * 0.15f, size * 0.3f, size * 0.25f);
-        canvas->drawRoundRect(clip, 1.0f, 1.0f, paint);
-    }
-
-    void DrawBlockDecoration(RenderContext& ctx,
-                             const mdviewer::BlockLayout& block,
-                             mdviewer::BlockType parentType,
-                             size_t siblingIndex) {
-        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
-
-        if (block.type == mdviewer::BlockType::CodeBlock) {
-            SkPaint backgroundPaint;
-            backgroundPaint.setAntiAlias(true);
-            backgroundPaint.setColor(palette.codeBlockBackground);
-            
-            // Draw background flush with left edge
-            SkRect bgRect = SkRect::MakeLTRB(
-                block.bounds.left(),
-                block.bounds.top() - kCodeBlockPaddingY,
-                block.bounds.right() + kCodeBlockPaddingX,
-                block.bounds.bottom() + kCodeBlockPaddingY);
-            
-            ctx.canvas->drawRoundRect(bgRect, 8.0f, 8.0f, backgroundPaint);
-
-            // Draw copy button
-            const float btnSize = 28.0f;
-            const float btnPadding = 6.0f;
-            SkRect btnRect = SkRect::MakeXYWH(
-                bgRect.right() - btnSize - btnPadding,
-                bgRect.top() + btnPadding,
-                btnSize,
-                btnSize);
-            
-            // Store for hit testing (document coordinates)
-            g_appState.codeBlockButtons.push_back({btnRect, {block.textStart, block.textStart + block.textLength}});
-
-            DrawCopyIcon(ctx.canvas, btnRect.left(), btnRect.top(), btnSize, palette.listMarker);
-        } else if (block.type == mdviewer::BlockType::Blockquote) {
-            SkPaint accentPaint;
-            accentPaint.setAntiAlias(true);
-            accentPaint.setColor(palette.blockquoteAccent);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeXYWH(
-                    block.bounds.left(),
-                    block.bounds.top(),
-                    kBlockquoteAccentWidth,
-                    std::max(block.bounds.height(), 12.0f)),
-                2.0f,
-                2.0f,
-                accentPaint);
-        } else if (block.type == mdviewer::BlockType::ListItem &&
-                   (parentType == mdviewer::BlockType::UnorderedList || parentType == mdviewer::BlockType::OrderedList)) {
-            const mdviewer::LineLayout* firstLine = FindFirstLine(block);
-            if (!firstLine) {
-                return;
-            }
-
-            ConfigureFont(ctx, mdviewer::BlockType::Paragraph, mdviewer::InlineStyle::Plain);
-            ctx.paint.setColor(palette.listMarker);
-            const float markerBaseline = firstLine->y + firstLine->height - kTextBaselineOffset;
-            const float markerX = block.bounds.left() - kListMarkerGap;
-
-            if (parentType == mdviewer::BlockType::OrderedList) {
-                const std::string marker = std::to_string(siblingIndex + 1) + ".";
-                ctx.canvas->drawString(marker.c_str(), markerX - 6.0f, markerBaseline, ctx.font, ctx.paint);
-            } else {
-                ctx.canvas->drawCircle(markerX, markerBaseline - (firstLine->height * 0.35f), 3.0f, ctx.paint);
-            }
-        }
-    }
-
-    void DrawLine(RenderContext& ctx, const mdviewer::BlockLayout& block, const mdviewer::LineLayout& line) {
-        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
-        float currentX = GetContentX(block);
-
-        for (const auto& run : line.runs) {
-            ConfigureFont(ctx, block.type, run.style);
-
-            SkRect textBounds;
-            const float advance = ctx.font.measureText(
-                run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8, &textBounds);
-            const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
-
-            if (run.style == mdviewer::InlineStyle::Image && !run.url.empty()) {
-                sk_sp<SkImage> image;
-                auto it = g_imageCache.find(run.url);
-                if (it != g_imageCache.end()) {
-                    image = it->second;
-                } else {
-                    // Try to load image
-                    std::filesystem::path imagePath = run.url;
-                    if (imagePath.is_relative()) {
-                        imagePath = g_appState.currentFilePath.parent_path() / run.url;
-                    }
-                    
-                    if (std::filesystem::exists(imagePath)) {
-                        auto data = SkData::MakeFromFileName(imagePath.string().c_str());
-                        if (data) {
-                            image = SkImages::DeferredFromEncodedData(data);
-                            if (image) {
-                                g_imageCache[run.url] = image;
-                                // After loading, we might want to relayout if actual size is different,
-                                // but for now we used a placeholder size.
-                            }
-                        }
-                    }
-                }
-
-                float displayW = run.imageWidth;
-                float displayH = run.imageHeight;
-                
-                // If it's a large block image (scaled to ~90% width), center it
-                float drawX = currentX;
-                const float blockW = block.bounds.width();
-                if (displayW > blockW * 0.8f) {
-                    drawX = block.bounds.left() + (blockW - displayW) * 0.5f;
-                }
-
-                if (image) {
-                    ctx.canvas->drawImageRect(image, 
-                        SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH),
-                        SkSamplingOptions(SkFilterMode::kLinear));
-                } else {
-                    // Draw placeholder
-                    SkPaint placeholderPaint;
-                    placeholderPaint.setStyle(SkPaint::kStroke_Style);
-                    placeholderPaint.setColor(palette.listMarker);
-                    placeholderPaint.setStrokeWidth(1.0f);
-                    SkRect rect = SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH);
-                    ctx.canvas->drawRect(rect, placeholderPaint);
-                    ctx.canvas->drawLine(rect.left(), rect.top(), rect.right(), rect.bottom(), placeholderPaint);
-                    ctx.canvas->drawLine(rect.right(), rect.top(), rect.left(), rect.bottom(), placeholderPaint);
-                }
-                currentX += displayW + 4.0f;
-                continue;
-            }
-
-            if (run.style == mdviewer::InlineStyle::Code && !run.text.empty()) {
-                SkPaint chipPaint;
-                chipPaint.setAntiAlias(true);
-                chipPaint.setColor(palette.codeInlineBackground);
-                ctx.canvas->drawRoundRect(
-                    SkRect::MakeLTRB(
-                        currentX - 4.0f,
-                        line.y + 1.0f,
-                        currentX + advance + 4.0f,
-                        line.y + line.height - 1.0f),
-                    4.0f,
-                    4.0f,
-                    chipPaint);
-            }
-
-            ctx.paint.setColor(GetTextColor(block.type, run.style));
-            ctx.canvas->drawString(run.text.c_str(), currentX, baselineY, ctx.font, ctx.paint);
-
-            if (run.style == mdviewer::InlineStyle::Link && advance > 0.0f) {
-                SkPaint underlinePaint;
-                underlinePaint.setAntiAlias(true);
-                underlinePaint.setStrokeWidth(1.0f);
-                underlinePaint.setColor(GetTextColor(block.type, run.style));
-                ctx.canvas->drawLine(currentX, baselineY + 2.0f, currentX + advance, baselineY + 2.0f, underlinePaint);
-            }
-
-            currentX += advance;
-        }
-    }
     void PreloadImage(const std::string& url, const std::filesystem::path& baseDir) {
         if (g_imageCache.find(url) != g_imageCache.end()) {
             return;
@@ -870,30 +562,6 @@ namespace {
             }
             }
 
-            void DrawBlocks(RenderContext& ctx,
-                    const std::vector<mdviewer::BlockLayout>& blocks,
-                    mdviewer::BlockType parentType = mdviewer::BlockType::Paragraph) {
-            for (size_t index = 0; index < blocks.size(); ++index) {
-            const auto& block = blocks[index];
-            if (block.type == mdviewer::BlockType::ThematicBreak) {
-                ctx.paint.setColor(GetCurrentThemePalette().thematicBreak);
-                ctx.paint.setStrokeWidth(1.0f);
-                ctx.canvas->drawLine(block.bounds.left(), block.bounds.centerY(), block.bounds.right(), block.bounds.centerY(), ctx.paint);
-            } else {
-                DrawBlockDecoration(ctx, block, parentType, index);
-
-                for (const auto& line : block.lines) {
-                    DrawSelectionForLine(ctx, block, line);
-                    DrawLine(ctx, block, line);
-                }
-
-                if (!block.children.empty()) {
-                    DrawBlocks(ctx, block.children, block.type);
-                }
-            }
-            }
-            }
-
             void UpdateSurface(HWND hwnd) {
             mdviewer::win::EnsureRasterSurfaceSize(hwnd, g_surface);
             }
@@ -915,35 +583,57 @@ namespace {
             {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
                 g_appState.codeBlockButtons.clear();
+                mdviewer::RenderDocumentScene(
+                    mdviewer::DocumentSceneParams{
+                        .canvas = canvas,
+                        .appState = &g_appState,
+                        .palette = palette,
+                        .typefaces = mdviewer::DocumentTypefaceSet{
+                            .regular = g_typeface.get(),
+                            .bold = g_boldTypeface.get(),
+                            .heading = g_headingTypeface.get(),
+                            .code = g_codeTypeface.get(),
+                        },
+                        .baseFontSize = g_appState.baseFontSize,
+                        .contentTopInset = GetContentTopInset(),
+                        .viewportHeight = GetViewportHeight(hwnd),
+                        .surfaceWidth = static_cast<float>(g_surface->width()),
+                        .surfaceHeight = static_cast<float>(g_surface->height()),
+                        .scrollbarWidth = kScrollbarWidth,
+                        .scrollbarMargin = kScrollbarMargin,
+                        .currentTickCount = GetTickCount64(),
+                        .scrollbarThumbRect = GetScrollbarThumbRect(hwnd),
+                        .resolveImage = [&](const std::string& url) -> sk_sp<SkImage> {
+                            auto it = g_imageCache.find(url);
+                            if (it != g_imageCache.end()) {
+                                return it->second;
+                            }
 
-                RenderContext ctx;            ctx.canvas = canvas;
-            ctx.paint.setAntiAlias(true);
-            ctx.font.setTypeface(g_typeface);
-            ctx.font.setSubpixel(true);
-            ctx.font.setHinting(SkFontHinting::kSlight);
-            ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+                            std::filesystem::path imagePath = url;
+                            if (imagePath.is_relative()) {
+                                imagePath = g_appState.currentFilePath.parent_path() / url;
+                            }
 
-            canvas->save();
-            canvas->clipRect(SkRect::MakeLTRB(
-                0.0f,
-                GetContentTopInset(),
-                static_cast<float>(g_surface->width()),
-                static_cast<float>(g_surface->height())));
-            canvas->translate(0, GetContentTopInset() - g_appState.scrollOffset);
+                            if (!std::filesystem::exists(imagePath)) {
+                                return nullptr;
+                            }
 
-            DrawBlocks(ctx, g_appState.docLayout.blocks);
+                            auto data = SkData::MakeFromFileName(imagePath.string().c_str());
+                            if (!data) {
+                                return nullptr;
+                            }
 
-            if (g_appState.sourceText.empty()) {
-                ctx.font.setSize(mdviewer::GetEmptyStateFontSize(g_appState.baseFontSize));
-                ctx.paint.setColor(palette.emptyStateText);
-                const char* msg = "Drag and drop a Markdown file here";
-                SkRect bounds;
-                ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
-                const float emptyStateY = GetViewportHeight(hwnd) * 0.5f;
-                canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, emptyStateY, ctx.font, ctx.paint);
+                            auto image = SkImages::DeferredFromEncodedData(data);
+                            if (image) {
+                                g_imageCache[url] = image;
+                            }
+                            return image;
+                        },
+                        .addCodeBlockButton = [&](const SkRect& rect, size_t start, size_t end) {
+                            g_appState.codeBlockButtons.push_back({rect, {start, end}});
+                        },
+                    });
             }
-
-            canvas->restore();
 
             mdviewer::win::DrawTopMenuBar(
                 canvas,
@@ -955,84 +645,6 @@ namespace {
                 g_appState.CanGoForward(),
                 CanZoomOut(),
                 CanZoomIn());
-
-            // Draw simple scrollbar indicator
-            if (const auto thumb = GetScrollbarThumbRect(hwnd)) {
-                SkPaint trackPaint;
-                trackPaint.setAntiAlias(true);
-                trackPaint.setColor(palette.scrollbarTrack);
-                ctx.canvas->drawRoundRect(
-                    SkRect::MakeXYWH(
-                        g_surface->width() - kScrollbarWidth - kScrollbarMargin,
-                        kScrollbarMargin + GetContentTopInset(),
-                        kScrollbarWidth,
-                        std::max(GetViewportHeight(hwnd) - (kScrollbarMargin * 2.0f), 1.0f)),
-                    5.0f,
-                    5.0f,
-                    trackPaint);
-
-                ctx.paint.setColor(palette.scrollbarThumb);
-                ctx.canvas->drawRoundRect(*thumb, 5.0f, 5.0f, ctx.paint);
-            }
-
-            DrawAutoScrollIndicator(ctx.canvas);
-
-            // Draw hovered URL overlay at the bottom
-            if (!g_appState.hoveredUrl.empty()) {
-                const float padding = 6.0f;
-                ctx.font.setSize(mdviewer::GetHoverOverlayFontSize(g_appState.baseFontSize));
-                ctx.font.setTypeface(g_typeface);
-
-                SkRect textBounds;
-                ctx.font.measureText(g_appState.hoveredUrl.c_str(), g_appState.hoveredUrl.size(), SkTextEncoding::kUTF8, &textBounds);
-
-                const float overlayW = textBounds.width() + (padding * 2.0f);
-                const float overlayH = 24.0f;
-                const float overlayX = 10.0f;
-                const float overlayY = static_cast<float>(g_surface->height()) - overlayH - 10.0f;
-
-                SkPaint bPaint;
-                bPaint.setAntiAlias(true);
-                bPaint.setColor(palette.menuBackground);
-                bPaint.setAlphaf(0.9f);
-                ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 4.0f, 4.0f, bPaint);
-
-                SkPaint borderPaint;
-                borderPaint.setAntiAlias(true);
-                borderPaint.setStyle(SkPaint::kStroke_Style);
-                borderPaint.setStrokeWidth(1.0f);
-                borderPaint.setColor(palette.menuSeparator);
-                ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 4.0f, 4.0f, borderPaint);
-
-                ctx.paint.setColor(palette.menuText);
-                ctx.canvas->drawString(g_appState.hoveredUrl.c_str(), overlayX + padding, overlayY + overlayH - 7.0f, ctx.font, ctx.paint);
-                }
-
-                // Draw "Copied!" feedback overlay at the bottom right
-                if (g_appState.copiedFeedbackTimeout > GetTickCount64()) {
-                const char* msg = "Copied!";
-                const float padding = 8.0f;
-                ctx.font.setSize(mdviewer::GetCopiedOverlayFontSize(g_appState.baseFontSize));
-                ctx.font.setTypeface(g_boldTypeface);
-
-                SkRect textBounds;
-                ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &textBounds);
-
-                const float overlayW = textBounds.width() + (padding * 2.0f);
-                const float overlayH = 28.0f;
-                const float overlayX = static_cast<float>(g_surface->width()) - overlayW - 10.0f;
-                const float overlayY = static_cast<float>(g_surface->height()) - overlayH - 10.0f;
-
-                SkPaint bPaint;
-                bPaint.setAntiAlias(true);
-                bPaint.setColor(palette.menuSelectedBackground);
-                bPaint.setAlphaf(0.95f);
-                ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 6.0f, 6.0f, bPaint);
-
-                ctx.paint.setColor(palette.menuSelectedText);
-                ctx.canvas->drawString(msg, overlayX + padding, overlayY + overlayH - 8.0f, ctx.font, ctx.paint);
-                }
-                }
 
                 mdviewer::win::PresentRasterSurface(hwnd, g_surface.get());
             }

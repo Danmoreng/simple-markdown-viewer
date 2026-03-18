@@ -35,6 +35,7 @@ set(SOURCES
     src/util/skia_font_utils.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
+    src/render/document_renderer.cpp
     src/render/theme.cpp
     src/render/typography.cpp
     src/view/document_hit_test.cpp
