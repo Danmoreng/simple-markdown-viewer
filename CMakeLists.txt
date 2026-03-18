@@ -37,6 +37,7 @@ set(SOURCES
     src/layout/layout_engine.cpp
     src/render/theme.cpp
     src/render/typography.cpp
+    src/view/document_interaction.cpp
     resources/app.rc
 )
 
