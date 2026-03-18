@@ -10,9 +10,11 @@ struct ParserContext {
     DocumentModel doc;
     std::stack<Block*> blockStack;
     std::vector<InlineStyle> styleStack;
+    std::vector<std::string> urlStack;
 
     ParserContext() {
         styleStack.push_back(InlineStyle::Plain);
+        urlStack.push_back("");
     }
 
     Block* CurrentBlock() {
@@ -141,6 +143,7 @@ static InlineStyle MapSpanType(MD_SPANTYPE type) {
         case MD_SPAN_STRONG: return InlineStyle::Strong;
         case MD_SPAN_CODE: return InlineStyle::Code;
         case MD_SPAN_A: return InlineStyle::Link;
+        case MD_SPAN_IMG: return InlineStyle::Image;
         default: return InlineStyle::Plain;
     }
 }
@@ -181,9 +184,20 @@ static int LeaveBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
 }
 
 static int EnterSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
-    (void)detail;
     auto* ctx = static_cast<ParserContext*>(userdata);
-    ctx->styleStack.push_back(MapSpanType(type));
+    InlineStyle style = MapSpanType(type);
+    ctx->styleStack.push_back(style);
+
+    std::string url;
+    if (type == MD_SPAN_A) {
+        auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
+        url.assign(a->href.text, a->href.size);
+    } else if (type == MD_SPAN_IMG) {
+        auto* img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
+        url.assign(img->src.text, img->src.size);
+    }
+    ctx->urlStack.push_back(url);
+
     return 0;
 }
 
@@ -193,6 +207,9 @@ static int LeaveSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
     auto* ctx = static_cast<ParserContext*>(userdata);
     if (ctx->styleStack.size() > 1) {
         ctx->styleStack.pop_back();
+    }
+    if (ctx->urlStack.size() > 1) {
+        ctx->urlStack.pop_back();
     }
     return 0;
 }
@@ -217,11 +234,14 @@ static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, voi
     }
 
     InlineStyle currentStyle = ctx->styleStack.back();
+    std::string currentUrl = ctx->urlStack.back();
 
-    if (!currentBlock->inlineRuns.empty() && currentBlock->inlineRuns.back().style == currentStyle) {
+    if (!currentBlock->inlineRuns.empty() && 
+        currentBlock->inlineRuns.back().style == currentStyle &&
+        currentBlock->inlineRuns.back().url == currentUrl) {
         currentBlock->inlineRuns.back().text += str;
     } else {
-        currentBlock->inlineRuns.push_back({currentStyle, str});
+        currentBlock->inlineRuns.push_back({currentStyle, str, currentUrl});
     }
 
     return 0;

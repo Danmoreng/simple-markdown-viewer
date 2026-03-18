@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <vector>
 #include "layout/document_model.h"
 #include "include/core/SkRect.h"
@@ -10,7 +11,10 @@ namespace mdviewer {
 struct RunLayout {
     InlineStyle style;
     std::string text;
+    std::string url;
     size_t textStart = 0;
+    float imageWidth = 0.0f;
+    float imageHeight = 0.0f;
 };
 
 struct LineLayout {
@@ -38,7 +42,8 @@ struct DocumentLayout {
 
 class LayoutEngine {
 public:
-    static DocumentLayout ComputeLayout(const DocumentModel& doc, float width, SkTypeface* typeface);
+    using ImageSizeProvider = std::function<std::pair<float, float>(const std::string& url)>;
+    static DocumentLayout ComputeLayout(const DocumentModel& doc, float width, SkTypeface* typeface, ImageSizeProvider imageSizeProvider = nullptr);
 };
 
 } // namespace mdviewer

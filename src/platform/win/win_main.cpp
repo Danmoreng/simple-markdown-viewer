@@ -14,8 +14,11 @@
 #include <cstring>
 #include <limits>
 #include <list>
+#include <map>
 #include <optional>
 #include <string>
+#include <sstream>
+#include <cctype>
 #include <filesystem>
 #include <iostream>
 #include <vector>
@@ -40,6 +43,11 @@
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkTypeface.h"
 #include "include/core/SkFontTypes.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #pragma warning(pop)
 
 namespace {
@@ -59,6 +67,10 @@ namespace {
     bool g_ownsMenuFont = false;
     int g_hoveredTopMenuIndex = -1;
     int g_activeTopMenuIndex = -1;
+
+    void OnGoBack(HWND hwnd);
+    void OnGoForward(HWND hwnd);
+    void LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
 
     constexpr float kTextBaselineOffset = 5.0f;
     constexpr float kCodeBlockPaddingX = 12.0f;
@@ -91,6 +103,8 @@ namespace {
     constexpr UINT_PTR kCommandThemeLight = 1101;
     constexpr UINT_PTR kCommandThemeSepia = 1102;
     constexpr UINT_PTR kCommandThemeDark = 1103;
+    constexpr UINT_PTR kCommandGoBack = 1201;
+    constexpr UINT_PTR kCommandGoForward = 1202;
     constexpr int kAppIconResourceId = 101;
 
     struct RenderContext {
@@ -102,6 +116,8 @@ namespace {
     struct TextHit {
         size_t position = 0;
         bool valid = false;
+        std::string url;
+        mdviewer::InlineStyle style = mdviewer::InlineStyle::Plain;
     };
 
     struct MenuItemData {
@@ -111,6 +127,7 @@ namespace {
     };
 
     std::list<MenuItemData> g_menuItemData;
+    std::map<std::string, sk_sp<SkImage>> g_imageCache;
 
     struct TopMenuItem {
         const wchar_t* label;
@@ -686,6 +703,28 @@ namespace {
         return rects;
     }
 
+    void DrawArrow(SkCanvas* canvas, float x, float y, float size, bool right, SkColor color) {
+        SkPaint paint;
+        paint.setAntiAlias(true);
+        paint.setColor(color);
+        paint.setStyle(SkPaint::kStroke_Style);
+        paint.setStrokeWidth(2.0f);
+        paint.setStrokeCap(SkPaint::kRound_Cap);
+        paint.setStrokeJoin(SkPaint::kRound_Join);
+
+        const float halfSize = size * 0.5f;
+        const float tipX = right ? x + halfSize : x - halfSize;
+        const float tailX = right ? x - halfSize : x + halfSize;
+
+        SkPathBuilder builder;
+        builder.moveTo(tailX, y);
+        builder.lineTo(tipX, y);
+        builder.moveTo(tipX - (right ? 4 : -4), y - 4);
+        builder.lineTo(tipX, y);
+        builder.lineTo(tipX - (right ? 4 : -4), y + 4);
+        canvas->drawPath(builder.detach(), paint);
+    }
+
     int HitTestTopMenu(HWND hwnd, int x, int y) {
         if (y < 0 || y >= kMenuBarHeight) {
             return -1;
@@ -697,6 +736,18 @@ namespace {
             if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom) {
                 return static_cast<int>(index);
             }
+        }
+
+        // Toolbar buttons at the right
+        const float rightEdge = static_cast<float>(g_surface->width()) - 12.0f;
+        const float btnSize = 34.0f;
+        const float forwardBtnX = rightEdge - btnSize;
+        const float backBtnX = forwardBtnX - btnSize - 4.0f;
+        const float btnY = (static_cast<float>(kMenuBarHeight) - btnSize) * 0.5f;
+
+        if (y >= btnY && y < btnY + btnSize) {
+            if (x >= backBtnX && x < backBtnX + btnSize) return -2;
+            if (x >= forwardBtnX && x < forwardBtnX + btnSize) return -3;
         }
 
         return -1;
@@ -765,9 +816,40 @@ namespace {
                 menuFont,
                 textPaint);
         }
+
+        // Draw toolbar buttons (Back/Forward) at the right
+        const float rightEdge = static_cast<float>(g_surface->width()) - 12.0f;
+        const float btnSize = 34.0f;
+        const float forwardBtnX = rightEdge - btnSize;
+        const float backBtnX = forwardBtnX - btnSize - 4.0f;
+        const float btnY = (static_cast<float>(kMenuBarHeight) - btnSize) * 0.5f;
+
+        auto DrawToolbarBtn = [&](float x, float y, bool enabled, int hoverIdx, bool right) {
+            const bool isHovered = g_hoveredTopMenuIndex == hoverIdx;
+            if (enabled && isHovered) {
+                SkPaint hPaint;
+                hPaint.setAntiAlias(true);
+                hPaint.setColor(palette.menuSelectedBackground);
+                canvas->drawRoundRect(SkRect::MakeXYWH(x, y, btnSize, btnSize), 6.0f, 6.0f, hPaint);
+            }
+            SkColor color = enabled ? (isHovered ? palette.menuSelectedText : palette.menuText) : palette.menuDisabledText;
+            DrawArrow(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 14.0f, right, color);
+        };
+
+        DrawToolbarBtn(backBtnX, btnY, g_appState.CanGoBack(), -2, false);
+        DrawToolbarBtn(forwardBtnX, btnY, g_appState.CanGoForward(), -3, true);
     }
 
     void OpenTopMenu(HWND hwnd, int menuIndex) {
+        if (menuIndex == -2) {
+            if (g_appState.CanGoBack()) OnGoBack(hwnd);
+            return;
+        }
+        if (menuIndex == -3) {
+            if (g_appState.CanGoForward()) OnGoForward(hwnd);
+            return;
+        }
+
         const auto items = GetTopMenuItems();
         const auto rects = GetTopMenuItemRects(hwnd);
         if (menuIndex < 0 || static_cast<size_t>(menuIndex) >= items.size() || static_cast<size_t>(menuIndex) >= rects.size()) {
@@ -1156,6 +1238,8 @@ namespace {
                     if (x <= runEndX || &run == &line.runs.back()) {
                         bestHit.position = FindTextPositionInRun(ctx, block.type, run, x - currentX);
                         bestHit.valid = true;
+                        bestHit.url = run.url;
+                        bestHit.style = run.style;
                         bestDistance = distance;
                         foundRun = true;
                         break;
@@ -1310,6 +1394,60 @@ namespace {
                 run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8, &textBounds);
             const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
 
+            if (run.style == mdviewer::InlineStyle::Image && !run.url.empty()) {
+                sk_sp<SkImage> image;
+                auto it = g_imageCache.find(run.url);
+                if (it != g_imageCache.end()) {
+                    image = it->second;
+                } else {
+                    // Try to load image
+                    std::filesystem::path imagePath = run.url;
+                    if (imagePath.is_relative()) {
+                        imagePath = g_appState.currentFilePath.parent_path() / run.url;
+                    }
+                    
+                    if (std::filesystem::exists(imagePath)) {
+                        auto data = SkData::MakeFromFileName(imagePath.string().c_str());
+                        if (data) {
+                            image = SkImages::DeferredFromEncodedData(data);
+                            if (image) {
+                                g_imageCache[run.url] = image;
+                                // After loading, we might want to relayout if actual size is different,
+                                // but for now we used a placeholder size.
+                            }
+                        }
+                    }
+                }
+
+                float displayW = run.imageWidth;
+                float displayH = run.imageHeight;
+                
+                // If it's a large block image (scaled to ~90% width), center it
+                float drawX = currentX;
+                const float blockW = block.bounds.width();
+                if (displayW > blockW * 0.8f) {
+                    drawX = block.bounds.left() + (blockW - displayW) * 0.5f;
+                }
+
+                if (image) {
+                    ctx.canvas->drawImageRect(image, 
+                        SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH),
+                        SkSamplingOptions(SkFilterMode::kLinear));
+                } else {
+                    // Draw placeholder
+                    SkPaint placeholderPaint;
+                    placeholderPaint.setStyle(SkPaint::kStroke_Style);
+                    placeholderPaint.setColor(palette.listMarker);
+                    placeholderPaint.setStrokeWidth(1.0f);
+                    SkRect rect = SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH);
+                    ctx.canvas->drawRect(rect, placeholderPaint);
+                    ctx.canvas->drawLine(rect.left(), rect.top(), rect.right(), rect.bottom(), placeholderPaint);
+                    ctx.canvas->drawLine(rect.right(), rect.top(), rect.left(), rect.bottom(), placeholderPaint);
+                }
+                currentX += displayW + 4.0f;
+                continue;
+            }
+
             if (run.style == mdviewer::InlineStyle::Code && !run.text.empty()) {
                 SkPaint chipPaint;
                 chipPaint.setAntiAlias(true);
@@ -1339,196 +1477,367 @@ namespace {
             currentX += advance;
         }
     }
-}
-
-void DrawBlocks(RenderContext& ctx,
-                const std::vector<mdviewer::BlockLayout>& blocks,
-                mdviewer::BlockType parentType = mdviewer::BlockType::Paragraph) {
-    for (size_t index = 0; index < blocks.size(); ++index) {
-        const auto& block = blocks[index];
-        if (block.type == mdviewer::BlockType::ThematicBreak) {
-            ctx.paint.setColor(GetCurrentThemePalette().thematicBreak);
-            ctx.paint.setStrokeWidth(1.0f);
-            ctx.canvas->drawLine(block.bounds.left(), block.bounds.centerY(), block.bounds.right(), block.bounds.centerY(), ctx.paint);
-        } else {
-            DrawBlockDecoration(ctx, block, parentType, index);
-
-            for (const auto& line : block.lines) {
-                DrawSelectionForLine(ctx, block, line);
-                DrawLine(ctx, block, line);
-            }
-
-            if (!block.children.empty()) {
-                DrawBlocks(ctx, block.children, block.type);
-            }
-        }
-    }
-}
-
-void UpdateSurface(HWND hwnd) {
-    RECT rect;
-    GetClientRect(hwnd, &rect);
-    int width = rect.right - rect.left;
-    int height = rect.bottom - rect.top;
-
-    if (width <= 0 || height <= 0) return;
-
-    SkImageInfo info = SkImageInfo::MakeN32Premul(width, height);
-    g_surface = SkSurfaces::Raster(info);
-}
-
-void Render(HWND hwnd) {
-    if (!g_surface) return;
-
-    if (!EnsureFontSystem()) {
-        PAINTSTRUCT ps;
-        BeginPaint(hwnd, &ps);
-        EndPaint(hwnd, &ps);
-        return;
-    }
-
-    SkCanvas* canvas = g_surface->getCanvas();
-    const ThemePalette palette = GetCurrentThemePalette();
-    canvas->clear(palette.windowBackground);
-
-    {
-        std::lock_guard<std::mutex> lock(g_appState.mtx);
-        
-        RenderContext ctx;
-        ctx.canvas = canvas;
-        ctx.paint.setAntiAlias(true);
-        ctx.font.setTypeface(g_typeface);
-        ctx.font.setSubpixel(true);
-        ctx.font.setHinting(SkFontHinting::kSlight);
-        ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
-
-        canvas->save();
-        canvas->clipRect(SkRect::MakeLTRB(
-            0.0f,
-            GetContentTopInset(),
-            static_cast<float>(g_surface->width()),
-            static_cast<float>(g_surface->height())));
-        canvas->translate(0, GetContentTopInset() - g_appState.scrollOffset);
-
-        DrawBlocks(ctx, g_appState.docLayout.blocks);
-
-        if (g_appState.sourceText.empty()) {
-            ctx.font.setSize(20.0f);
-            ctx.paint.setColor(palette.emptyStateText);
-            const char* msg = "Drag and drop a Markdown file here";
-            SkRect bounds;
-            ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
-            const float emptyStateY = GetViewportHeight(hwnd) * 0.5f;
-            canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, emptyStateY, ctx.font, ctx.paint);
-        }
-
-        canvas->restore();
-
-        DrawTopMenuBar(canvas, hwnd);
-
-        // Draw simple scrollbar indicator
-        if (const auto thumb = GetScrollbarThumbRect(hwnd)) {
-            SkPaint trackPaint;
-            trackPaint.setAntiAlias(true);
-            trackPaint.setColor(palette.scrollbarTrack);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeXYWH(
-                    g_surface->width() - kScrollbarWidth - kScrollbarMargin,
-                    kScrollbarMargin + GetContentTopInset(),
-                    kScrollbarWidth,
-                    std::max(GetViewportHeight(hwnd) - (kScrollbarMargin * 2.0f), 1.0f)),
-                5.0f,
-                5.0f,
-                trackPaint);
-
-            ctx.paint.setColor(palette.scrollbarThumb);
-            ctx.canvas->drawRoundRect(*thumb, 5.0f, 5.0f, ctx.paint);
-        }
-
-        DrawAutoScrollIndicator(ctx.canvas);
-    }
-
-    SkPixmap pixmap;
-    if (g_surface->peekPixels(&pixmap)) {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        
-        BITMAPINFO bmi = {};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = pixmap.width();
-        bmi.bmiHeader.biHeight = -pixmap.height();
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
-
-        StretchDIBits(hdc, 0, 0, pixmap.width(), pixmap.height(),
-                      0, 0, pixmap.width(), pixmap.height(),
-                      pixmap.addr(), &bmi, DIB_RGB_COLORS, SRCCOPY);
-
-        EndPaint(hwnd, &ps);
-    } else {
-        // Fallback Begin/EndPaint to clear update region if peekPixels fails
-        PAINTSTRUCT ps;
-        BeginPaint(hwnd, &ps);
-        EndPaint(hwnd, &ps);
-    }
-}
-
-void LoadFile(HWND hwnd, const std::filesystem::path& path) {
-    if (!EnsureFontSystem()) {
-        MessageBoxW(hwnd, L"Font initialization failed. The document cannot be rendered.", L"Error", MB_ICONERROR);
-        return;
-    }
-
-    auto content = mdviewer::ReadFileToString(path);
-    if (content) {
-        auto docModel = mdviewer::MarkdownParser::Parse(*content);
-        
-        RECT rect;
-        GetClientRect(hwnd, &rect);
-        float width = static_cast<float>(rect.right - rect.left);
-        auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get());
-
-        g_appState.SetFile(path, std::move(*content), std::move(docModel), std::move(layout));
-        
-        std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
-        SetWindowTextW(hwnd, title.c_str());
-
-        InvalidateRect(hwnd, NULL, FALSE);
-    } else {
-        MessageBoxW(hwnd, L"Could not load file.", L"Error", MB_ICONERROR);
-    }
-}
-
-void RelayoutCurrentDocument(HWND hwnd) {
-    if (!EnsureFontSystem()) {
-        return;
-    }
-
-    mdviewer::DocumentModel docModel;
-    {
-        std::lock_guard<std::mutex> lock(g_appState.mtx);
-        if (g_appState.sourceText.empty()) {
+    void PreloadImage(const std::string& url, const std::filesystem::path& baseDir) {
+        if (g_imageCache.find(url) != g_imageCache.end()) {
             return;
         }
-        docModel = g_appState.docModel;
+
+        std::filesystem::path imagePath = url;
+        if (imagePath.is_relative()) {
+            imagePath = baseDir / url;
+        }
+
+        if (std::filesystem::exists(imagePath)) {
+            auto data = SkData::MakeFromFileName(imagePath.string().c_str());
+            if (data) {
+                auto image = SkImages::DeferredFromEncodedData(data);
+                if (image) {
+                    g_imageCache[url] = image;
+                }
+            }
+        }
     }
 
-    RECT rect;
-    GetClientRect(hwnd, &rect);
-    const float width = static_cast<float>(rect.right - rect.left);
-    auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get());
+    void PreloadImages(const mdviewer::DocumentModel& doc, const std::filesystem::path& baseDir) {
+        for (const auto& block : doc.blocks) {
+            for (const auto& run : block.inlineRuns) {
+                if (run.style == mdviewer::InlineStyle::Image) {
+                    PreloadImage(run.url, baseDir);
+                }
+            }
+            // For nested blocks (like lists or blockquotes)
+            if (!block.children.empty()) {
+                mdviewer::DocumentModel subDoc;
+                subDoc.blocks = block.children;
+                PreloadImages(subDoc, baseDir);
+            }
+            }
+            }
 
-    {
-        std::lock_guard<std::mutex> lock(g_appState.mtx);
-        g_appState.docLayout = std::move(layout);
-        ClampScrollOffset(hwnd);
-        g_appState.needsRepaint = true;
-    }
-}
+            void DrawBlocks(RenderContext& ctx,
+                    const std::vector<mdviewer::BlockLayout>& blocks,
+                    mdviewer::BlockType parentType = mdviewer::BlockType::Paragraph) {
+            for (size_t index = 0; index < blocks.size(); ++index) {
+            const auto& block = blocks[index];
+            if (block.type == mdviewer::BlockType::ThematicBreak) {
+                ctx.paint.setColor(GetCurrentThemePalette().thematicBreak);
+                ctx.paint.setStrokeWidth(1.0f);
+                ctx.canvas->drawLine(block.bounds.left(), block.bounds.centerY(), block.bounds.right(), block.bounds.centerY(), ctx.paint);
+            } else {
+                DrawBlockDecoration(ctx, block, parentType, index);
 
-void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {
-    const std::wstring previousFamily = g_selectedFontFamily;
+                for (const auto& line : block.lines) {
+                    DrawSelectionForLine(ctx, block, line);
+                    DrawLine(ctx, block, line);
+                }
+
+                if (!block.children.empty()) {
+                    DrawBlocks(ctx, block.children, block.type);
+                }
+            }
+            }
+            }
+
+            void UpdateSurface(HWND hwnd) {
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            int width = rect.right - rect.left;
+            int height = rect.bottom - rect.top;
+
+            if (width <= 0 || height <= 0) return;
+
+            SkImageInfo info = SkImageInfo::MakeN32Premul(width, height);
+            g_surface = SkSurfaces::Raster(info);
+            }
+
+            void Render(HWND hwnd) {
+            if (!g_surface) return;
+
+            if (!EnsureFontSystem()) {
+            PAINTSTRUCT ps;
+            BeginPaint(hwnd, &ps);
+            EndPaint(hwnd, &ps);
+            return;
+            }
+
+            SkCanvas* canvas = g_surface->getCanvas();
+            const ThemePalette palette = GetCurrentThemePalette();
+            canvas->clear(palette.windowBackground);
+
+            {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+
+            RenderContext ctx;
+            ctx.canvas = canvas;
+            ctx.paint.setAntiAlias(true);
+            ctx.font.setTypeface(g_typeface);
+            ctx.font.setSubpixel(true);
+            ctx.font.setHinting(SkFontHinting::kSlight);
+            ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+
+            canvas->save();
+            canvas->clipRect(SkRect::MakeLTRB(
+                0.0f,
+                GetContentTopInset(),
+                static_cast<float>(g_surface->width()),
+                static_cast<float>(g_surface->height())));
+            canvas->translate(0, GetContentTopInset() - g_appState.scrollOffset);
+
+            DrawBlocks(ctx, g_appState.docLayout.blocks);
+
+            if (g_appState.sourceText.empty()) {
+                ctx.font.setSize(20.0f);
+                ctx.paint.setColor(palette.emptyStateText);
+                const char* msg = "Drag and drop a Markdown file here";
+                SkRect bounds;
+                ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &bounds);
+                const float emptyStateY = GetViewportHeight(hwnd) * 0.5f;
+                canvas->drawString(msg, (g_surface->width() - bounds.width()) / 2, emptyStateY, ctx.font, ctx.paint);
+            }
+
+            canvas->restore();
+
+            DrawTopMenuBar(canvas, hwnd);
+
+            // Draw simple scrollbar indicator
+            if (const auto thumb = GetScrollbarThumbRect(hwnd)) {
+                SkPaint trackPaint;
+                trackPaint.setAntiAlias(true);
+                trackPaint.setColor(palette.scrollbarTrack);
+                ctx.canvas->drawRoundRect(
+                    SkRect::MakeXYWH(
+                        g_surface->width() - kScrollbarWidth - kScrollbarMargin,
+                        kScrollbarMargin + GetContentTopInset(),
+                        kScrollbarWidth,
+                        std::max(GetViewportHeight(hwnd) - (kScrollbarMargin * 2.0f), 1.0f)),
+                    5.0f,
+                    5.0f,
+                    trackPaint);
+
+                ctx.paint.setColor(palette.scrollbarThumb);
+                ctx.canvas->drawRoundRect(*thumb, 5.0f, 5.0f, ctx.paint);
+            }
+
+            DrawAutoScrollIndicator(ctx.canvas);
+            }
+
+            SkPixmap pixmap;
+            if (g_surface->peekPixels(&pixmap)) {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+
+            BITMAPINFO bmi = {};
+            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bmi.bmiHeader.biWidth = pixmap.width();
+            bmi.bmiHeader.biHeight = -pixmap.height();
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB;
+
+            StretchDIBits(hdc, 0, 0, pixmap.width(), pixmap.height(),
+                        0, 0, pixmap.width(), pixmap.height(),
+                        pixmap.addr(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+
+            EndPaint(hwnd, &ps);
+            } else {
+            // Fallback Begin/EndPaint to clear update region if peekPixels fails
+            PAINTSTRUCT ps;
+            BeginPaint(hwnd, &ps);
+            EndPaint(hwnd, &ps);
+            }
+            }
+
+            void LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
+            if (!EnsureFontSystem()) {
+            MessageBoxW(hwnd, L"Font initialization failed. The document cannot be rendered.", L"Error", MB_ICONERROR);
+            return;
+            }
+
+            auto content = mdviewer::ReadFileToString(path);
+            if (content) {
+            auto docModel = mdviewer::MarkdownParser::Parse(*content);
+
+            // Pre-load images to get their sizes for layout
+            PreloadImages(docModel, path.parent_path());
+
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            float width = static_cast<float>(rect.right - rect.left);
+
+            auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
+                auto it = g_imageCache.find(url);
+                if (it != g_imageCache.end() && it->second) {
+                    return {static_cast<float>(it->second->width()), static_cast<float>(it->second->height())};
+                }
+                return {0.0f, 0.0f};
+            };
+
+            auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get(), imageSizeProvider);
+
+            g_appState.SetFile(path, std::move(*content), std::move(docModel), std::move(layout), pushHistory);
+
+            std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
+            SetWindowTextW(hwnd, title.c_str());
+
+            InvalidateRect(hwnd, NULL, FALSE);
+            } else {
+            MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
+            }
+            }
+
+            void OnGoBack(HWND hwnd) {
+            std::filesystem::path target;
+            {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            if (g_appState.CanGoBack()) {
+                g_appState.historyIndex--;
+                target = g_appState.history[g_appState.historyIndex];
+            }
+            }
+            if (!target.empty()) {
+            LoadFile(hwnd, target, false);
+            }
+            }
+
+            void OnGoForward(HWND hwnd) {
+            std::filesystem::path target;
+            {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            if (g_appState.CanGoForward()) {
+                g_appState.historyIndex++;
+                target = g_appState.history[g_appState.historyIndex];
+            }
+            }
+            if (!target.empty()) {
+            LoadFile(hwnd, target, false);
+            }
+            }
+
+            void HandleLinkClick(HWND hwnd, const std::string& url) {
+            if (url.empty()) return;
+
+            // 1. Separate fragment/query from the path
+            std::string pathPart = url;
+            std::string fragment;
+            size_t hashPos = pathPart.find('#');
+            if (hashPos != std::string::npos) {
+            fragment = pathPart.substr(hashPos);
+            pathPart = pathPart.substr(0, hashPos);
+            }
+            size_t queryPos = pathPart.find('?');
+            if (queryPos != std::string::npos) {
+            pathPart = pathPart.substr(0, queryPos);
+            }
+
+            // 2. Simple URL decoding for local paths (e.g., %20 to space)
+            auto UrlDecode = [](const std::string& str) {
+            std::string res;
+            for (size_t i = 0; i < str.length(); ++i) {
+                if (str[i] == '%' && i + 2 < str.length()) {
+                    int value = 0;
+                    std::stringstream ss;
+                    ss << std::hex << str.substr(i + 1, 2);
+                    ss >> value;
+                    res += static_cast<char>(value);
+                    i += 2;
+                } else if (str[i] == '+') {
+                    res += ' ';
+                } else {
+                    res += str[i];
+                }
+            }
+            return res;
+            };
+
+            std::string decodedPath = UrlDecode(pathPart);
+
+            if (url.find("http://") == 0 || url.find("https://") == 0) {
+            ShellExecuteA(NULL, "open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+            } else if (url.find("file://") == 0) {
+            std::string localPath = url.substr(7);
+            // Remove leading slash if it's like file:///C:/...
+            if (localPath.size() > 1 && localPath[0] == '/' && localPath[2] == ':') {
+                localPath = localPath.substr(1);
+            }
+            localPath = UrlDecode(localPath);
+            // Strip fragment from file:// too if present
+            size_t fHash = localPath.find('#');
+            if (fHash != std::string::npos) localPath = localPath.substr(0, fHash);
+
+            std::filesystem::path targetPath(localPath);
+            std::string ext = targetPath.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+
+            if (ext == ".md" || ext == ".markdown" || ext == ".txt") {
+                LoadFile(hwnd, targetPath);
+            } else {
+                ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+            }
+            } else {
+            std::filesystem::path currentDir = g_appState.currentFilePath.parent_path();
+            std::filesystem::path targetPath = currentDir / decodedPath;
+
+            if (!std::filesystem::exists(targetPath)) {
+                // Try absolute path
+                targetPath = std::filesystem::path(decodedPath);
+            }
+
+            if (std::filesystem::exists(targetPath)) {
+                std::string ext = targetPath.extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+
+                if (ext == ".md" || ext == ".markdown" || ext == ".txt") {
+                    LoadFile(hwnd, targetPath);
+                } else {
+                    ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                }
+            }
+            }
+            }
+
+            void RelayoutCurrentDocument(HWND hwnd) {
+            if (!EnsureFontSystem()) {
+            return;
+            }
+
+            mdviewer::DocumentModel docModel;
+            std::filesystem::path currentPath;
+            {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            if (g_appState.sourceText.empty()) {
+                return;
+            }
+            docModel = g_appState.docModel;
+            currentPath = g_appState.currentFilePath;
+            }
+
+            // Pre-load images just in case (though they should be in cache)
+            PreloadImages(docModel, currentPath.parent_path());
+
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            const float width = static_cast<float>(rect.right - rect.left);
+
+            auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
+            auto it = g_imageCache.find(url);
+            if (it != g_imageCache.end() && it->second) {
+                return {static_cast<float>(it->second->width()), static_cast<float>(it->second->height())};
+            }
+            return {0.0f, 0.0f};
+            };
+
+            auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get(), imageSizeProvider);
+
+            {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            g_appState.docLayout = std::move(layout);
+            ClampScrollOffset(hwnd);
+            g_appState.needsRepaint = true;
+            }
+            }
+            }
+
+            void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {    const std::wstring previousFamily = g_selectedFontFamily;
     g_selectedFontFamily = familyName;
     ResetResolvedTypefaces();
 
@@ -1678,16 +1987,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 case kCommandThemeDark:
                     ApplyTheme(hwnd, mdviewer::ThemeMode::Dark);
                     return 0;
+                case kCommandGoBack:
+                    OnGoBack(hwnd);
+                    return 0;
+                case kCommandGoForward:
+                    OnGoForward(hwnd);
+                    return 0;
             }
             break;
         case WM_LBUTTONDOWN: {
             const int x = GET_X_LPARAM(lParam);
             const int y = GET_Y_LPARAM(lParam);
             const int topMenuIndex = HitTestTopMenu(hwnd, x, y);
-            if (topMenuIndex >= 0) {
+            if (topMenuIndex != -1) {
                 StopAutoScroll(hwnd);
                 SetFocus(hwnd);
                 OpenTopMenu(hwnd, topMenuIndex);
+                return 0;
+            }
+
+            auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
+            if (hit.valid && !hit.url.empty()) {
+                HandleLinkClick(hwnd, hit.url);
                 return 0;
             }
 
@@ -1709,7 +2030,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 std::lock_guard<std::mutex> lock(g_appState.mtx);
                 g_appState.isSelecting = true;
                 g_appState.isDraggingScrollbar = false;
-                auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
                 if (hit.valid) {
                     g_appState.selectionAnchor = hit.position;
                     g_appState.selectionFocus = hit.position;
@@ -1721,6 +2041,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
+        case WM_XBUTTONDOWN:
+            if (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) {
+                OnGoBack(hwnd);
+            } else if (GET_XBUTTON_WPARAM(wParam) == XBUTTON2) {
+                OnGoForward(hwnd);
+            }
+            return TRUE;
         case WM_MOUSEMOVE: {
             if (GET_Y_LPARAM(lParam) < kMenuBarHeight) {
                 const int hoveredIndex = HitTestTopMenu(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
@@ -1808,6 +2135,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 StopAutoScroll(hwnd);
                 InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
+            }
+            if (GetKeyState(VK_MENU) & 0x8000) {
+                if (wParam == VK_LEFT) {
+                    OnGoBack(hwnd);
+                    return 0;
+                }
+                if (wParam == VK_RIGHT) {
+                    OnGoForward(hwnd);
+                    return 0;
+                }
             }
             if ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'C' || wParam == 'c')) {
                 std::lock_guard<std::mutex> lock(g_appState.mtx);

@@ -23,9 +23,10 @@ public:
     size_t currentTextOffset = 0;
     std::string plainText;
     SkFont font;
+    LayoutEngine::ImageSizeProvider imageSizeProvider;
 
-    LayoutContext(float width, SkTypeface* typeface)
-        : availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)) {
+    LayoutContext(float width, SkTypeface* typeface, LayoutEngine::ImageSizeProvider provider)
+        : availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)), imageSizeProvider(provider) {
         if (typeface) {
             font.setTypeface(sk_ref_sp(typeface));
         }
@@ -85,7 +86,44 @@ private:
         float currentX = 0.0f;
         float wrapWidth = std::max(availableWidth - indent, 1.0f);
 
+        const bool isSingleImageBlock = (runs.size() == 1 && runs[0].style == InlineStyle::Image);
+
         for (const auto& run : runs) {
+            if (run.style == InlineStyle::Image) {
+                float imgDisplayW, imgDisplayH;
+                float actualW = 0.0f, actualH = 0.0f;
+                bool hasActualSize = false;
+                if (imageSizeProvider) {
+                    auto size = imageSizeProvider(run.url);
+                    if (size.first > 0 && size.second > 0) {
+                        actualW = size.first;
+                        actualH = size.second;
+                        hasActualSize = true;
+                    }
+                }
+
+                if (isSingleImageBlock) {
+                    imgDisplayW = wrapWidth * 0.9f;
+                    float aspect = hasActualSize ? (actualH / actualW) : 0.618f;
+                    imgDisplayH = imgDisplayW * aspect;
+                } else {
+                    imgDisplayH = lineHeight * 0.8f;
+                    float aspect = hasActualSize ? (actualW / actualH) : 1.5f;
+                    imgDisplayW = imgDisplayH * aspect;
+                }
+
+                if (currentX + imgDisplayW > wrapWidth && currentX > 0.0f) {
+                    PushCurrentLine(lines, currentLine, lineHeight);
+                    currentX = 0.0f;
+                }
+
+                RunLayout rl = {run.style, run.text, run.url, currentTextOffset, imgDisplayW, imgDisplayH};
+                currentLine.runs.push_back(std::move(rl));
+                currentLine.height = std::max(currentLine.height, imgDisplayH + 4.0f);
+                currentX += imgDisplayW + 4.0f;
+                continue;
+            }
+
             const char* textPtr = run.text.c_str();
             const char* endPtr = textPtr + run.text.size();
 
@@ -117,7 +155,7 @@ private:
                     bytesConsumed = remainingLength;
                 }
 
-                currentLine.runs.push_back({run.style, std::string(textPtr, bytesConsumed), currentTextOffset});
+                currentLine.runs.push_back({run.style, std::string(textPtr, bytesConsumed), run.url, currentTextOffset});
                 currentLine.textLength += bytesConsumed;
                 plainText.append(textPtr, bytesConsumed);
                 currentTextOffset += bytesConsumed;
@@ -135,7 +173,7 @@ private:
 
         if (!currentLine.runs.empty()) {
             lines.push_back(std::move(currentLine));
-            currentY += lineHeight;
+            currentY += currentLine.height;
         }
     }
 
@@ -197,9 +235,9 @@ private:
     }
 };
 
-DocumentLayout LayoutEngine::ComputeLayout(const DocumentModel& doc, float width, SkTypeface* typeface) {
+DocumentLayout LayoutEngine::ComputeLayout(const DocumentModel& doc, float width, SkTypeface* typeface, ImageSizeProvider imageSizeProvider) {
     DocumentLayout layout;
-    LayoutContext ctx(width, typeface);
+    LayoutContext ctx(width, typeface, imageSizeProvider);
     ctx.LayoutBlocks(doc.blocks, layout.blocks);
     layout.totalHeight = ctx.currentY + 20.0f;
     layout.plainText = std::move(ctx.plainText);

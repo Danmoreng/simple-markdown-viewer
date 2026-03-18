@@ -26,12 +26,14 @@ enum class InlineStyle {
     Emphasis,
     Strong,
     Code,
-    Link
+    Link,
+    Image
 };
 
 struct InlineRun {
     InlineStyle style;
     std::string text;
+    std::string url;
 };
 
 struct Block {

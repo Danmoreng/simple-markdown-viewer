@@ -34,13 +34,38 @@ struct AppState {
     bool needsRepaint = true;
     std::mutex mtx;
 
+    std::vector<std::filesystem::path> history;
+    size_t historyIndex = 0;
+
     [[nodiscard]] bool HasSelection() const {
         return selectionAnchor != selectionFocus;
     }
 
-    void SetFile(const std::filesystem::path& path, std::string text, DocumentModel doc, DocumentLayout layout) {
+    [[nodiscard]] bool CanGoBack() const {
+        return historyIndex > 0;
+    }
+
+    [[nodiscard]] bool CanGoForward() const {
+        return historyIndex + 1 < history.size();
+    }
+
+    void PushHistory(const std::filesystem::path& path) {
+        if (!history.empty() && history[historyIndex] == path) {
+            return;
+        }
+        if (historyIndex + 1 < history.size()) {
+            history.erase(history.begin() + historyIndex + 1, history.end());
+        }
+        history.push_back(path);
+        historyIndex = history.size() - 1;
+    }
+
+    void SetFile(const std::filesystem::path& path, std::string text, DocumentModel doc, DocumentLayout layout, bool pushHistory = true) {
         std::lock_guard<std::mutex> lock(mtx);
         currentFilePath = path;
+        if (pushHistory) {
+            PushHistory(path);
+        }
         sourceText = std::move(text);
         docModel = std::move(doc);
         docLayout = std::move(layout);
