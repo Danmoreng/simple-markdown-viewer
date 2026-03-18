@@ -15,18 +15,30 @@ It is built with:
 
 ## Features
 
-- Open Markdown files from:
+- Open Markdown and plain text files from:
   - drag and drop
   - `File -> Open...`
   - command-line file argument
+  - clicking internal file links
 - Render:
   - paragraphs
   - headings
   - unordered and ordered lists
   - blockquotes
-  - fenced code blocks
+  - fenced code blocks with **one-click copy**
   - thematic breaks
   - emphasis, strong text, inline code, and links
+  - **Images** with aspect-ratio preservation and auto-scaling
+- Navigation:
+  - **Full browsing history** (back/forward)
+  - Toolbar navigation buttons
+  - Mouse side-button support
+- Link Handling:
+  - Web links open in your default browser
+  - Local Markdown and text files open in the same window
+  - Robust detection for extensionless files (like `LICENSE`)
+  - **Link hover preview** at the bottom-left
+  - `Ctrl+Click` to force any link to open externally
 - Smooth scrolling with:
   - mouse wheel
   - custom scrollbar
@@ -114,6 +126,18 @@ Open a file immediately:
 - `Ctrl+C`: copy selected text
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
+- **Navigation**:
+  - `Alt + Left` or `Backspace`: Go Back
+  - `Alt + Right`: Go Forward
+  - `Left / Right Arrow`: Go Back/Forward (if no text is selected)
+  - Mouse side buttons: Go Back/Forward
+  - Toolbar buttons: Click the arrows in the top-right corner
+- **Links**:
+  - `Click`: Open internally (MD/Text) or externally (Web/Other)
+  - `Ctrl + Click`: Force open in default system application
+  - `Hover`: Preview target path in bottom-left overlay
+- **Code Blocks**:
+  - Click the **icon in the top-right corner** of a code block to copy its entire content
 
 ## Dependencies
 
@@ -137,6 +161,7 @@ Windows system libraries linked by the app:
 - `ole32`
 - `user32`
 - `gdi32`
+- `shell32`
 
 ## Licensing
 
