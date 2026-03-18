@@ -33,6 +33,11 @@ struct AppState {
     size_t selectionFocus = 0;
     bool needsRepaint = true;
     std::string hoveredUrl;
+    uint64_t copiedFeedbackTimeout = 0; // Tick count when feedback should expire
+    
+    // Maps code block button regions to the range of text in that code block
+    std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;
+
     std::mutex mtx;
 
     std::vector<std::filesystem::path> history;

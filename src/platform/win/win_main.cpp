@@ -109,6 +109,7 @@ namespace {
     constexpr float kScrollbarMargin = 4.0f;
     constexpr float kAutoScrollDeadZone = 2.0f;
     constexpr UINT_PTR kAutoScrollTimerId = 2001;
+    constexpr UINT_PTR kCopiedFeedbackTimerId = 2002;
     constexpr UINT kAutoScrollTimerMs = 16;
     constexpr int kMenuHorizontalPadding = 12;
     constexpr int kMenuVerticalPadding = 6;
@@ -1708,10 +1709,35 @@ namespace {
 
                 ctx.paint.setColor(palette.menuText);
                 ctx.canvas->drawString(g_appState.hoveredUrl.c_str(), overlayX + padding, overlayY + overlayH - 7.0f, ctx.font, ctx.paint);
-            }
-            }
+                }
 
-            SkPixmap pixmap;            if (g_surface->peekPixels(&pixmap)) {
+                // Draw "Copied!" feedback overlay at the bottom right
+                if (g_appState.copiedFeedbackTimeout > GetTickCount64()) {
+                const char* msg = "Copied!";
+                const float padding = 8.0f;
+                ctx.font.setSize(15.0f);
+                ctx.font.setTypeface(g_boldTypeface);
+
+                SkRect textBounds;
+                ctx.font.measureText(msg, strlen(msg), SkTextEncoding::kUTF8, &textBounds);
+
+                const float overlayW = textBounds.width() + (padding * 2.0f);
+                const float overlayH = 28.0f;
+                const float overlayX = static_cast<float>(g_surface->width()) - overlayW - 10.0f;
+                const float overlayY = static_cast<float>(g_surface->height()) - overlayH - 10.0f;
+
+                SkPaint bPaint;
+                bPaint.setAntiAlias(true);
+                bPaint.setColor(palette.menuSelectedBackground);
+                bPaint.setAlphaf(0.95f);
+                ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 6.0f, 6.0f, bPaint);
+
+                ctx.paint.setColor(palette.menuSelectedText);
+                ctx.canvas->drawString(msg, overlayX + padding, overlayY + overlayH - 8.0f, ctx.font, ctx.paint);
+                }
+                }
+
+                SkPixmap pixmap;            if (g_surface->peekPixels(&pixmap)) {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
 
@@ -2132,7 +2158,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
             // Check code block copy buttons
             {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                std::lock_guard<std::mutex> buttonLock(g_appState.mtx);
                 const float docX = static_cast<float>(x);
                 const float docY = static_cast<float>(y) - GetContentTopInset() + g_appState.scrollOffset;
                 for (const auto& btn : g_appState.codeBlockButtons) {
@@ -2141,7 +2167,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         const size_t end = btn.second.second;
                         if (end > start && end <= g_appState.docLayout.plainText.size()) {
                             CopyTextToClipboard(hwnd, g_appState.docLayout.plainText.substr(start, end - start));
-                            // Maybe show a temporary "Copied!" feedback in the future
+                            
+                            // Show "Copied!" feedback
+                            g_appState.copiedFeedbackTimeout = GetTickCount64() + 2000;
+                            SetTimer(hwnd, kCopiedFeedbackTimerId, 2000, nullptr);
+                            InvalidateRect(hwnd, NULL, FALSE);
                         }
                         return 0;
                     }
@@ -2327,6 +2357,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 if (TickAutoScroll(hwnd)) {
                     InvalidateRect(hwnd, NULL, FALSE);
                 }
+                return 0;
+            }
+            if (wParam == kCopiedFeedbackTimerId) {
+                {
+                    std::lock_guard<std::mutex> timerLock(g_appState.mtx);
+                    g_appState.copiedFeedbackTimeout = 0;
+                }
+                KillTimer(hwnd, kCopiedFeedbackTimerId);
+                InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
             }
             break;
