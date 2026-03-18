@@ -53,6 +53,10 @@ public:
             float blockTop = currentY;
             float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
 
+            if (block.type == BlockType::CodeBlock) {
+                currentY += 16.0f; // kCodeBlockPaddingY
+            }
+
             if (block.type == BlockType::ThematicBreak) {
                 currentY += 20.0f;
             } else {
@@ -60,6 +64,10 @@ public:
                 if (!block.children.empty()) {
                     LayoutBlocks(block.children, bl.children, blockIndent + 20.0f);
                 }
+            }
+
+            if (block.type == BlockType::CodeBlock) {
+                currentY += 16.0f; // kCodeBlockPaddingY
             }
 
             bl.bounds = SkRect::MakeXYWH(leftMargin + blockIndent, blockTop, availableWidth - blockIndent, currentY - blockTop);

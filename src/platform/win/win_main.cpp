@@ -101,7 +101,7 @@ namespace {
 
     constexpr float kTextBaselineOffset = 5.0f;
     constexpr float kCodeBlockPaddingX = 12.0f;
-    constexpr float kCodeBlockPaddingY = 8.0f;
+    constexpr float kCodeBlockPaddingY = 16.0f;
     constexpr float kBlockquoteAccentWidth = 4.0f;
     constexpr float kBlockquoteTextInset = 18.0f;
     constexpr float kListMarkerGap = 16.0f;
@@ -199,7 +199,7 @@ namespace {
                     SkColorSetRGB(146, 67, 39),
                     SkColorSetRGB(124, 76, 22),
                     SkColorSetARGB(120, 196, 162, 102),
-                    SkColorSetRGB(236, 225, 203),
+                    SkColorSetRGB(220, 205, 180),
                     SkColorSetRGB(232, 220, 196),
                     SkColorSetRGB(180, 150, 110),
                     SkColorSetRGB(131, 104, 75),
@@ -1356,6 +1356,24 @@ namespace {
         return true;
     }
 
+    void DrawCopyIcon(SkCanvas* canvas, float x, float y, float size, SkColor color) {
+        SkPaint paint;
+        paint.setAntiAlias(true);
+        paint.setColor(color);
+        paint.setStyle(SkPaint::kStroke_Style);
+        paint.setStrokeWidth(1.5f);
+        paint.setStrokeCap(SkPaint::kRound_Cap);
+        paint.setStrokeJoin(SkPaint::kRound_Join);
+
+        // Main clipboard body
+        SkRect body = SkRect::MakeXYWH(x + size * 0.2f, y + size * 0.3f, size * 0.6f, size * 0.6f);
+        canvas->drawRoundRect(body, 2.0f, 2.0f, paint);
+
+        // Clipboard top clip
+        SkRect clip = SkRect::MakeXYWH(x + size * 0.35f, y + size * 0.15f, size * 0.3f, size * 0.25f);
+        canvas->drawRoundRect(clip, 1.0f, 1.0f, paint);
+    }
+
     void DrawBlockDecoration(RenderContext& ctx,
                              const mdviewer::BlockLayout& block,
                              mdviewer::BlockType parentType,
@@ -1366,15 +1384,29 @@ namespace {
             SkPaint backgroundPaint;
             backgroundPaint.setAntiAlias(true);
             backgroundPaint.setColor(palette.codeBlockBackground);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeLTRB(
-                    block.bounds.left() - kCodeBlockPaddingX,
-                    block.bounds.top() - kCodeBlockPaddingY,
-                    block.bounds.right() + kCodeBlockPaddingX,
-                    block.bounds.bottom() + kCodeBlockPaddingY),
-                10.0f,
-                10.0f,
-                backgroundPaint);
+            
+            // Draw background flush with left edge
+            SkRect bgRect = SkRect::MakeLTRB(
+                block.bounds.left(),
+                block.bounds.top() - kCodeBlockPaddingY,
+                block.bounds.right() + kCodeBlockPaddingX,
+                block.bounds.bottom() + kCodeBlockPaddingY);
+            
+            ctx.canvas->drawRoundRect(bgRect, 8.0f, 8.0f, backgroundPaint);
+
+            // Draw copy button
+            const float btnSize = 28.0f;
+            const float btnPadding = 6.0f;
+            SkRect btnRect = SkRect::MakeXYWH(
+                bgRect.right() - btnSize - btnPadding,
+                bgRect.top() + btnPadding,
+                btnSize,
+                btnSize);
+            
+            // Store for hit testing (document coordinates)
+            g_appState.codeBlockButtons.push_back({btnRect, {block.textStart, block.textStart + block.textLength}});
+
+            DrawCopyIcon(ctx.canvas, btnRect.left(), btnRect.top(), btnSize, palette.listMarker);
         } else if (block.type == mdviewer::BlockType::Blockquote) {
             SkPaint accentPaint;
             accentPaint.setAntiAlias(true);
@@ -1592,10 +1624,10 @@ namespace {
             canvas->clear(palette.windowBackground);
 
             {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                g_appState.codeBlockButtons.clear();
 
-            RenderContext ctx;
-            ctx.canvas = canvas;
+                RenderContext ctx;            ctx.canvas = canvas;
             ctx.paint.setAntiAlias(true);
             ctx.font.setTypeface(g_typeface);
             ctx.font.setSubpixel(true);
@@ -2096,6 +2128,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 const bool forceExternal = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                 HandleLinkClick(hwnd, hit.url, forceExternal);
                 return 0;
+            }
+
+            // Check code block copy buttons
+            {
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                const float docX = static_cast<float>(x);
+                const float docY = static_cast<float>(y) - GetContentTopInset() + g_appState.scrollOffset;
+                for (const auto& btn : g_appState.codeBlockButtons) {
+                    if (btn.first.contains(docX, docY)) {
+                        const size_t start = btn.second.first;
+                        const size_t end = btn.second.second;
+                        if (end > start && end <= g_appState.docLayout.plainText.size()) {
+                            CopyTextToClipboard(hwnd, g_appState.docLayout.plainText.substr(start, end - start));
+                            // Maybe show a temporary "Copied!" feedback in the future
+                        }
+                        return 0;
+                    }
+                }
             }
 
             StopAutoScroll(hwnd);
