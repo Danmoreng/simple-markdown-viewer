@@ -31,9 +31,47 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Resolve Skia bundle version
+        shell: pwsh
+        run: |
+          $tag = (Get-Content "ci/skia-bundle-version.txt" -Raw).Trim()
+          if (-not $tag) {
+            throw "ci/skia-bundle-version.txt is empty."
+          }
+          "SKIA_BUNDLE_TAG=$tag" >> $env:GITHUB_ENV
+          "SKIA_BUNDLE_ASSET=skia-windows-x64-static.zip" >> $env:GITHUB_ENV
+
+      - name: Download prebuilt Skia bundle
+        id: skia_bundle
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assetPath = "dist\$env:SKIA_BUNDLE_ASSET"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+
+          gh release download $env:SKIA_BUNDLE_TAG --repo $env:GITHUB_REPOSITORY --pattern $env:SKIA_BUNDLE_ASSET --output $assetPath *> $null
+          if ($LASTEXITCODE -eq 0 -and (Test-Path $assetPath)) {
+            Remove-Item "third_party\skia" -Recurse -Force -ErrorAction SilentlyContinue
+            Expand-Archive -Path $assetPath -DestinationPath "." -Force
+            if (Test-Path "third_party\skia\out\Static\skia.lib") {
+              "bundle_available=true" >> $env:GITHUB_OUTPUT
+            } else {
+              "bundle_available=false" >> $env:GITHUB_OUTPUT
+            }
+          } else {
+            "bundle_available=false" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Build Release
         shell: pwsh
-        run: .\build.ps1 -Configuration Release
+        run: |
+          if ("${{ steps.skia_bundle.outputs.bundle_available }}" -eq "true") {
+            .\build.ps1 -SkipSkia -Configuration Release
+          } else {
+            Write-Host "Prebuilt Skia bundle not available; falling back to source build." -ForegroundColor Yellow
+            .\build.ps1 -Configuration Release
+          }
 
       - name: Stage release files
         shell: pwsh

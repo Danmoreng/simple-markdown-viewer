@@ -7,7 +7,8 @@ param (
     [string]$BuildDir = "build",
     [string]$Target = "mdviewer",
     [switch]$RunSmokeTest,
-    [switch]$SkipSkia
+    [switch]$SkipSkia,
+    [switch]$SkiaOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -142,6 +143,10 @@ if (-not $SkipSkia) {
     Push-Location $skiaDir
     try {
         Write-Host "Syncing Skia dependencies..." -ForegroundColor Cyan
+        # The desktop Windows build does not use Skia's wasm toolchain.
+        # Skipping EMSDK avoids a GitHub Actions Windows activation failure
+        # and reduces dependency bootstrap time.
+        $env:GIT_SYNC_DEPS_SKIP_EMSDK = "1"
         python tools/git-sync-deps
         Assert-LastExitCode "python tools/git-sync-deps"
 
@@ -169,8 +174,14 @@ if (-not $SkipSkia) {
         Assert-LastExitCode "$ninjaPath -C $skiaOutDir skia"
     }
     finally {
+        Remove-Item Env:GIT_SYNC_DEPS_SKIP_EMSDK -ErrorAction SilentlyContinue
         Pop-Location
     }
+}
+
+if ($SkiaOnly) {
+    Write-Host "Skia-only build requested; skipping application configure/build." -ForegroundColor Green
+    return
 }
 
 if ($UseNinja -and -not (Get-Command ninja -ErrorAction SilentlyContinue)) {

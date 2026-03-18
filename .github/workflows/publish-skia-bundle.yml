@@ -1,0 +1,84 @@
+name: Publish Skia Bundle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-skia-bundle:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable long paths
+        shell: pwsh
+        run: git config --system core.longpaths true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Resolve bundle version
+        shell: pwsh
+        run: |
+          $tag = (Get-Content "ci/skia-bundle-version.txt" -Raw).Trim()
+          if (-not $tag) {
+            throw "ci/skia-bundle-version.txt is empty."
+          }
+          "SKIA_BUNDLE_TAG=$tag" >> $env:GITHUB_ENV
+          "SKIA_BUNDLE_ASSET=skia-windows-x64-static.zip" >> $env:GITHUB_ENV
+
+      - name: Build Skia bundle inputs
+        shell: pwsh
+        run: .\build.ps1 -Configuration Release -SkiaOnly
+
+      - name: Stage Skia bundle
+        shell: pwsh
+        run: |
+          $stageRoot = "dist\skia-bundle"
+          $bundleSkiaDir = Join-Path $stageRoot "third_party\skia"
+          $bundleOutDir = Join-Path $bundleSkiaDir "out\Static"
+
+          Remove-Item $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $bundleOutDir -Force | Out-Null
+
+          Copy-Item "third_party\skia\LICENSE" "$bundleSkiaDir\LICENSE"
+          Copy-Item "third_party\skia\include" "$bundleSkiaDir\include" -Recurse
+          Copy-Item "third_party\skia\out\Static\skia.lib" "$bundleOutDir\skia.lib"
+
+      - name: Archive Skia bundle
+        shell: pwsh
+        run: |
+          $zipPath = "dist\$env:SKIA_BUNDLE_ASSET"
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+          Compress-Archive -Path "dist\skia-bundle\*" -DestinationPath $zipPath
+
+      - name: Upload Skia bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skia-windows-x64-static
+          path: dist/skia-windows-x64-static.zip
+          if-no-files-found: error
+
+      - name: Publish Skia bundle release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:SKIA_BUNDLE_TAG
+          $assetPath = "dist\$env:SKIA_BUNDLE_ASSET"
+          $repo = $env:GITHUB_REPOSITORY
+
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $assetPath --repo $repo --clobber
+          } else {
+            gh release create $tag $assetPath --repo $repo --title "Skia Bundle $tag" --notes "Prebuilt Windows x64 Skia bundle for CI." --target $env:GITHUB_SHA
+          }
