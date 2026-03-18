@@ -2136,7 +2136,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
             }
+            if (wParam == VK_BACK) {
+                OnGoBack(hwnd);
+                return 0;
+            }
             if (GetKeyState(VK_MENU) & 0x8000) {
+                if (wParam == VK_LEFT) {
+                    OnGoBack(hwnd);
+                    return 0;
+                }
+                if (wParam == VK_RIGHT) {
+                    OnGoForward(hwnd);
+                    return 0;
+                }
+            } else if (!g_appState.HasSelection()) {
+                // Standalone arrow keys for navigation if no selection is active
                 if (wParam == VK_LEFT) {
                     OnGoBack(hwnd);
                     return 0;
