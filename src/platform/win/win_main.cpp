@@ -72,6 +72,33 @@ namespace {
     void OnGoForward(HWND hwnd);
     void LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
 
+    bool IsMarkdownFile(const std::filesystem::path& path) {
+        std::string ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+        return (ext == ".md" || ext == ".markdown");
+    }
+
+    bool IsDefinitelyTextFile(const std::filesystem::path& path) {
+        std::string ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+        if (ext == ".txt" || ext == ".log" || ext == ".ini" || ext == ".conf" || ext == ".json" || ext == ".xml" || ext == ".yml" || ext == ".yaml") return true;
+        
+        std::string name = path.filename().string();
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c){ return std::tolower(c); });
+        if (name == "license" || name == "license.txt" || name == "copying" || name == "notice" || name == "third_party_notices" || name == "readme") return true;
+        
+        return false;
+    }
+
+    bool ProbeIsText(const std::string& content) {
+        // Check for null bytes in the first 4KB as a heuristic for binary files
+        size_t checkSize = std::min(content.size(), (size_t)4096);
+        for (size_t i = 0; i < checkSize; ++i) {
+            if (content[i] == '\0') return false;
+        }
+        return true;
+    }
+
     constexpr float kTextBaselineOffset = 5.0f;
     constexpr float kCodeBlockPaddingX = 12.0f;
     constexpr float kCodeBlockPaddingY = 8.0f;
@@ -1655,11 +1682,21 @@ namespace {
 
             auto content = mdviewer::ReadFileToString(path);
             if (content) {
-            auto docModel = mdviewer::MarkdownParser::Parse(*content);
+            mdviewer::DocumentModel docModel;
+            if (IsMarkdownFile(path)) {
+                docModel = mdviewer::MarkdownParser::Parse(*content);
+            } else if (IsDefinitelyTextFile(path) || ProbeIsText(*content)) {
+                mdviewer::Block block;
+                block.type = mdviewer::BlockType::Paragraph;
+                block.inlineRuns.push_back({mdviewer::InlineStyle::Plain, *content, ""});
+                docModel.blocks.push_back(std::move(block));
+            } else {
+                MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
+                return;
+            }
 
             // Pre-load images to get their sizes for layout
             PreloadImages(docModel, path.parent_path());
-
             RECT rect;
             GetClientRect(hwnd, &rect);
             float width = static_cast<float>(rect.right - rect.left);
@@ -1750,52 +1787,70 @@ namespace {
             };
 
             std::string decodedPath = UrlDecode(pathPart);
+            std::cout << "Link Clicked: " << url << " (decoded path: " << decodedPath << ")" << std::endl;
 
             if (url.find("http://") == 0 || url.find("https://") == 0) {
-            ShellExecuteA(NULL, "open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                std::cout << "  Opening web link in browser" << std::endl;
+                ShellExecuteA(NULL, "open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
             } else if (url.find("file://") == 0) {
-            std::string localPath = url.substr(7);
-            // Remove leading slash if it's like file:///C:/...
-            if (localPath.size() > 1 && localPath[0] == '/' && localPath[2] == ':') {
-                localPath = localPath.substr(1);
-            }
-            localPath = UrlDecode(localPath);
-            // Strip fragment from file:// too if present
-            size_t fHash = localPath.find('#');
-            if (fHash != std::string::npos) localPath = localPath.substr(0, fHash);
+                std::string localPath = url.substr(7);
+                // Remove leading slash if it's like file:///C:/...
+                if (localPath.size() > 1 && localPath[0] == '/' && localPath[2] == ':') {
+                    localPath = localPath.substr(1);
+                }
+                localPath = UrlDecode(localPath);
+                // Strip fragment from file:// too if present
+                size_t fHash = localPath.find('#');
+                if (fHash != std::string::npos) localPath = localPath.substr(0, fHash);
 
-            std::filesystem::path targetPath(localPath);
-            std::string ext = targetPath.extension().string();
-            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+                std::filesystem::path targetPath(localPath);
+                std::cout << "  Opening file:// link: " << targetPath << std::endl;
 
-            if (ext == ".md" || ext == ".markdown" || ext == ".txt") {
-                LoadFile(hwnd, targetPath);
-            } else {
-                ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
-            }
-            } else {
-            std::filesystem::path currentDir = g_appState.currentFilePath.parent_path();
-            std::filesystem::path targetPath = currentDir / decodedPath;
-
-            if (!std::filesystem::exists(targetPath)) {
-                // Try absolute path
-                targetPath = std::filesystem::path(decodedPath);
-            }
-
-            if (std::filesystem::exists(targetPath)) {
-                std::string ext = targetPath.extension().string();
-                std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
-
-                if (ext == ".md" || ext == ".markdown" || ext == ".txt") {
+                if (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath)) {
+                    std::cout << "  Loading internally via LoadFile" << std::endl;
                     LoadFile(hwnd, targetPath);
                 } else {
-                    ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    // For extensionless or unknown files, probe the content first
+                    auto content = mdviewer::ReadFileToString(targetPath);
+                    if (content && ProbeIsText(*content)) {
+                         std::cout << "  Probed as text, loading internally" << std::endl;
+                         LoadFile(hwnd, targetPath);
+                    } else {
+                         std::cout << "  Probed as binary or missing, opening via ShellExecuteW" << std::endl;
+                         ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    }
+                }
+            } else {
+                std::filesystem::path currentDir = g_appState.currentFilePath.parent_path();
+                std::filesystem::path targetPath = currentDir / decodedPath;
+
+                if (!std::filesystem::exists(targetPath)) {
+                    // Try absolute path
+                    targetPath = std::filesystem::path(decodedPath);
+                }
+
+                std::cout << "  Resolved target path: " << targetPath << " (exists: " << std::filesystem::exists(targetPath) << ")" << std::endl;
+
+                if (std::filesystem::exists(targetPath)) {
+                    if (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath)) {
+                        std::cout << "  Loading internally via LoadFile" << std::endl;
+                        LoadFile(hwnd, targetPath);
+                    } else {
+                        // For extensionless or unknown files, probe the content first
+                        auto content = mdviewer::ReadFileToString(targetPath);
+                        if (content && ProbeIsText(*content)) {
+                             std::cout << "  Probed as text, loading internally" << std::endl;
+                             LoadFile(hwnd, targetPath);
+                        } else {
+                             std::cout << "  Probed as binary or missing, opening via ShellExecuteW" << std::endl;
+                             ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                        }
+                    }
+                } else {
+                    std::cout << "  Target file does not exist." << std::endl;
                 }
             }
-            }
-            }
-
-            void RelayoutCurrentDocument(HWND hwnd) {
+            }            void RelayoutCurrentDocument(HWND hwnd) {
             if (!EnsureFontSystem()) {
             return;
             }
