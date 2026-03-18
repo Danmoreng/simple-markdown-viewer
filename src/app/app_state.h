@@ -32,6 +32,7 @@ struct AppState {
     size_t selectionAnchor = 0;
     size_t selectionFocus = 0;
     bool needsRepaint = true;
+    std::string hoveredUrl;
     std::mutex mtx;
 
     std::vector<std::filesystem::path> history;

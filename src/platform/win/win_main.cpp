@@ -1646,10 +1646,40 @@ namespace {
             }
 
             DrawAutoScrollIndicator(ctx.canvas);
+
+            // Draw hovered URL overlay at the bottom
+            if (!g_appState.hoveredUrl.empty()) {
+                const float padding = 6.0f;
+                ctx.font.setSize(14.0f);
+                ctx.font.setTypeface(g_typeface);
+
+                SkRect textBounds;
+                ctx.font.measureText(g_appState.hoveredUrl.c_str(), g_appState.hoveredUrl.size(), SkTextEncoding::kUTF8, &textBounds);
+
+                const float overlayW = textBounds.width() + (padding * 2.0f);
+                const float overlayH = 24.0f;
+                const float overlayX = 10.0f;
+                const float overlayY = static_cast<float>(g_surface->height()) - overlayH - 10.0f;
+
+                SkPaint bPaint;
+                bPaint.setAntiAlias(true);
+                bPaint.setColor(palette.menuBackground);
+                bPaint.setAlphaf(0.9f);
+                ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 4.0f, 4.0f, bPaint);
+
+                SkPaint borderPaint;
+                borderPaint.setAntiAlias(true);
+                borderPaint.setStyle(SkPaint::kStroke_Style);
+                borderPaint.setStrokeWidth(1.0f);
+                borderPaint.setColor(palette.menuSeparator);
+                ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 4.0f, 4.0f, borderPaint);
+
+                ctx.paint.setColor(palette.menuText);
+                ctx.canvas->drawString(g_appState.hoveredUrl.c_str(), overlayX + padding, overlayY + overlayH - 7.0f, ctx.font, ctx.paint);
+            }
             }
 
-            SkPixmap pixmap;
-            if (g_surface->peekPixels(&pixmap)) {
+            SkPixmap pixmap;            if (g_surface->peekPixels(&pixmap)) {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
 
@@ -1750,7 +1780,7 @@ namespace {
             }
             }
 
-            void HandleLinkClick(HWND hwnd, const std::string& url) {
+            void HandleLinkClick(HWND hwnd, const std::string& url, bool forceExternal) {
             if (url.empty()) return;
 
             // 1. Separate fragment/query from the path
@@ -1787,7 +1817,7 @@ namespace {
             };
 
             std::string decodedPath = UrlDecode(pathPart);
-            std::cout << "Link Clicked: " << url << " (decoded path: " << decodedPath << ")" << std::endl;
+            std::cout << "Link Clicked: " << url << " (decoded path: " << decodedPath << ", forceExternal: " << forceExternal << ")" << std::endl;
 
             if (url.find("http://") == 0 || url.find("https://") == 0) {
                 std::cout << "  Opening web link in browser" << std::endl;
@@ -1806,17 +1836,17 @@ namespace {
                 std::filesystem::path targetPath(localPath);
                 std::cout << "  Opening file:// link: " << targetPath << std::endl;
 
-                if (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath)) {
+                if (!forceExternal && (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath))) {
                     std::cout << "  Loading internally via LoadFile" << std::endl;
                     LoadFile(hwnd, targetPath);
                 } else {
                     // For extensionless or unknown files, probe the content first
                     auto content = mdviewer::ReadFileToString(targetPath);
-                    if (content && ProbeIsText(*content)) {
+                    if (!forceExternal && content && ProbeIsText(*content)) {
                          std::cout << "  Probed as text, loading internally" << std::endl;
                          LoadFile(hwnd, targetPath);
                     } else {
-                         std::cout << "  Probed as binary or missing, opening via ShellExecuteW" << std::endl;
+                         std::cout << "  Probed as binary, missing, or forceExternal, opening via ShellExecuteW" << std::endl;
                          ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
                     }
                 }
@@ -1832,17 +1862,17 @@ namespace {
                 std::cout << "  Resolved target path: " << targetPath << " (exists: " << std::filesystem::exists(targetPath) << ")" << std::endl;
 
                 if (std::filesystem::exists(targetPath)) {
-                    if (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath)) {
+                    if (!forceExternal && (IsMarkdownFile(targetPath) || IsDefinitelyTextFile(targetPath))) {
                         std::cout << "  Loading internally via LoadFile" << std::endl;
                         LoadFile(hwnd, targetPath);
                     } else {
                         // For extensionless or unknown files, probe the content first
                         auto content = mdviewer::ReadFileToString(targetPath);
-                        if (content && ProbeIsText(*content)) {
+                        if (!forceExternal && content && ProbeIsText(*content)) {
                              std::cout << "  Probed as text, loading internally" << std::endl;
                              LoadFile(hwnd, targetPath);
                         } else {
-                             std::cout << "  Probed as binary or missing, opening via ShellExecuteW" << std::endl;
+                             std::cout << "  Probed as binary, missing, or forceExternal, opening via ShellExecuteW" << std::endl;
                              ShellExecuteW(NULL, L"open", targetPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
                         }
                     }
@@ -2063,7 +2093,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
             auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
             if (hit.valid && !hit.url.empty()) {
-                HandleLinkClick(hwnd, hit.url);
+                const bool forceExternal = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                HandleLinkClick(hwnd, hit.url, forceExternal);
                 return 0;
             }
 
@@ -2104,8 +2135,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             return TRUE;
         case WM_MOUSEMOVE: {
-            if (GET_Y_LPARAM(lParam) < kMenuBarHeight) {
-                const int hoveredIndex = HitTestTopMenu(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            const int x = GET_X_LPARAM(lParam);
+            const int y = GET_Y_LPARAM(lParam);
+
+            if (y < kMenuBarHeight) {
+                const int hoveredIndex = HitTestTopMenu(hwnd, x, y);
                 if (hoveredIndex != g_hoveredTopMenuIndex) {
                     g_hoveredTopMenuIndex = hoveredIndex;
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -2113,6 +2147,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             } else if (g_hoveredTopMenuIndex != -1 && g_activeTopMenuIndex == -1) {
                 g_hoveredTopMenuIndex = -1;
                 InvalidateRect(hwnd, nullptr, FALSE);
+            }
+
+            // Update hovered URL
+            {
+                auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
+                std::lock_guard<std::mutex> lock(g_appState.mtx);
+                if (hit.valid && !hit.url.empty()) {
+                    if (g_appState.hoveredUrl != hit.url) {
+                        g_appState.hoveredUrl = hit.url;
+                        g_appState.needsRepaint = true;
+                        InvalidateRect(hwnd, NULL, FALSE);
+                    }
+                } else if (!g_appState.hoveredUrl.empty()) {
+                    g_appState.hoveredUrl = "";
+                    g_appState.needsRepaint = true;
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
             }
 
             bool isAutoScrolling = false;
