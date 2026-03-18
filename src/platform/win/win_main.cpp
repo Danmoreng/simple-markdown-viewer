@@ -37,6 +37,7 @@
 #include "render/typography.h"
 #include "util/file_io.h"
 #include "util/skia_font_utils.h"
+#include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 
 // Suppress warnings from Skia headers
@@ -576,75 +577,9 @@ namespace {
         }
     }
 
-    bool FindBestHit(RenderContext& ctx,
-                     const std::vector<mdviewer::BlockLayout>& blocks,
-                     float x,
-                     float documentY,
-                     TextHit& bestHit,
-                     float& bestDistance) {
-        for (const auto& block : blocks) {
-            for (const auto& line : block.lines) {
-                const float lineTop = line.y;
-                const float lineBottom = line.y + line.height;
-                float distance = 0.0f;
-                if (documentY < lineTop) {
-                    distance = lineTop - documentY;
-                } else if (documentY > lineBottom) {
-                    distance = documentY - lineBottom;
-                }
-
-                if (distance > bestDistance) {
-                    continue;
-                }
-
-                float currentX = GetContentX(block);
-                size_t fallbackPosition = line.textStart;
-                bool foundRun = false;
-
-                for (const auto& run : line.runs) {
-                    const float runWidth = GetRunVisualWidth(ctx, block.type, run);
-                    const float runEndX = currentX + runWidth;
-                    fallbackPosition = GetRunTextEnd(run);
-
-                    if (x <= runEndX || &run == &line.runs.back()) {
-                        bestHit.position = FindTextPositionInRun(ctx, block.type, run, x - currentX);
-                        bestHit.valid = true;
-                        bestHit.url = run.url;
-                        bestHit.style = run.style;
-                        bestDistance = distance;
-                        foundRun = true;
-                        break;
-                    }
-
-                    currentX = runEndX;
-                }
-
-                if (!foundRun && line.runs.empty()) {
-                    bestHit.position = line.textStart;
-                    bestHit.valid = true;
-                    bestDistance = distance;
-                } else if (!foundRun && fallbackPosition >= line.textStart) {
-                    bestHit.position = fallbackPosition;
-                    bestHit.valid = true;
-                    bestDistance = distance;
-                }
-            }
-
-            if (FindBestHit(ctx, block.children, x, documentY, bestHit, bestDistance)) {
-                // bestHit updated by recursion
-            }
-        }
-
-        return bestHit.valid;
-    }
-
     TextHit HitTestText(float x, float viewportY) {
         TextHit hit;
         if (!EnsureFontSystem()) {
-            return hit;
-        }
-        viewportY -= GetContentTopInset();
-        if (viewportY < 0.0f) {
             return hit;
         }
 
@@ -653,9 +588,27 @@ namespace {
         ctx.paint.setAntiAlias(true);
         ctx.font.setTypeface(g_typeface);
 
-        const float documentY = viewportY + g_appState.scrollOffset;
-        float bestDistance = std::numeric_limits<float>::max();
-        FindBestHit(ctx, g_appState.docLayout.blocks, x, documentY, hit, bestDistance);
+        const auto sharedHit = mdviewer::HitTestDocument(
+            g_appState.docLayout,
+            g_appState.scrollOffset,
+            GetContentTopInset(),
+            x,
+            viewportY,
+            mdviewer::HitTestCallbacks{
+                .get_content_x = [&](const mdviewer::BlockLayout& block) {
+                    return GetContentX(block);
+                },
+                .get_run_visual_width = [&](const mdviewer::BlockLayout& block, const mdviewer::RunLayout& run) {
+                    return GetRunVisualWidth(ctx, block.type, run);
+                },
+                .find_text_position_in_run = [&](const mdviewer::BlockLayout& block, const mdviewer::RunLayout& run, float xInRun) {
+                    return FindTextPositionInRun(ctx, block.type, run, xInRun);
+                },
+            });
+        hit.position = sharedHit.position;
+        hit.valid = sharedHit.valid;
+        hit.url = sharedHit.url;
+        hit.style = sharedHit.style;
         return hit;
     }
 
