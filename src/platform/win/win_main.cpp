@@ -32,6 +32,7 @@
 #include "markdown/markdown_parser.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_surface.h"
+#include "platform/win/win_window.h"
 #include "render/theme.h"
 #include "render/typography.h"
 #include "util/file_io.h"
@@ -1366,46 +1367,50 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             OnDropFiles(hwnd, (HDROP)wParam);
             return 0;
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
-                case mdviewer::win::kCommandOpenFile:
+            if (mdviewer::win::DispatchWindowCommand(
+                    LOWORD(wParam),
+                    mdviewer::win::WindowCommandHandlers{
+                        .openFile = [&]() {
                     if (const auto path = ShowOpenFileDialog(hwnd)) {
                         LoadFile(hwnd, *path);
                     }
-                    return 0;
-                case mdviewer::win::kCommandExit:
-                    PostMessageW(hwnd, WM_CLOSE, 0, 0);
-                    return 0;
-                case mdviewer::win::kCommandSelectFont:
+                        },
+                        .exitApp = [&]() {
+                            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                        },
+                        .selectFont = [&]() {
                     if (const auto familyName = ShowFontDialog(hwnd)) {
                         ApplySelectedFont(hwnd, *familyName);
                     }
-                    return 0;
-                case mdviewer::win::kCommandUseDefaultFont:
+                        },
+                        .useDefaultFont = [&]() {
                     if (!g_selectedFontFamily.empty()) {
                         ApplySelectedFont(hwnd, L"");
                     }
-                    return 0;
-                case mdviewer::win::kCommandThemeLight:
-                    ApplyTheme(hwnd, mdviewer::ThemeMode::Light);
-                    return 0;
-                case mdviewer::win::kCommandThemeSepia:
-                    ApplyTheme(hwnd, mdviewer::ThemeMode::Sepia);
-                    return 0;
-                case mdviewer::win::kCommandThemeDark:
-                    ApplyTheme(hwnd, mdviewer::ThemeMode::Dark);
-                    return 0;
-                case mdviewer::win::kCommandGoBack:
-                    OnGoBack(hwnd);
-                    return 0;
-                case mdviewer::win::kCommandGoForward:
-                    OnGoForward(hwnd);
-                    return 0;
-                case mdviewer::win::kCommandZoomOut:
-                    AdjustBaseFontSize(hwnd, -1.0f);
-                    return 0;
-                case mdviewer::win::kCommandZoomIn:
-                    AdjustBaseFontSize(hwnd, 1.0f);
-                    return 0;
+                        },
+                        .applyLightTheme = [&]() {
+                            ApplyTheme(hwnd, mdviewer::ThemeMode::Light);
+                        },
+                        .applySepiaTheme = [&]() {
+                            ApplyTheme(hwnd, mdviewer::ThemeMode::Sepia);
+                        },
+                        .applyDarkTheme = [&]() {
+                            ApplyTheme(hwnd, mdviewer::ThemeMode::Dark);
+                        },
+                        .goBack = [&]() {
+                            OnGoBack(hwnd);
+                        },
+                        .goForward = [&]() {
+                            OnGoForward(hwnd);
+                        },
+                        .zoomOut = [&]() {
+                            AdjustBaseFontSize(hwnd, -1.0f);
+                        },
+                        .zoomIn = [&]() {
+                            AdjustBaseFontSize(hwnd, 1.0f);
+                        },
+                    })) {
+                return 0;
             }
             break;
         case WM_LBUTTONDOWN: {
@@ -1747,32 +1752,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoadInitialConfig();
 
     const WCHAR CLASS_NAME[] = L"MDViewerWindowClass";
-
-    auto* largeIcon = static_cast<HICON>(LoadImageW(
-        hInstance,
-        MAKEINTRESOURCEW(kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXICON),
-        GetSystemMetrics(SM_CYICON),
-        LR_DEFAULTCOLOR));
-    auto* smallIcon = static_cast<HICON>(LoadImageW(
-        hInstance,
-        MAKEINTRESOURCEW(kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXSMICON),
-        GetSystemMetrics(SM_CYSMICON),
-        LR_DEFAULTCOLOR));
-
-    WNDCLASSEXW wc = {};
-    wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hIcon = largeIcon;
-    wc.hIconSm = smallIcon ? smallIcon : largeIcon;
-
-    RegisterClassExW(&wc);
+    if (!mdviewer::win::RegisterMainWindowClass(hInstance, WindowProc, kAppIconResourceId, CLASS_NAME)) {
+        MessageBoxW(nullptr, L"Window class registration failed. The application cannot start.", L"Error", MB_ICONERROR);
+        if (shouldUninitializeCom) {
+            CoUninitialize();
+        }
+        return 1;
+    }
 
     if (!mdviewer::win::CreateMenus(GetCurrentThemePalette())) {
         MessageBoxW(nullptr, L"Menu initialization failed. The application cannot start.", L"Error", MB_ICONERROR);
@@ -1782,17 +1768,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    HWND hwnd = CreateWindowExW(
-        0,
+    HWND hwnd = mdviewer::win::CreateMainWindow(
+        hInstance,
         CLASS_NAME,
         L"Markdown Viewer",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, kInitialWindowWidth, kInitialWindowHeight,
-        NULL,
-        NULL,
-        hInstance,
-        NULL
-    );
+        kInitialWindowWidth,
+        kInitialWindowHeight);
 
     if (hwnd == NULL) {
         mdviewer::win::CleanupMenus();
@@ -1822,15 +1803,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LocalFree(argv);
     }
 
-    MSG msg = {};
-    while (GetMessage(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
+    const int exitCode = mdviewer::win::RunMessageLoop();
 
     if (shouldUninitializeCom) {
         CoUninitialize();
     }
 
-    return 0;
+    return exitCode;
 }
