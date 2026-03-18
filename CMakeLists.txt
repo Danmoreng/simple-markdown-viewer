@@ -26,6 +26,7 @@ set(SOURCES
     src/app/app_config.cpp
     src/app/document_loader.cpp
     src/app/link_resolver.cpp
+    src/app/viewer_controller.cpp
     src/platform/win/win_main.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp

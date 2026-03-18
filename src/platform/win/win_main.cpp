@@ -27,6 +27,7 @@
 #include "app/app_state.h"
 #include "app/document_loader.h"
 #include "app/link_resolver.h"
+#include "app/viewer_controller.h"
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
 #include "render/theme.h"
@@ -1758,21 +1759,9 @@ namespace {
             return false;
             }
 
-            auto result = mdviewer::LoadDocumentFromPath(path);
-            if (result.status == mdviewer::DocumentLoadStatus::BinaryFile) {
-                MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
-                return false;
-            }
-            if (result.status == mdviewer::DocumentLoadStatus::FileReadError) {
-                MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
-                return false;
-            }
-
-            // Pre-load images to get their sizes for layout
-            PreloadImages(result.docModel, path.parent_path());
             RECT rect;
             GetClientRect(hwnd, &rect);
-            float width = static_cast<float>(rect.right - rect.left);
+            const float width = static_cast<float>(rect.right - rect.left);
 
             auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
                 auto it = g_imageCache.find(url);
@@ -1782,14 +1771,26 @@ namespace {
                 return {0.0f, 0.0f};
             };
 
-            auto layout = mdviewer::LayoutEngine::ComputeLayout(
-                result.docModel,
+            const auto status = mdviewer::OpenDocument(
+                g_appState,
+                path,
                 width,
                 g_typeface.get(),
                 g_appState.baseFontSize,
-                imageSizeProvider);
+                [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
+                    PreloadImages(docModel, baseDir);
+                },
+                imageSizeProvider,
+                pushHistory);
 
-            g_appState.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
+            if (status == mdviewer::OpenDocumentStatus::BinaryFile) {
+                MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
+                return false;
+            }
+            if (status == mdviewer::OpenDocumentStatus::FileReadError) {
+                MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
+                return false;
+            }
 
             std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
             SetWindowTextW(hwnd, title.c_str());
@@ -1799,34 +1800,18 @@ namespace {
             }
 
             void OnGoBack(HWND hwnd) {
-            std::filesystem::path target;
-            size_t targetIndex = 0;
-            {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            if (g_appState.CanGoBack()) {
-                targetIndex = g_appState.historyIndex - 1;
-                target = g_appState.history[targetIndex];
+            if (const auto target = mdviewer::GetHistoryNavigationTarget(g_appState, mdviewer::HistoryDirection::Back)) {
+            if (LoadFile(hwnd, target->path, false)) {
+                mdviewer::CommitHistoryNavigation(g_appState, target->index);
             }
-            }
-            if (!target.empty() && LoadFile(hwnd, target, false)) {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                g_appState.historyIndex = targetIndex;
             }
             }
 
             void OnGoForward(HWND hwnd) {
-            std::filesystem::path target;
-            size_t targetIndex = 0;
-            {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            if (g_appState.CanGoForward()) {
-                targetIndex = g_appState.historyIndex + 1;
-                target = g_appState.history[targetIndex];
+            if (const auto target = mdviewer::GetHistoryNavigationTarget(g_appState, mdviewer::HistoryDirection::Forward)) {
+            if (LoadFile(hwnd, target->path, false)) {
+                mdviewer::CommitHistoryNavigation(g_appState, target->index);
             }
-            }
-            if (!target.empty() && LoadFile(hwnd, target, false)) {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                g_appState.historyIndex = targetIndex;
             }
             }
 
@@ -1853,20 +1838,6 @@ namespace {
             return;
             }
 
-            mdviewer::DocumentModel docModel;
-            std::filesystem::path currentPath;
-            {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            if (g_appState.sourceText.empty()) {
-                return;
-            }
-            docModel = g_appState.docModel;
-            currentPath = g_appState.currentFilePath;
-            }
-
-            // Pre-load images just in case (though they should be in cache)
-            PreloadImages(docModel, currentPath.parent_path());
-
             RECT rect;
             GetClientRect(hwnd, &rect);
             const float width = static_cast<float>(rect.right - rect.left);
@@ -1879,19 +1850,19 @@ namespace {
             return {0.0f, 0.0f};
             };
 
-            auto layout = mdviewer::LayoutEngine::ComputeLayout(
-                docModel,
-                width,
-                g_typeface.get(),
-                g_appState.baseFontSize,
-                imageSizeProvider);
-
-            {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            g_appState.docLayout = std::move(layout);
-            ClampScrollOffset(hwnd);
-            g_appState.needsRepaint = true;
+            if (!mdviewer::RelayoutDocument(
+                    g_appState,
+                    width,
+                    g_typeface.get(),
+                    g_appState.baseFontSize,
+                    [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
+                        PreloadImages(docModel, baseDir);
+                    },
+                    imageSizeProvider)) {
+            return;
             }
+
+            ClampScrollOffset(hwnd);
             }
             }
 
