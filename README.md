@@ -2,6 +2,8 @@
 
 Simple Markdown Viewer is a native, read-only Markdown viewer for Windows.
 
+Download the latest ready-to-run Windows build from the repository's `Releases` page.
+
 It is built with:
 
 - C++20
@@ -12,6 +14,18 @@ It is built with:
 ## Screenshot
 
 ![Simple Markdown Viewer screenshot](assets/screenshot.png)
+
+## Download
+
+If you just want to use the app, go to `Releases` and download the latest `mdviewer-windows-x64.zip`.
+
+The release archive contains:
+
+- `mdviewer.exe`
+- `LICENSE`
+- `THIRD_PARTY_NOTICES`
+
+Extract the zip to a folder of your choice and run `mdviewer.exe`.
 
 ## Features
 

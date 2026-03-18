@@ -1,4 +1,5 @@
 build/
+dist/
 .vs/
 out/
 
@@ -16,5 +17,6 @@ third_party/skia/
 *.ipch
 *.tlog
 *.cache
+*.zip
 
 CMakeUserPresets.json
