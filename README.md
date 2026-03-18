@@ -18,6 +18,7 @@ It is built with:
 - Open Markdown and plain text files from:
   - drag and drop
   - `File -> Open...`
+  - `File` recent files list
   - command-line file argument
   - clicking internal file links
 - Render:
@@ -28,7 +29,7 @@ It is built with:
   - fenced code blocks with **one-click copy**
   - thematic breaks
   - emphasis, strong text, inline code, and links
-  - **Images** with aspect-ratio preservation and auto-scaling
+  - **Images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size
 - Navigation:
   - **Full browsing history** (back/forward)
   - Toolbar navigation buttons
@@ -44,9 +45,12 @@ It is built with:
   - custom scrollbar
   - middle-mouse auto-scroll
 - Mouse text selection and `Ctrl+C` copy
+- Link text remains selectable while links stay clickable
 - Switchable `Light`, `Sepia`, and `Dark` themes
 - Custom client-drawn menu bar
 - Runtime font selection
+- Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
+- Persistent settings in `mdviewer.ini` for theme, reading font, zoom level, and recent files
 - Embedded Windows app icon
 
 ## Scope
@@ -96,6 +100,13 @@ Useful variants:
 .\build.ps1 -RunSmokeTest
 ```
 
+## GitHub Builds And Releases
+
+- GitHub Actions builds the Windows release on pushes to `main` and on pull requests.
+- Each workflow run uploads `mdviewer-windows-x64.zip` as a build artifact.
+- Pushing a tag like `v0.1.0` also creates or updates a GitHub release and attaches the packaged Windows build.
+- Release archives contain `mdviewer.exe`, `LICENSE`, and `THIRD_PARTY_NOTICES`.
+
 Default output:
 
 ```text
@@ -116,9 +127,12 @@ Open a file immediately:
 .\build\Release\mdviewer.exe .\README.md
 ```
 
+The app stores `mdviewer.ini` next to the executable and uses it for theme, font, zoom, and recent-file persistence.
+
 ## Controls
 
 - `File -> Open...`: open a file
+- `File`: reopen recently opened files
 - drag and drop: open a file
 - mouse wheel: scroll
 - middle mouse button: auto-scroll mode
@@ -126,16 +140,20 @@ Open a file immediately:
 - `Ctrl+C`: copy selected text
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
+- `Ctrl` + `+` / `-`: zoom document text in and out
 - **Navigation**:
   - `Alt + Left` or `Backspace`: Go Back
   - `Alt + Right`: Go Forward
   - `Left / Right Arrow`: Go Back/Forward (if no text is selected)
   - Mouse side buttons: Go Back/Forward
   - Toolbar buttons: Click the arrows in the top-right corner
+- **Zoom**:
+  - Toolbar buttons: Click `+` or `-` in the top-right corner
 - **Links**:
   - `Click`: Open internally (MD/Text) or externally (Web/Other)
   - `Ctrl + Click`: Force open in default system application
   - `Hover`: Preview target path in bottom-left overlay
+  - `Click and drag`: select link text without opening the link
 - **Code Blocks**:
   - Click the **icon in the top-right corner** of a code block to copy its entire content
 
@@ -195,3 +213,4 @@ CMakeLists.txt    CMake project definition
 - The viewer copies rendered text content, not raw Markdown markup.
 - The app currently targets Windows first, but the architecture is intended to stay portable.
 - The menu bar is client-drawn so it can follow the selected theme.
+- The document zoom affects rendered document typography, not the top menu bar.
