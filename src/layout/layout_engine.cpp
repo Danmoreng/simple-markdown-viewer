@@ -1,6 +1,8 @@
 #include "layout_engine.h"
 #include <algorithm>
 
+#include "render/typography.h"
+
 // Suppress warnings from Skia headers
 #pragma warning(push)
 #pragma warning(disable: 4244) 
@@ -23,10 +25,13 @@ public:
     size_t currentTextOffset = 0;
     std::string plainText;
     SkFont font;
+    float baseFontSize;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
 
-    LayoutContext(float width, SkTypeface* typeface, LayoutEngine::ImageSizeProvider provider)
-        : availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)), imageSizeProvider(provider) {
+    LayoutContext(float width, SkTypeface* typeface, float documentBaseFontSize, LayoutEngine::ImageSizeProvider provider)
+        : availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)),
+          baseFontSize(ClampBaseFontSize(documentBaseFontSize)),
+          imageSizeProvider(provider) {
         if (typeface) {
             font.setTypeface(sk_ref_sp(typeface));
         }
@@ -38,12 +43,8 @@ public:
             bl.type = block.type;
             bl.textStart = currentTextOffset;
             
-            float fontSize = 16.0f;
+            float fontSize = GetBlockFontSize(block.type, baseFontSize);
             float spacing = 10.0f;
-
-            if (block.type == BlockType::Heading1) fontSize = 32.0f;
-            else if (block.type == BlockType::Heading2) fontSize = 24.0f;
-            else if (block.type == BlockType::Heading3) fontSize = 20.0f;
 
             font.setSize(fontSize);
             SkFontMetrics metrics;
@@ -253,9 +254,14 @@ private:
     }
 };
 
-DocumentLayout LayoutEngine::ComputeLayout(const DocumentModel& doc, float width, SkTypeface* typeface, ImageSizeProvider imageSizeProvider) {
+DocumentLayout LayoutEngine::ComputeLayout(
+    const DocumentModel& doc,
+    float width,
+    SkTypeface* typeface,
+    float baseFontSize,
+    ImageSizeProvider imageSizeProvider) {
     DocumentLayout layout;
-    LayoutContext ctx(width, typeface, imageSizeProvider);
+    LayoutContext ctx(width, typeface, baseFontSize, imageSizeProvider);
     ctx.LayoutBlocks(doc.blocks, layout.blocks);
     layout.totalHeight = ctx.currentY + 20.0f;
     layout.plainText = std::move(ctx.plainText);

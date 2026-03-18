@@ -23,9 +23,12 @@
 #include <iostream>
 #include <vector>
 
+#include "app/app_config.h"
 #include "app/app_state.h"
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
+#include "render/theme.h"
+#include "render/typography.h"
 #include "util/file_io.h"
 #include "util/skia_font_utils.h"
 
@@ -59,6 +62,7 @@ namespace {
     sk_sp<SkTypeface> g_codeTypeface;
     sk_sp<SkFontMgr> g_fontMgr;
     std::wstring g_selectedFontFamily;
+    std::filesystem::path g_configPath;
     HMENU g_fileMenu = nullptr;
     HMENU g_viewMenu = nullptr;
     HMENU g_themeMenu = nullptr;
@@ -123,7 +127,6 @@ namespace {
     constexpr int kMenuBarItemGap = 8;
     constexpr int kMenuBarTopPadding = 7;
     constexpr int kMenuBarBottomPadding = 8;
-    constexpr float kTopMenuFontSize = 17.5f;
     constexpr int kInitialWindowWidth = 900;
     constexpr int kInitialWindowHeight = 1200;
     constexpr UINT_PTR kCommandOpenFile = 1001;
@@ -164,121 +167,11 @@ namespace {
         HMENU menu;
     };
 
-    struct ThemePalette {
-        SkColor windowBackground;
-        SkColor emptyStateText;
-        SkColor bodyText;
-        SkColor headingText;
-        SkColor blockquoteText;
-        SkColor codeText;
-        SkColor linkText;
-        SkColor selectionFill;
-        SkColor codeBlockBackground;
-        SkColor codeInlineBackground;
-        SkColor blockquoteAccent;
-        SkColor listMarker;
-        SkColor thematicBreak;
-        SkColor scrollbarTrack;
-        SkColor scrollbarThumb;
-        SkColor autoScrollIndicator;
-        SkColor autoScrollIndicatorFill;
-        SkColor menuBackground;
-        SkColor menuText;
-        SkColor menuDisabledText;
-        SkColor menuSelectedBackground;
-        SkColor menuSelectedText;
-        SkColor menuSeparator;
-    };
-
-    ThemePalette GetThemePalette(mdviewer::ThemeMode theme) {
-        switch (theme) {
-            case mdviewer::ThemeMode::Sepia:
-                return {
-                    SkColorSetRGB(232, 220, 196),
-                    SkColorSetRGB(123, 99, 71),
-                    SkColorSetRGB(73, 58, 41),
-                    SkColorSetRGB(55, 40, 24),
-                    SkColorSetRGB(118, 93, 65),
-                    SkColorSetRGB(146, 67, 39),
-                    SkColorSetRGB(124, 76, 22),
-                    SkColorSetARGB(120, 196, 162, 102),
-                    SkColorSetRGB(220, 205, 180),
-                    SkColorSetRGB(232, 220, 196),
-                    SkColorSetRGB(180, 150, 110),
-                    SkColorSetRGB(131, 104, 75),
-                    SkColorSetRGB(197, 181, 151),
-                    SkColorSetARGB(28, 92, 68, 37),
-                    SkColorSetARGB(128, 118, 88, 57),
-                    SkColorSetARGB(210, 118, 88, 57),
-                    SkColorSetARGB(70, 118, 88, 57),
-                    SkColorSetRGB(246, 238, 220),
-                    SkColorSetRGB(73, 58, 41),
-                    SkColorSetRGB(150, 126, 96),
-                    SkColorSetRGB(219, 204, 176),
-                    SkColorSetRGB(55, 40, 24),
-                    SkColorSetRGB(194, 177, 145)
-                };
-            case mdviewer::ThemeMode::Dark:
-                return {
-                    SkColorSetRGB(31, 35, 42),
-                    SkColorSetRGB(122, 130, 145),
-                    SkColorSetRGB(224, 228, 235),
-                    SkColorSetRGB(248, 249, 252),
-                    SkColorSetRGB(160, 170, 186),
-                    SkColorSetRGB(255, 165, 118),
-                    SkColorSetRGB(120, 180, 255),
-                    SkColorSetARGB(125, 66, 114, 179),
-                    SkColorSetRGB(37, 41, 48),
-                    SkColorSetRGB(44, 48, 57),
-                    SkColorSetRGB(94, 104, 120),
-                    SkColorSetRGB(154, 163, 179),
-                    SkColorSetRGB(66, 72, 84),
-                    SkColorSetARGB(40, 255, 255, 255),
-                    SkColorSetARGB(150, 188, 194, 205),
-                    SkColorSetARGB(220, 188, 194, 205),
-                    SkColorSetARGB(70, 188, 194, 205),
-                    SkColorSetRGB(22, 24, 29),
-                    SkColorSetRGB(228, 232, 238),
-                    SkColorSetRGB(119, 126, 138),
-                    SkColorSetRGB(54, 63, 78),
-                    SkColorSetRGB(248, 249, 252),
-                    SkColorSetRGB(74, 82, 96)
-                };
-            case mdviewer::ThemeMode::Light:
-            default:
-                return {
-                    SkColorSetRGB(244, 246, 249),
-                    SK_ColorGRAY,
-                    SkColorSetRGB(36, 39, 45),
-                    SkColorSetRGB(28, 31, 38),
-                    SkColorSetRGB(86, 92, 105),
-                    SkColorSetRGB(165, 46, 84),
-                    SkColorSetRGB(26, 92, 200),
-                    SkColorSetARGB(110, 102, 165, 255),
-                    SkColorSetRGB(215, 218, 222),
-                    SkColorSetRGB(225, 228, 232),
-                    SkColorSetRGB(196, 204, 217),
-                    SkColorSetRGB(90, 96, 110),
-                    SkColorSetRGB(210, 214, 220),
-                    SkColorSetARGB(24, 0, 0, 0),
-                    SkColorSetARGB(120, 100, 100, 100),
-                    SkColorSetARGB(220, 100, 100, 100),
-                    SkColorSetARGB(65, 100, 100, 100),
-                    SK_ColorWHITE,
-                    SkColorSetRGB(40, 43, 50),
-                    SkColorSetRGB(145, 151, 162),
-                    SkColorSetRGB(225, 236, 255),
-                    SkColorSetRGB(28, 31, 38),
-                    SkColorSetRGB(214, 219, 226)
-                };
-        }
-    }
-
     mdviewer::ThemeMode GetCurrentThemeMode() {
         return g_appState.theme;
     }
 
-    ThemePalette GetCurrentThemePalette() {
+    mdviewer::ThemePalette GetCurrentThemePalette() {
         return GetThemePalette(GetCurrentThemeMode());
     }
 
@@ -519,6 +412,62 @@ namespace {
         return utf8;
     }
 
+    std::wstring Utf8ToWide(const std::string& text) {
+        if (text.empty()) {
+            return {};
+        }
+
+        const int wideLength = MultiByteToWideChar(
+            CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0);
+        if (wideLength <= 0) {
+            return {};
+        }
+
+        std::wstring wide(static_cast<size_t>(wideLength), L'\0');
+        MultiByteToWideChar(
+            CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), wide.data(), wideLength);
+        return wide;
+    }
+
+    std::filesystem::path GetExecutableConfigPath() {
+        std::array<wchar_t, MAX_PATH> buffer = {};
+        const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0 || length >= buffer.size()) {
+            return std::filesystem::path(L"mdviewer.ini");
+        }
+
+        std::filesystem::path executablePath(std::wstring(buffer.data(), length));
+        return executablePath.parent_path() / L"mdviewer.ini";
+    }
+
+    void SaveCurrentConfig() {
+        if (g_configPath.empty()) {
+            return;
+        }
+
+        mdviewer::AppConfig config;
+        config.theme = g_appState.theme;
+        config.fontFamilyUtf8 = WideToUtf8(g_selectedFontFamily);
+        config.baseFontSize = g_appState.baseFontSize;
+        mdviewer::SaveAppConfig(g_configPath, config);
+    }
+
+    void LoadInitialConfig() {
+        g_configPath = GetExecutableConfigPath();
+
+        const auto config = mdviewer::LoadAppConfig(g_configPath);
+        if (!config) {
+            g_appState.theme = mdviewer::ThemeMode::Light;
+            g_appState.baseFontSize = mdviewer::kDefaultBaseFontSize;
+            g_selectedFontFamily.clear();
+            return;
+        }
+
+        g_appState.theme = config->theme;
+        g_appState.baseFontSize = mdviewer::ClampBaseFontSize(config->baseFontSize);
+        g_selectedFontFamily = Utf8ToWide(config->fontFamilyUtf8);
+    }
+
     void ResetResolvedTypefaces() {
         g_typeface.reset();
         g_boldTypeface.reset();
@@ -637,7 +586,7 @@ namespace {
             return false;
         }
 
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
         const bool isSelected = (drawInfo->itemState & ODS_SELECTED) != 0;
         const bool isDisabled = (drawInfo->itemState & ODS_DISABLED) != 0;
         const bool isChecked = (drawInfo->itemState & ODS_CHECKED) != 0;
@@ -784,7 +733,7 @@ namespace {
     }
 
     void DrawTopMenuBar(SkCanvas* canvas, HWND hwnd) {
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
 
         SkPaint backgroundPaint;
         backgroundPaint.setAntiAlias(false);
@@ -799,7 +748,7 @@ namespace {
 
         SkFont menuFont;
         menuFont.setTypeface(g_typeface);
-        menuFont.setSize(kTopMenuFontSize);
+        menuFont.setSize(mdviewer::GetTopMenuFontSize(g_appState.baseFontSize));
         menuFont.setHinting(SkFontHinting::kSlight);
         menuFont.setSubpixel(true);
         menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
@@ -961,19 +910,6 @@ namespace {
                blockType == mdviewer::BlockType::Heading6;
     }
 
-    float GetBlockFontSize(mdviewer::BlockType blockType) {
-        switch (blockType) {
-            case mdviewer::BlockType::Heading1: return 34.0f;
-            case mdviewer::BlockType::Heading2: return 28.0f;
-            case mdviewer::BlockType::Heading3: return 22.0f;
-            case mdviewer::BlockType::Heading4: return 19.0f;
-            case mdviewer::BlockType::Heading5: return 17.0f;
-            case mdviewer::BlockType::Heading6: return 16.0f;
-            case mdviewer::BlockType::CodeBlock: return 15.0f;
-            default: return 17.0f;
-        }
-    }
-
     const mdviewer::LineLayout* FindFirstLine(const mdviewer::BlockLayout& block) {
         if (!block.lines.empty()) {
             return &block.lines.front();
@@ -994,7 +930,10 @@ namespace {
         const bool isStrong = inlineStyle == mdviewer::InlineStyle::Strong;
         ctx.font.setTypeface(
             isCode ? g_codeTypeface : (isHeading ? g_headingTypeface : (isStrong ? g_boldTypeface : g_typeface)));
-        ctx.font.setSize(isCode ? GetBlockFontSize(mdviewer::BlockType::CodeBlock) : GetBlockFontSize(blockType));
+        ctx.font.setSize(
+            isCode
+                ? mdviewer::GetBlockFontSize(mdviewer::BlockType::CodeBlock, g_appState.baseFontSize)
+                : mdviewer::GetBlockFontSize(blockType, g_appState.baseFontSize));
         ctx.font.setSubpixel(!isHeading);
         ctx.font.setHinting(SkFontHinting::kSlight);
         ctx.font.setEdging(isHeading ? SkFont::Edging::kAntiAlias : SkFont::Edging::kSubpixelAntiAlias);
@@ -1004,7 +943,7 @@ namespace {
     }
 
     SkColor GetTextColor(mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
         if (blockType == mdviewer::BlockType::Blockquote) {
             return palette.blockquoteText;
         }
@@ -1113,7 +1052,7 @@ namespace {
     }
 
     void DrawAutoScrollIndicator(SkCanvas* canvas) {
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
         if (!g_appState.isAutoScrolling) {
             return;
         }
@@ -1220,7 +1159,7 @@ namespace {
             return;
         }
 
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
 
         const size_t selectionStart = GetSelectionStart();
         const size_t selectionEnd = GetSelectionEnd();
@@ -1399,7 +1338,7 @@ namespace {
                              const mdviewer::BlockLayout& block,
                              mdviewer::BlockType parentType,
                              size_t siblingIndex) {
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
 
         if (block.type == mdviewer::BlockType::CodeBlock) {
             SkPaint backgroundPaint;
@@ -1463,7 +1402,7 @@ namespace {
     }
 
     void DrawLine(RenderContext& ctx, const mdviewer::BlockLayout& block, const mdviewer::LineLayout& line) {
-        const ThemePalette palette = GetCurrentThemePalette();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
         float currentX = GetContentX(block);
 
         for (const auto& run : line.runs) {
@@ -1641,7 +1580,7 @@ namespace {
             }
 
             SkCanvas* canvas = g_surface->getCanvas();
-            const ThemePalette palette = GetCurrentThemePalette();
+            const mdviewer::ThemePalette palette = GetCurrentThemePalette();
             canvas->clear(palette.windowBackground);
 
             {
@@ -1666,7 +1605,7 @@ namespace {
             DrawBlocks(ctx, g_appState.docLayout.blocks);
 
             if (g_appState.sourceText.empty()) {
-                ctx.font.setSize(20.0f);
+                ctx.font.setSize(mdviewer::GetEmptyStateFontSize(g_appState.baseFontSize));
                 ctx.paint.setColor(palette.emptyStateText);
                 const char* msg = "Drag and drop a Markdown file here";
                 SkRect bounds;
@@ -1703,7 +1642,7 @@ namespace {
             // Draw hovered URL overlay at the bottom
             if (!g_appState.hoveredUrl.empty()) {
                 const float padding = 6.0f;
-                ctx.font.setSize(14.0f);
+                ctx.font.setSize(mdviewer::GetHoverOverlayFontSize(g_appState.baseFontSize));
                 ctx.font.setTypeface(g_typeface);
 
                 SkRect textBounds;
@@ -1735,7 +1674,7 @@ namespace {
                 if (g_appState.copiedFeedbackTimeout > GetTickCount64()) {
                 const char* msg = "Copied!";
                 const float padding = 8.0f;
-                ctx.font.setSize(15.0f);
+                ctx.font.setSize(mdviewer::GetCopiedOverlayFontSize(g_appState.baseFontSize));
                 ctx.font.setTypeface(g_boldTypeface);
 
                 SkRect textBounds;
@@ -1817,7 +1756,12 @@ namespace {
                 return {0.0f, 0.0f};
             };
 
-            auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get(), imageSizeProvider);
+            auto layout = mdviewer::LayoutEngine::ComputeLayout(
+                docModel,
+                width,
+                g_typeface.get(),
+                g_appState.baseFontSize,
+                imageSizeProvider);
 
             g_appState.SetFile(path, std::move(*content), std::move(docModel), std::move(layout), pushHistory);
 
@@ -1995,7 +1939,12 @@ namespace {
             return {0.0f, 0.0f};
             };
 
-            auto layout = mdviewer::LayoutEngine::ComputeLayout(docModel, width, g_typeface.get(), imageSizeProvider);
+            auto layout = mdviewer::LayoutEngine::ComputeLayout(
+                docModel,
+                width,
+                g_typeface.get(),
+                g_appState.baseFontSize,
+                imageSizeProvider);
 
             {
             std::lock_guard<std::mutex> lock(g_appState.mtx);
@@ -2019,6 +1968,7 @@ namespace {
     }
 
     RelayoutCurrentDocument(hwnd);
+    SaveCurrentConfig();
     UpdateMenuState(hwnd);
     InvalidateRect(hwnd, NULL, FALSE);
 }
@@ -2029,6 +1979,7 @@ void ApplyTheme(HWND hwnd, mdviewer::ThemeMode theme) {
         g_appState.theme = theme;
         g_appState.needsRepaint = true;
     }
+    SaveCurrentConfig();
     UpdateMenuState(hwnd);
     InvalidateRect(hwnd, NULL, FALSE);
 }
@@ -2494,6 +2445,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         MessageBoxW(nullptr, L"COM initialization failed. The application cannot start.", L"Error", MB_ICONERROR);
         return 1;
     }
+
+    LoadInitialConfig();
 
     const WCHAR CLASS_NAME[] = L"MDViewerWindowClass";
 

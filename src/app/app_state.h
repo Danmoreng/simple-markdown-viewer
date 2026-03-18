@@ -5,14 +5,9 @@
 
 #include "layout/document_model.h"
 #include "layout/layout_engine.h"
+#include "render/theme.h"
 
 namespace mdviewer {
-
-enum class ThemeMode {
-    Light,
-    Sepia,
-    Dark
-};
 
 struct AppState {
     std::filesystem::path currentFilePath;
@@ -20,6 +15,7 @@ struct AppState {
     DocumentModel docModel;
     DocumentLayout docLayout;
     ThemeMode theme = ThemeMode::Light;
+    float baseFontSize = 17.0f;
     float scrollOffset = 0.0f;
     bool isSelecting = false;
     bool isDraggingScrollbar = false;

@@ -23,11 +23,14 @@ set(SKIA_DEBUG_OUT_DIR "${SKIA_DIR}/out/Debug" CACHE PATH "Path to the Debug Ski
 # Source files
 set(SOURCES
     src/main.cpp
+    src/app/app_config.cpp
     src/platform/win/win_main.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
+    src/render/theme.cpp
+    src/render/typography.cpp
     resources/app.rc
 )
 

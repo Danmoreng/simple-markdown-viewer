@@ -43,7 +43,12 @@ struct DocumentLayout {
 class LayoutEngine {
 public:
     using ImageSizeProvider = std::function<std::pair<float, float>(const std::string& url)>;
-    static DocumentLayout ComputeLayout(const DocumentModel& doc, float width, SkTypeface* typeface, ImageSizeProvider imageSizeProvider = nullptr);
+    static DocumentLayout ComputeLayout(
+        const DocumentModel& doc,
+        float width,
+        SkTypeface* typeface,
+        float baseFontSize,
+        ImageSizeProvider imageSizeProvider = nullptr);
 };
 
 } // namespace mdviewer
