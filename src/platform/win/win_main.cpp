@@ -53,6 +53,8 @@
 #include "include/core/SkPathBuilder.h"
 #pragma warning(pop)
 
+void AdjustBaseFontSize(HWND hwnd, float delta);
+
 namespace {
     mdviewer::AppState g_appState;
     sk_sp<SkSurface> g_surface;
@@ -704,6 +706,29 @@ namespace {
         canvas->drawPath(builder.detach(), paint);
     }
 
+    void DrawZoomGlyph(SkCanvas* canvas, float x, float y, float size, bool plus, SkColor color) {
+        SkPaint paint;
+        paint.setAntiAlias(true);
+        paint.setColor(color);
+        paint.setStyle(SkPaint::kStroke_Style);
+        paint.setStrokeWidth(2.0f);
+        paint.setStrokeCap(SkPaint::kRound_Cap);
+
+        const float halfSize = size * 0.5f;
+        canvas->drawLine(x - halfSize, y, x + halfSize, y, paint);
+        if (plus) {
+            canvas->drawLine(x, y - halfSize, x, y + halfSize, paint);
+        }
+    }
+
+    bool CanZoomIn() {
+        return g_appState.baseFontSize < mdviewer::ClampBaseFontSize(g_appState.baseFontSize + 1.0f);
+    }
+
+    bool CanZoomOut() {
+        return g_appState.baseFontSize > mdviewer::ClampBaseFontSize(g_appState.baseFontSize - 1.0f);
+    }
+
     int HitTestTopMenu(HWND hwnd, int x, int y) {
         if (y < 0 || y >= kMenuBarHeight) {
             return -1;
@@ -720,11 +745,16 @@ namespace {
         // Toolbar buttons at the right
         const float rightEdge = static_cast<float>(g_surface->width()) - 12.0f;
         const float btnSize = 34.0f;
+        const float gap = 4.0f;
         const float forwardBtnX = rightEdge - btnSize;
-        const float backBtnX = forwardBtnX - btnSize - 4.0f;
+        const float backBtnX = forwardBtnX - btnSize - gap;
+        const float zoomInBtnX = backBtnX - btnSize - gap;
+        const float zoomOutBtnX = zoomInBtnX - btnSize - gap;
         const float btnY = (static_cast<float>(kMenuBarHeight) - btnSize) * 0.5f;
 
         if (y >= btnY && y < btnY + btnSize) {
+            if (x >= zoomOutBtnX && x < zoomOutBtnX + btnSize) return -4;
+            if (x >= zoomInBtnX && x < zoomInBtnX + btnSize) return -5;
             if (x >= backBtnX && x < backBtnX + btnSize) return -2;
             if (x >= forwardBtnX && x < forwardBtnX + btnSize) return -3;
         }
@@ -799,11 +829,14 @@ namespace {
         // Draw toolbar buttons (Back/Forward) at the right
         const float rightEdge = static_cast<float>(g_surface->width()) - 12.0f;
         const float btnSize = 34.0f;
+        const float gap = 4.0f;
         const float forwardBtnX = rightEdge - btnSize;
-        const float backBtnX = forwardBtnX - btnSize - 4.0f;
+        const float backBtnX = forwardBtnX - btnSize - gap;
+        const float zoomInBtnX = backBtnX - btnSize - gap;
+        const float zoomOutBtnX = zoomInBtnX - btnSize - gap;
         const float btnY = (static_cast<float>(kMenuBarHeight) - btnSize) * 0.5f;
 
-        auto DrawToolbarBtn = [&](float x, float y, bool enabled, int hoverIdx, bool right) {
+        auto DrawToolbarBtn = [&](float x, float y, bool enabled, int hoverIdx, auto&& glyphDrawer) {
             const bool isHovered = g_hoveredTopMenuIndex == hoverIdx;
             if (enabled && isHovered) {
                 SkPaint hPaint;
@@ -812,11 +845,21 @@ namespace {
                 canvas->drawRoundRect(SkRect::MakeXYWH(x, y, btnSize, btnSize), 6.0f, 6.0f, hPaint);
             }
             SkColor color = enabled ? (isHovered ? palette.menuSelectedText : palette.menuText) : palette.menuDisabledText;
-            DrawArrow(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 14.0f, right, color);
+            glyphDrawer(color, x, y);
         };
 
-        DrawToolbarBtn(backBtnX, btnY, g_appState.CanGoBack(), -2, false);
-        DrawToolbarBtn(forwardBtnX, btnY, g_appState.CanGoForward(), -3, true);
+        DrawToolbarBtn(zoomOutBtnX, btnY, CanZoomOut(), -4, [&](SkColor color, float x, float y) {
+            DrawZoomGlyph(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 12.0f, false, color);
+        });
+        DrawToolbarBtn(zoomInBtnX, btnY, CanZoomIn(), -5, [&](SkColor color, float x, float y) {
+            DrawZoomGlyph(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 12.0f, true, color);
+        });
+        DrawToolbarBtn(backBtnX, btnY, g_appState.CanGoBack(), -2, [&](SkColor color, float x, float y) {
+            DrawArrow(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 14.0f, false, color);
+        });
+        DrawToolbarBtn(forwardBtnX, btnY, g_appState.CanGoForward(), -3, [&](SkColor color, float x, float y) {
+            DrawArrow(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 14.0f, true, color);
+        });
     }
 
     void OpenTopMenu(HWND hwnd, int menuIndex) {
@@ -826,6 +869,18 @@ namespace {
         }
         if (menuIndex == -3) {
             if (g_appState.CanGoForward()) OnGoForward(hwnd);
+            return;
+        }
+        if (menuIndex == -4) {
+            if (CanZoomOut()) {
+                AdjustBaseFontSize(hwnd, -1.0f);
+            }
+            return;
+        }
+        if (menuIndex == -5) {
+            if (CanZoomIn()) {
+                AdjustBaseFontSize(hwnd, 1.0f);
+            }
             return;
         }
 
@@ -1955,6 +2010,27 @@ namespace {
             }
             }
 
+            void SetBaseFontSize(HWND hwnd, float baseFontSize) {
+            const float clampedFontSize = mdviewer::ClampBaseFontSize(baseFontSize);
+            if (std::abs(clampedFontSize - g_appState.baseFontSize) < 0.01f) {
+            return;
+            }
+
+            {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            g_appState.baseFontSize = clampedFontSize;
+            }
+
+            RelayoutCurrentDocument(hwnd);
+            SaveCurrentConfig();
+            UpdateMenuState(hwnd);
+            InvalidateRect(hwnd, NULL, FALSE);
+            }
+
+            void AdjustBaseFontSize(HWND hwnd, float delta) {
+            SetBaseFontSize(hwnd, g_appState.baseFontSize + delta);
+            }
+
             void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {    const std::wstring previousFamily = g_selectedFontFamily;
     g_selectedFontFamily = familyName;
     ResetResolvedTypefaces();
@@ -2363,6 +2439,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 StopAutoScroll(hwnd);
                 InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
+            }
+            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+                if (wParam == VK_OEM_PLUS || wParam == VK_ADD) {
+                    AdjustBaseFontSize(hwnd, 1.0f);
+                    return 0;
+                }
+                if (wParam == VK_OEM_MINUS || wParam == VK_SUBTRACT) {
+                    AdjustBaseFontSize(hwnd, -1.0f);
+                    return 0;
+                }
             }
             if (wParam == VK_BACK) {
                 OnGoBack(hwnd);
