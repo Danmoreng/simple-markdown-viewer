@@ -9,6 +9,7 @@ namespace mdviewer {
 struct ParserContext {
     DocumentModel doc;
     std::stack<Block*> blockStack;
+    std::vector<bool> emittedBlockStack;
     std::vector<InlineStyle> styleStack;
     std::vector<std::string> urlStack;
 
@@ -21,7 +22,23 @@ struct ParserContext {
         if (blockStack.empty()) return nullptr;
         return blockStack.top();
     }
+
+    const Block* CurrentBlock() const {
+        if (blockStack.empty()) return nullptr;
+        return blockStack.top();
+    }
 };
+
+static TextAlign MapTextAlign(MD_ALIGN align) {
+    switch (align) {
+        case MD_ALIGN_LEFT: return TextAlign::Left;
+        case MD_ALIGN_CENTER: return TextAlign::Center;
+        case MD_ALIGN_RIGHT: return TextAlign::Right;
+        case MD_ALIGN_DEFAULT:
+        default:
+            return TextAlign::Default;
+    }
+}
 
 static std::string NormalizeMarkdown(const std::string& source) {
     auto normalizeLine = [](std::string_view line) {
@@ -41,6 +58,25 @@ static std::string NormalizeMarkdown(const std::string& source) {
                    normalized[index] != '\t';
         };
 
+        auto hasUnescapedPipe = [&]() {
+            bool escaped = false;
+            for (size_t index = indent; index < normalized.size(); ++index) {
+                const char ch = normalized[index];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch == '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch == '|') {
+                    return true;
+                }
+            }
+            return false;
+        };
+
         if (normalized[indent] == '>') {
             if (needsSpace(indent + 1)) {
                 normalized.insert(indent + 1, 1, ' ');
@@ -56,6 +92,12 @@ static std::string NormalizeMarkdown(const std::string& source) {
         }
         if (hashCount > 0 && needsSpace(indent + hashCount)) {
             normalized.insert(indent + hashCount, 1, ' ');
+            return normalized;
+        }
+
+        // Do not reinterpret optional-pipe table rows like
+        // "*Still* | `renders` | **nicely**" as malformed list items.
+        if (hasUnescapedPipe()) {
             return normalized;
         }
 
@@ -121,6 +163,10 @@ static BlockType MapBlockType(MD_BLOCKTYPE type, void* detail) {
         case MD_BLOCK_LI: return BlockType::ListItem;
         case MD_BLOCK_HR: return BlockType::ThematicBreak;
         case MD_BLOCK_CODE: return BlockType::CodeBlock;
+        case MD_BLOCK_TABLE: return BlockType::Table;
+        case MD_BLOCK_TR: return BlockType::TableRow;
+        case MD_BLOCK_TH: return BlockType::TableHeaderCell;
+        case MD_BLOCK_TD: return BlockType::TableCell;
         case MD_BLOCK_H: {
             auto* h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
             switch (h->level) {
@@ -148,15 +194,39 @@ static InlineStyle MapSpanType(MD_SPANTYPE type) {
     }
 }
 
+static bool ShouldSkipBlock(MD_BLOCKTYPE type, const ParserContext& ctx) {
+    if (type == MD_BLOCK_THEAD || type == MD_BLOCK_TBODY) {
+        return true;
+    }
+
+    if (type == MD_BLOCK_P) {
+        const Block* currentBlock = ctx.CurrentBlock();
+        if (currentBlock != nullptr &&
+            (currentBlock->type == BlockType::TableHeaderCell || currentBlock->type == BlockType::TableCell)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
     if (type == MD_BLOCK_DOC) {
         return 0;
     }
 
     auto* ctx = static_cast<ParserContext*>(userdata);
+    if (ShouldSkipBlock(type, *ctx)) {
+        ctx->emittedBlockStack.push_back(false);
+        return 0;
+    }
     
     Block block;
     block.type = MapBlockType(type, detail);
+    if (type == MD_BLOCK_TH || type == MD_BLOCK_TD) {
+        const auto* cellDetail = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
+        block.align = MapTextAlign(cellDetail->align);
+    }
 
     if (ctx->blockStack.empty()) {
         ctx->doc.blocks.push_back(std::move(block));
@@ -166,6 +236,7 @@ static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
         parent->children.push_back(std::move(block));
         ctx->blockStack.push(&parent->children.back());
     }
+    ctx->emittedBlockStack.push_back(true);
     return 0;
 }
 
@@ -177,8 +248,11 @@ static int LeaveBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
     }
 
     auto* ctx = static_cast<ParserContext*>(userdata);
-    if (!ctx->blockStack.empty()) {
+    if (!ctx->emittedBlockStack.empty() && ctx->emittedBlockStack.back() && !ctx->blockStack.empty()) {
         ctx->blockStack.pop();
+    }
+    if (!ctx->emittedBlockStack.empty()) {
+        ctx->emittedBlockStack.pop_back();
     }
     return 0;
 }

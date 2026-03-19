@@ -5,6 +5,13 @@
 
 namespace mdviewer {
 
+enum class TextAlign {
+    Default,
+    Left,
+    Center,
+    Right
+};
+
 enum class BlockType {
     Paragraph,
     Heading1,
@@ -18,7 +25,11 @@ enum class BlockType {
     Blockquote,
     CodeBlock,
     ThematicBreak,
-    ListItem
+    ListItem,
+    Table,
+    TableRow,
+    TableHeaderCell,
+    TableCell
 };
 
 enum class InlineStyle {
@@ -38,6 +49,7 @@ struct InlineRun {
 
 struct Block {
     BlockType type;
+    TextAlign align = TextAlign::Default;
     std::vector<InlineRun> inlineRuns;
     std::vector<Block> children; // For nested blocks like lists
 };

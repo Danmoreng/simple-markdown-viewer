@@ -18,6 +18,7 @@ struct RunLayout {
 };
 
 struct LineLayout {
+    float x = 0.0f;
     float y;
     float height;
     size_t textStart = 0;
@@ -27,6 +28,7 @@ struct LineLayout {
 
 struct BlockLayout {
     BlockType type;
+    TextAlign align = TextAlign::Default;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;

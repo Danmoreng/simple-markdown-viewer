@@ -29,6 +29,9 @@ struct ThemePalette {
     SkColor blockquoteAccent;
     SkColor listMarker;
     SkColor thematicBreak;
+    SkColor tableHeaderBackground;
+    SkColor tableCellBackground;
+    SkColor tableBorder;
     SkColor scrollbarTrack;
     SkColor scrollbarThumb;
     SkColor autoScrollIndicator;

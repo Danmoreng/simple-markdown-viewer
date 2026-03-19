@@ -34,17 +34,17 @@ bool FindBestHit(
                 continue;
             }
 
-            float currentX = callbacks.get_content_x(block);
+            float currentX = line.x;
             size_t fallbackPosition = line.textStart;
             bool foundRun = false;
 
             for (const auto& run : line.runs) {
-                const float runWidth = callbacks.get_run_visual_width(block, run);
+                const float runWidth = callbacks.get_run_visual_width(block, line, run);
                 const float runEndX = currentX + runWidth;
                 fallbackPosition = GetRunTextEnd(run);
 
                 if (x <= runEndX || &run == &line.runs.back()) {
-                    bestHit.position = callbacks.find_text_position_in_run(block, run, x - currentX);
+                    bestHit.position = callbacks.find_text_position_in_run(block, line, run, x - currentX);
                     bestHit.valid = true;
                     bestHit.url = run.url;
                     bestHit.style = run.style;

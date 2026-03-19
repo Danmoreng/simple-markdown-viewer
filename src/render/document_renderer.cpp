@@ -26,6 +26,8 @@ constexpr float kCodeBlockPaddingY = 8.0f;
 constexpr float kBlockquoteAccentWidth = 4.0f;
 constexpr float kBlockquoteTextInset = 18.0f;
 constexpr float kListMarkerGap = 16.0f;
+constexpr float kTableCellPaddingX = 12.0f;
+constexpr float kTableBorderWidth = 1.0f;
 
 struct RenderContext {
     SkCanvas* canvas = nullptr;
@@ -91,7 +93,7 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
 
     const size_t selectionStart = GetSelectionStart(*params.appState);
     const size_t selectionEnd = GetSelectionEnd(*params.appState);
-    float currentX = GetDocumentContentX(block);
+    float currentX = line.x;
 
     for (const auto& run : line.runs) {
         const size_t runStart = run.textStart;
@@ -189,11 +191,29 @@ void DrawBlockDecoration(
         } else {
             ctx.canvas->drawCircle(markerX, markerBaseline - (firstLine->height * 0.35f), 3.0f, ctx.paint);
         }
+        return;
+    }
+
+    if (block.type == BlockType::TableHeaderCell || block.type == BlockType::TableCell) {
+        SkPaint fillPaint;
+        fillPaint.setAntiAlias(false);
+        fillPaint.setColor(
+            block.type == BlockType::TableHeaderCell
+                ? params.palette.tableHeaderBackground
+                : params.palette.tableCellBackground);
+        ctx.canvas->drawRect(block.bounds, fillPaint);
+
+        SkPaint borderPaint;
+        borderPaint.setAntiAlias(false);
+        borderPaint.setStyle(SkPaint::kStroke_Style);
+        borderPaint.setStrokeWidth(kTableBorderWidth);
+        borderPaint.setColor(params.palette.tableBorder);
+        ctx.canvas->drawRect(block.bounds, borderPaint);
     }
 }
 
 void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
-    float currentX = GetDocumentContentX(block);
+    float currentX = line.x;
 
     for (const auto& run : line.runs) {
         ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
@@ -407,7 +427,7 @@ void ConfigureDocumentFont(
     float baseFontSize) {
     const bool isCode = blockType == BlockType::CodeBlock || inlineStyle == InlineStyle::Code;
     const bool isHeading = IsHeadingBlock(blockType);
-    const bool isStrong = inlineStyle == InlineStyle::Strong;
+    const bool isStrong = inlineStyle == InlineStyle::Strong || blockType == BlockType::TableHeaderCell;
     font.setTypeface(sk_ref_sp(
         isCode ? typefaces.code : (isHeading ? typefaces.heading : (isStrong ? typefaces.bold : typefaces.regular))));
     font.setSize(
@@ -435,6 +455,9 @@ SkColor GetDocumentTextColor(const ThemePalette& palette, BlockType blockType, I
     if (IsHeadingBlock(blockType)) {
         return palette.headingText;
     }
+    if (blockType == BlockType::TableHeaderCell) {
+        return palette.headingText;
+    }
     return palette.bodyText;
 }
 
@@ -444,6 +467,9 @@ float GetDocumentContentX(const BlockLayout& block) {
     }
     if (block.type == BlockType::Blockquote) {
         return block.bounds.left() + kBlockquoteTextInset;
+    }
+    if (block.type == BlockType::TableHeaderCell || block.type == BlockType::TableCell) {
+        return block.bounds.left() + kTableCellPaddingX;
     }
     return block.bounds.left();
 }
