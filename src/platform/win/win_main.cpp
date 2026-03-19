@@ -7,7 +7,6 @@
 #include <tchar.h>
 #include <windowsx.h>
 #include <shellapi.h>
-#include <commdlg.h>
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -23,20 +22,17 @@
 #include <iostream>
 #include <vector>
 
-#include "app/app_config.h"
 #include "app/app_state.h"
-#include "app/document_loader.h"
-#include "app/link_resolver.h"
 #include "app/viewer_controller.h"
-#include "layout/layout_engine.h"
-#include "markdown/markdown_parser.h"
+#include "platform/win/win_clipboard.h"
+#include "platform/win/win_file_dialog.h"
 #include "platform/win/win_menu.h"
+#include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
 #include "platform/win/win_window.h"
 #include "render/document_renderer.h"
 #include "render/theme.h"
 #include "render/typography.h"
-#include "util/file_io.h"
 #include "util/skia_font_utils.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
@@ -59,23 +55,20 @@
 #include "include/core/SkImage.h"
 #pragma warning(pop)
 
-void AdjustBaseFontSize(HWND hwnd, float delta);
-
 namespace {
-    mdviewer::AppState g_appState;
+    mdviewer::ViewerController g_viewerController;
+    mdviewer::AppState& g_appState = g_viewerController.GetMutableAppState();
     sk_sp<SkSurface> g_surface;
     sk_sp<SkTypeface> g_typeface;
     sk_sp<SkTypeface> g_boldTypeface;
     sk_sp<SkTypeface> g_headingTypeface;
     sk_sp<SkTypeface> g_codeTypeface;
     sk_sp<SkFontMgr> g_fontMgr;
-    std::wstring g_selectedFontFamily;
-    std::filesystem::path g_configPath;
-    std::vector<std::filesystem::path> g_recentFiles;
 
     void OnGoBack(HWND hwnd);
     void OnGoForward(HWND hwnd);
     bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory = true);
+    std::wstring Utf8ToWide(const std::string& text);
 
     constexpr float kCodeBlockMarginY = 16.0f;
     constexpr float kScrollbarWidth = 10.0f;
@@ -88,7 +81,6 @@ namespace {
     constexpr int kInitialWindowWidth = 900;
     constexpr int kInitialWindowHeight = 1200;
     constexpr int kAppIconResourceId = 101;
-    constexpr size_t kMaxRecentFiles = 8;
 
     struct RenderContext {
         SkCanvas* canvas;
@@ -118,39 +110,27 @@ namespace {
         return GetThemePalette(GetCurrentThemeMode());
     }
 
+    std::wstring GetSelectedFontFamily() {
+        const std::string& fontFamilyUtf8 = g_viewerController.GetFontFamilyUtf8();
+        if (fontFamilyUtf8.empty()) {
+            return {};
+        }
+        return Utf8ToWide(fontFamilyUtf8);
+    }
+
     void SyncMenuState(HWND hwnd) {
         mdviewer::win::UpdateMenuState(
             hwnd,
-            g_appState.theme,
-            !g_selectedFontFamily.empty(),
+            g_viewerController.GetTheme(),
+            g_viewerController.HasCustomFontFamily(),
             GetCurrentThemePalette(),
-            g_recentFiles);
+            g_viewerController.GetRecentFiles());
     }
 
     bool EnsureFontSystem();
 
     float GetContentTopInset() {
         return static_cast<float>(mdviewer::win::kMenuBarHeight);
-    }
-
-    std::optional<std::filesystem::path> ShowOpenFileDialog(HWND hwnd) {
-        wchar_t fileBuffer[MAX_PATH] = {};
-        OPENFILENAMEW dialog = {};
-        dialog.lStructSize = sizeof(dialog);
-        dialog.hwndOwner = hwnd;
-        dialog.lpstrFilter =
-            L"Markdown Files (*.md;*.markdown;*.txt)\0*.md;*.markdown;*.txt\0"
-            L"All Files (*.*)\0*.*\0";
-        dialog.lpstrFile = fileBuffer;
-        dialog.nMaxFile = static_cast<DWORD>(std::size(fileBuffer));
-        dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
-        dialog.lpstrDefExt = L"md";
-
-        if (!GetOpenFileNameW(&dialog)) {
-            return std::nullopt;
-        }
-
-        return std::filesystem::path(fileBuffer);
     }
 
     std::string WideToUtf8(const std::wstring& text) {
@@ -198,65 +178,6 @@ namespace {
         return executablePath.parent_path() / L"mdviewer.ini";
     }
 
-    std::filesystem::path NormalizeRecentFilePath(const std::filesystem::path& path) {
-        try {
-            return std::filesystem::absolute(path).lexically_normal();
-        } catch (...) {
-            return path.lexically_normal();
-        }
-    }
-
-    void AddRecentFile(const std::filesystem::path& path) {
-        const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
-        g_recentFiles.erase(
-            std::remove(g_recentFiles.begin(), g_recentFiles.end(), normalizedPath),
-            g_recentFiles.end());
-        g_recentFiles.insert(g_recentFiles.begin(), normalizedPath);
-        if (g_recentFiles.size() > kMaxRecentFiles) {
-            g_recentFiles.resize(kMaxRecentFiles);
-        }
-    }
-
-    void SaveCurrentConfig() {
-        if (g_configPath.empty()) {
-            return;
-        }
-
-        mdviewer::AppConfig config;
-        config.theme = g_appState.theme;
-        config.fontFamilyUtf8 = WideToUtf8(g_selectedFontFamily);
-        config.baseFontSize = g_appState.baseFontSize;
-        config.recentFilesUtf8.reserve(g_recentFiles.size());
-        for (const auto& recentFile : g_recentFiles) {
-            config.recentFilesUtf8.push_back(WideToUtf8(recentFile.wstring()));
-        }
-        mdviewer::SaveAppConfig(g_configPath, config);
-    }
-
-    void LoadInitialConfig() {
-        g_configPath = GetExecutableConfigPath();
-
-        const auto config = mdviewer::LoadAppConfig(g_configPath);
-        if (!config) {
-            g_appState.theme = mdviewer::ThemeMode::Light;
-            g_appState.baseFontSize = mdviewer::kDefaultBaseFontSize;
-            g_selectedFontFamily.clear();
-            g_recentFiles.clear();
-            return;
-        }
-
-        g_appState.theme = config->theme;
-        g_appState.baseFontSize = mdviewer::ClampBaseFontSize(config->baseFontSize);
-        g_selectedFontFamily = Utf8ToWide(config->fontFamilyUtf8);
-        g_recentFiles.clear();
-        for (const auto& recentFileUtf8 : config->recentFilesUtf8) {
-            const auto recentFile = NormalizeRecentFilePath(Utf8ToWide(recentFileUtf8));
-            if (!recentFile.empty()) {
-                AddRecentFile(recentFile);
-            }
-        }
-    }
-
     void ResetResolvedTypefaces() {
         g_typeface.reset();
         g_boldTypeface.reset();
@@ -269,8 +190,8 @@ namespace {
             return nullptr;
         }
 
-        if (!g_selectedFontFamily.empty()) {
-            const std::string utf8Family = WideToUtf8(g_selectedFontFamily);
+        if (g_viewerController.HasCustomFontFamily()) {
+            const std::string& utf8Family = g_viewerController.GetFontFamilyUtf8();
             if (auto typeface = mdviewer::CreateStyledTypeface(g_fontMgr, utf8Family.c_str(), style)) {
                 return typeface;
             }
@@ -279,31 +200,12 @@ namespace {
         return mdviewer::CreateDefaultTypeface(g_fontMgr, style);
     }
 
-    std::optional<std::wstring> ShowFontDialog(HWND hwnd) {
-        LOGFONTW logFont = {};
-        if (!g_selectedFontFamily.empty()) {
-            lstrcpynW(logFont.lfFaceName, g_selectedFontFamily.c_str(), LF_FACESIZE);
-        }
-
-        CHOOSEFONTW dialog = {};
-        dialog.lStructSize = sizeof(dialog);
-        dialog.hwndOwner = hwnd;
-        dialog.lpLogFont = &logFont;
-        dialog.Flags = CF_SCREENFONTS | CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT | CF_NOSIZESEL;
-
-        if (!ChooseFontW(&dialog)) {
-            return std::nullopt;
-        }
-
-        return std::wstring(logFont.lfFaceName);
-    }
-
     bool CanZoomIn() {
-        return g_appState.baseFontSize < mdviewer::ClampBaseFontSize(g_appState.baseFontSize + 1.0f);
+        return g_viewerController.CanZoomIn();
     }
 
     bool CanZoomOut() {
-        return g_appState.baseFontSize > mdviewer::ClampBaseFontSize(g_appState.baseFontSize - 1.0f);
+        return g_viewerController.CanZoomOut();
     }
 
     bool EnsureFontSystem() {
@@ -523,47 +425,6 @@ namespace {
         return hit;
     }
 
-    bool CopyTextToClipboard(HWND hwnd, const std::string& utf8Text) {
-        if (utf8Text.empty()) {
-            return false;
-        }
-
-        const int wideLength = MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), static_cast<int>(utf8Text.size()), nullptr, 0);
-        if (wideLength <= 0) {
-            return false;
-        }
-
-        HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wideLength + 1) * sizeof(wchar_t));
-        if (!memory) {
-            return false;
-        }
-
-        auto* wideText = static_cast<wchar_t*>(GlobalLock(memory));
-        if (!wideText) {
-            GlobalFree(memory);
-            return false;
-        }
-
-        MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), static_cast<int>(utf8Text.size()), wideText, wideLength);
-        wideText[wideLength] = L'\0';
-        GlobalUnlock(memory);
-
-        if (!OpenClipboard(hwnd)) {
-            GlobalFree(memory);
-            return false;
-        }
-
-        EmptyClipboard();
-        if (!SetClipboardData(CF_UNICODETEXT, memory)) {
-            CloseClipboard();
-            GlobalFree(memory);
-            return false;
-        }
-
-        CloseClipboard();
-        return true;
-    }
-
     uint64_t MakeScaledImageKey(float width, float height) {
         const uint32_t roundedWidth = static_cast<uint32_t>(std::max(1.0f, std::round(width)));
         const uint32_t roundedHeight = static_cast<uint32_t>(std::max(1.0f, std::round(height)));
@@ -658,250 +519,249 @@ namespace {
                     PreloadImage(run.url, baseDir);
                 }
             }
-            // For nested blocks (like lists or blockquotes)
+
             if (!block.children.empty()) {
                 mdviewer::DocumentModel subDoc;
                 subDoc.blocks = block.children;
                 PreloadImages(subDoc, baseDir);
             }
-            }
-            }
+        }
+    }
 
-            void UpdateSurface(HWND hwnd) {
-            mdviewer::win::EnsureRasterSurfaceSize(hwnd, g_surface);
-            }
+    void UpdateSurface(HWND hwnd) {
+        mdviewer::win::EnsureRasterSurfaceSize(hwnd, g_surface);
+    }
 
     void Render(HWND hwnd) {
-            if (!g_surface) return;
+        if (!g_surface) {
+            return;
+        }
 
-            if (!EnsureFontSystem()) {
+        if (!EnsureFontSystem()) {
             PAINTSTRUCT ps;
             BeginPaint(hwnd, &ps);
             EndPaint(hwnd, &ps);
             return;
-            }
+        }
 
-            SkCanvas* canvas = g_surface->getCanvas();
-            const mdviewer::ThemePalette palette = GetCurrentThemePalette();
-            canvas->clear(palette.windowBackground);
+        SkCanvas* canvas = g_surface->getCanvas();
+        const mdviewer::ThemePalette palette = GetCurrentThemePalette();
+        canvas->clear(palette.windowBackground);
 
-            {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                g_appState.codeBlockButtons.clear();
-                mdviewer::RenderDocumentScene(
-                    mdviewer::DocumentSceneParams{
-                        .canvas = canvas,
-                        .appState = &g_appState,
-                        .palette = palette,
-                        .typefaces = mdviewer::DocumentTypefaceSet{
-                            .regular = g_typeface.get(),
-                            .bold = g_boldTypeface.get(),
-                            .heading = g_headingTypeface.get(),
-                            .code = g_codeTypeface.get(),
-                        },
-                        .baseFontSize = g_appState.baseFontSize,
-                        .contentTopInset = GetContentTopInset(),
-                        .viewportHeight = GetViewportHeight(hwnd),
-                        .surfaceWidth = static_cast<float>(g_surface->width()),
-                        .surfaceHeight = static_cast<float>(g_surface->height()),
-                        .scrollbarWidth = kScrollbarWidth,
-                        .scrollbarMargin = kScrollbarMargin,
-                        .currentTickCount = GetTickCount64(),
-                        .visibleDocumentTop = g_appState.scrollOffset,
-                        .visibleDocumentBottom = g_appState.scrollOffset + GetViewportHeight(hwnd),
-                        .scrollbarThumbRect = GetScrollbarThumbRect(hwnd),
-                        .resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
-                            return GetCachedScaledImage(
-                                url,
-                                g_appState.currentFilePath.parent_path(),
-                                displayWidth,
-                                displayHeight);
-                        },
-                        .addCodeBlockButton = [&](const SkRect& rect, size_t start, size_t end) {
-                            g_appState.codeBlockButtons.push_back({rect, {start, end}});
-                        },
-                    });
-            }
+        {
+            std::lock_guard<std::mutex> lock(g_appState.mtx);
+            g_appState.codeBlockButtons.clear();
+            mdviewer::RenderDocumentScene(
+                mdviewer::DocumentSceneParams{
+                    .canvas = canvas,
+                    .appState = &g_appState,
+                    .palette = palette,
+                    .typefaces = mdviewer::DocumentTypefaceSet{
+                        .regular = g_typeface.get(),
+                        .bold = g_boldTypeface.get(),
+                        .heading = g_headingTypeface.get(),
+                        .code = g_codeTypeface.get(),
+                    },
+                    .baseFontSize = g_appState.baseFontSize,
+                    .contentTopInset = GetContentTopInset(),
+                    .viewportHeight = GetViewportHeight(hwnd),
+                    .surfaceWidth = static_cast<float>(g_surface->width()),
+                    .surfaceHeight = static_cast<float>(g_surface->height()),
+                    .scrollbarWidth = kScrollbarWidth,
+                    .scrollbarMargin = kScrollbarMargin,
+                    .currentTickCount = GetTickCount64(),
+                    .visibleDocumentTop = g_appState.scrollOffset,
+                    .visibleDocumentBottom = g_appState.scrollOffset + GetViewportHeight(hwnd),
+                    .scrollbarThumbRect = GetScrollbarThumbRect(hwnd),
+                    .resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
+                        return GetCachedScaledImage(
+                            url,
+                            g_appState.currentFilePath.parent_path(),
+                            displayWidth,
+                            displayHeight);
+                    },
+                    .addCodeBlockButton = [&](const SkRect& rect, size_t start, size_t end) {
+                        g_appState.codeBlockButtons.push_back({rect, {start, end}});
+                    },
+                });
+        }
 
-            mdviewer::win::DrawTopMenuBar(
-                canvas,
-                hwnd,
-                g_surface->width(),
-                g_typeface.get(),
-                palette,
-                g_appState.CanGoBack(),
-                g_appState.CanGoForward(),
-                CanZoomOut(),
-                CanZoomIn());
+        mdviewer::win::DrawTopMenuBar(
+            canvas,
+            hwnd,
+            g_surface->width(),
+            g_typeface.get(),
+            palette,
+            g_appState.CanGoBack(),
+            g_appState.CanGoForward(),
+            CanZoomOut(),
+            CanZoomIn());
 
-                mdviewer::win::PresentRasterSurface(hwnd, g_surface.get());
-            }
+        mdviewer::win::PresentRasterSurface(hwnd, g_surface.get());
+    }
 
     bool LoadFile(HWND hwnd, const std::filesystem::path& path, bool pushHistory) {
-            if (!EnsureFontSystem()) {
+        if (!EnsureFontSystem()) {
             MessageBoxW(hwnd, L"Font initialization failed. The document cannot be rendered.", L"Error", MB_ICONERROR);
             return false;
+        }
+
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+        const float width = static_cast<float>(rect.right - rect.left);
+
+        auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
+            auto it = g_imageCache.find(url);
+            if (it != g_imageCache.end() && it->second.baseImage) {
+                return {
+                    static_cast<float>(it->second.baseImage->width()),
+                    static_cast<float>(it->second.baseImage->height())
+                };
             }
+            return {0.0f, 0.0f};
+        };
 
-            RECT rect;
-            GetClientRect(hwnd, &rect);
-            const float width = static_cast<float>(rect.right - rect.left);
+        const auto status = g_viewerController.OpenFile(
+            path,
+            width,
+            g_typeface.get(),
+            [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
+                PreloadImages(docModel, baseDir);
+            },
+            imageSizeProvider,
+            pushHistory);
 
-            auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
-                auto it = g_imageCache.find(url);
-                if (it != g_imageCache.end() && it->second.baseImage) {
-                    return {static_cast<float>(it->second.baseImage->width()), static_cast<float>(it->second.baseImage->height())};
-                }
-                return {0.0f, 0.0f};
-            };
+        if (status == mdviewer::OpenDocumentStatus::BinaryFile) {
+            MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
+            return false;
+        }
+        if (status == mdviewer::OpenDocumentStatus::FileReadError) {
+            MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
+            return false;
+        }
 
-            const auto status = mdviewer::OpenDocument(
-                g_appState,
-                path,
+        std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
+        SetWindowTextW(hwnd, title.c_str());
+        g_viewerController.SaveConfig();
+        SyncMenuState(hwnd);
+
+        InvalidateRect(hwnd, NULL, FALSE);
+        return true;
+    }
+
+    void OnGoBack(HWND hwnd) {
+        if (const auto target = g_viewerController.GetHistoryNavigationTarget(mdviewer::HistoryDirection::Back)) {
+            if (LoadFile(hwnd, target->path, false)) {
+                g_viewerController.CommitHistoryNavigation(target->index);
+            }
+        }
+    }
+
+    void OnGoForward(HWND hwnd) {
+        if (const auto target = g_viewerController.GetHistoryNavigationTarget(mdviewer::HistoryDirection::Forward)) {
+            if (LoadFile(hwnd, target->path, false)) {
+                g_viewerController.CommitHistoryNavigation(target->index);
+            }
+        }
+    }
+
+    void HandleLinkClick(HWND hwnd, const std::string& url, bool forceExternal) {
+        if (url.empty()) {
+            return;
+        }
+
+        const auto target = g_viewerController.ResolveLinkTarget(url, forceExternal);
+        switch (target.kind) {
+            case mdviewer::LinkTargetKind::InternalDocument:
+                LoadFile(hwnd, target.path);
+                break;
+            case mdviewer::LinkTargetKind::ExternalUrl:
+                mdviewer::win::OpenExternalUrl(target.externalUrl);
+                break;
+            case mdviewer::LinkTargetKind::ExternalPath:
+                mdviewer::win::OpenPath(target.path);
+                break;
+            case mdviewer::LinkTargetKind::Invalid:
+            default:
+                break;
+        }
+    }
+
+    void RelayoutCurrentDocument(HWND hwnd) {
+        if (!EnsureFontSystem()) {
+            return;
+        }
+
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+        const float width = static_cast<float>(rect.right - rect.left);
+
+        auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
+            auto it = g_imageCache.find(url);
+            if (it != g_imageCache.end() && it->second.baseImage) {
+                return {
+                    static_cast<float>(it->second.baseImage->width()),
+                    static_cast<float>(it->second.baseImage->height())
+                };
+            }
+            return {0.0f, 0.0f};
+        };
+
+        if (!g_viewerController.Relayout(
                 width,
                 g_typeface.get(),
-                g_appState.baseFontSize,
                 [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
                     PreloadImages(docModel, baseDir);
                 },
-                imageSizeProvider,
-                pushHistory);
-
-            if (status == mdviewer::OpenDocumentStatus::BinaryFile) {
-                MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
-                return false;
-            }
-            if (status == mdviewer::OpenDocumentStatus::FileReadError) {
-                MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
-                return false;
-            }
-
-            std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
-            SetWindowTextW(hwnd, title.c_str());
-            AddRecentFile(path);
-            SaveCurrentConfig();
-            SyncMenuState(hwnd);
-
-            InvalidateRect(hwnd, NULL, FALSE);
-            return true;
-            }
-
-            void OnGoBack(HWND hwnd) {
-            if (const auto target = mdviewer::GetHistoryNavigationTarget(g_appState, mdviewer::HistoryDirection::Back)) {
-            if (LoadFile(hwnd, target->path, false)) {
-                mdviewer::CommitHistoryNavigation(g_appState, target->index);
-            }
-            }
-            }
-
-            void OnGoForward(HWND hwnd) {
-            if (const auto target = mdviewer::GetHistoryNavigationTarget(g_appState, mdviewer::HistoryDirection::Forward)) {
-            if (LoadFile(hwnd, target->path, false)) {
-                mdviewer::CommitHistoryNavigation(g_appState, target->index);
-            }
-            }
-            }
-
-            void HandleLinkClick(HWND hwnd, const std::string& url, bool forceExternal) {
-            if (url.empty()) return;
-
-            const auto target = mdviewer::ResolveLinkTarget(g_appState.currentFilePath, url, forceExternal);
-            switch (target.kind) {
-                case mdviewer::LinkTargetKind::InternalDocument:
-                    LoadFile(hwnd, target.path);
-                    break;
-                case mdviewer::LinkTargetKind::ExternalUrl:
-                    ShellExecuteA(NULL, "open", target.externalUrl.c_str(), NULL, NULL, SW_SHOWNORMAL);
-                    break;
-                case mdviewer::LinkTargetKind::ExternalPath:
-                    ShellExecuteW(NULL, L"open", target.path.c_str(), NULL, NULL, SW_SHOWNORMAL);
-                    break;
-                case mdviewer::LinkTargetKind::Invalid:
-                default:
-                    break;
-            }
-            }            void RelayoutCurrentDocument(HWND hwnd) {
-            if (!EnsureFontSystem()) {
+                imageSizeProvider)) {
             return;
-            }
+        }
 
-            RECT rect;
-            GetClientRect(hwnd, &rect);
-            const float width = static_cast<float>(rect.right - rect.left);
+        ClampScrollOffset(hwnd);
+    }
 
-            auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
-            auto it = g_imageCache.find(url);
-            if (it != g_imageCache.end() && it->second.baseImage) {
-                return {static_cast<float>(it->second.baseImage->width()), static_cast<float>(it->second.baseImage->height())};
-            }
-            return {0.0f, 0.0f};
-            };
-
-            if (!mdviewer::RelayoutDocument(
-                    g_appState,
-                    width,
-                    g_typeface.get(),
-                    g_appState.baseFontSize,
-                    [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
-                        PreloadImages(docModel, baseDir);
-                    },
-                    imageSizeProvider)) {
+    void SetBaseFontSize(HWND hwnd, float baseFontSize) {
+        if (!g_viewerController.SetBaseFontSize(baseFontSize)) {
             return;
-            }
+        }
 
-            ClampScrollOffset(hwnd);
-            }
-            }
+        RelayoutCurrentDocument(hwnd);
+        g_viewerController.SaveConfig();
+        SyncMenuState(hwnd);
+        InvalidateRect(hwnd, NULL, FALSE);
+    }
 
-            void SetBaseFontSize(HWND hwnd, float baseFontSize) {
-            const float clampedFontSize = mdviewer::ClampBaseFontSize(baseFontSize);
-            if (std::abs(clampedFontSize - g_appState.baseFontSize) < 0.01f) {
-            return;
-            }
+    void AdjustBaseFontSize(HWND hwnd, float delta) {
+        SetBaseFontSize(hwnd, g_viewerController.GetBaseFontSize() + delta);
+    }
 
-            {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            g_appState.baseFontSize = clampedFontSize;
-            }
-
-            RelayoutCurrentDocument(hwnd);
-            SaveCurrentConfig();
-            SyncMenuState(hwnd);
-            InvalidateRect(hwnd, NULL, FALSE);
-            }
-
-            void AdjustBaseFontSize(HWND hwnd, float delta) {
-            SetBaseFontSize(hwnd, g_appState.baseFontSize + delta);
-            }
-
-            void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {    const std::wstring previousFamily = g_selectedFontFamily;
-    g_selectedFontFamily = familyName;
-    ResetResolvedTypefaces();
-
-    if (!EnsureFontSystem()) {
-        g_selectedFontFamily = previousFamily;
+    void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {
+        const std::string previousFamily = g_viewerController.GetFontFamilyUtf8();
+        g_viewerController.SetFontFamilyUtf8(WideToUtf8(familyName));
         ResetResolvedTypefaces();
-        EnsureFontSystem();
-        MessageBoxW(hwnd, L"The selected font could not be loaded.", L"Error", MB_ICONERROR);
-        return;
+
+        if (!EnsureFontSystem()) {
+            g_viewerController.SetFontFamilyUtf8(previousFamily);
+            ResetResolvedTypefaces();
+            EnsureFontSystem();
+            MessageBoxW(hwnd, L"The selected font could not be loaded.", L"Error", MB_ICONERROR);
+            return;
+        }
+
+        RelayoutCurrentDocument(hwnd);
+        g_viewerController.SaveConfig();
+        SyncMenuState(hwnd);
+        InvalidateRect(hwnd, NULL, FALSE);
     }
 
-    RelayoutCurrentDocument(hwnd);
-    SaveCurrentConfig();
-    SyncMenuState(hwnd);
-    InvalidateRect(hwnd, NULL, FALSE);
-}
-
-void ApplyTheme(HWND hwnd, mdviewer::ThemeMode theme) {
-    {
-        std::lock_guard<std::mutex> lock(g_appState.mtx);
-        g_appState.theme = theme;
-        g_appState.needsRepaint = true;
+    void ApplyTheme(HWND hwnd, mdviewer::ThemeMode theme) {
+        if (!g_viewerController.SetTheme(theme)) {
+            return;
+        }
+        g_viewerController.SaveConfig();
+        SyncMenuState(hwnd);
+        InvalidateRect(hwnd, NULL, FALSE);
     }
-    SaveCurrentConfig();
-    SyncMenuState(hwnd);
-    InvalidateRect(hwnd, NULL, FALSE);
-}
 
 void OnDropFiles(HWND hwnd, HDROP hDrop) {
     UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
@@ -949,7 +809,9 @@ bool CopySelection(HWND hwnd) {
         return false;
     }
 
-    return CopyTextToClipboard(hwnd, g_appState.docLayout.plainText.substr(selectionStart, selectionEnd - selectionStart));
+    return mdviewer::win::CopyUtf8TextToClipboard(
+        hwnd,
+        g_appState.docLayout.plainText.substr(selectionStart, selectionEnd - selectionStart));
 }
 
 mdviewer::InteractionKey TranslateInteractionKey(WPARAM wParam) {
@@ -1035,7 +897,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     LOWORD(wParam),
                     mdviewer::win::WindowCommandHandlers{
                         .openFile = [&]() {
-                    if (const auto path = ShowOpenFileDialog(hwnd)) {
+                    if (const auto path = mdviewer::win::ShowOpenFileDialog(hwnd)) {
                         LoadFile(hwnd, *path);
                     }
                         },
@@ -1046,12 +908,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                             PostMessageW(hwnd, WM_CLOSE, 0, 0);
                         },
                         .selectFont = [&]() {
-                    if (const auto familyName = ShowFontDialog(hwnd)) {
+                    if (const auto familyName = mdviewer::win::ShowFontDialog(hwnd, GetSelectedFontFamily())) {
                         ApplySelectedFont(hwnd, *familyName);
                     }
                         },
                         .useDefaultFont = [&]() {
-                    if (!g_selectedFontFamily.empty()) {
+                    if (g_viewerController.HasCustomFontFamily()) {
                         ApplySelectedFont(hwnd, L"");
                     }
                         },
@@ -1105,7 +967,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         const size_t start = btn.second.first;
                         const size_t end = btn.second.second;
                         if (end > start && end <= g_appState.docLayout.plainText.size()) {
-                            CopyTextToClipboard(hwnd, g_appState.docLayout.plainText.substr(start, end - start));
+                            mdviewer::win::CopyUtf8TextToClipboard(
+                                hwnd,
+                                g_appState.docLayout.plainText.substr(start, end - start));
                             
                             // Show "Copied!" feedback
                             g_appState.copiedFeedbackTimeout = GetTickCount64() + 2000;
@@ -1308,6 +1172,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+} // namespace
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     (void)hPrevInstance;
     (void)lpCmdLine;
@@ -1321,7 +1187,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    LoadInitialConfig();
+    g_viewerController.SetConfigPath(GetExecutableConfigPath());
+    g_viewerController.LoadConfig();
 
     const WCHAR CLASS_NAME[] = L"MDViewerWindowClass";
     if (!mdviewer::win::RegisterMainWindowClass(hInstance, WindowProc, kAppIconResourceId, CLASS_NAME)) {

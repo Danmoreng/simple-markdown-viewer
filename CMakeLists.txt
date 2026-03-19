@@ -27,8 +27,11 @@ set(SOURCES
     src/app/document_loader.cpp
     src/app/link_resolver.cpp
     src/app/viewer_controller.cpp
+    src/platform/win/win_clipboard.cpp
+    src/platform/win/win_file_dialog.cpp
     src/platform/win/win_main.cpp
     src/platform/win/win_menu.cpp
+    src/platform/win/win_shell.cpp
     src/platform/win/win_surface.cpp
     src/platform/win/win_window.cpp
     src/util/file_io.cpp

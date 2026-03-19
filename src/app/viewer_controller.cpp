@@ -1,16 +1,134 @@
 #include "app/viewer_controller.h"
 
+#include <algorithm>
+#include <cmath>
+#include <mutex>
+#include <utility>
+
 #include "app/document_loader.h"
 #include "render/typography.h"
 
 namespace mdviewer {
 
-OpenDocumentStatus OpenDocument(
-    AppState& appState,
+namespace {
+
+constexpr size_t kMaxRecentFiles = 8;
+
+} // namespace
+
+void ViewerController::SetConfigPath(std::filesystem::path path) {
+    configPath_ = std::move(path);
+}
+
+bool ViewerController::LoadConfig() {
+    appState_.theme = ThemeMode::Light;
+    appState_.baseFontSize = kDefaultBaseFontSize;
+    fontFamilyUtf8_.clear();
+    recentFiles_.clear();
+
+    if (configPath_.empty()) {
+        return false;
+    }
+
+    const auto config = LoadAppConfig(configPath_);
+    if (!config) {
+        return false;
+    }
+
+    appState_.theme = config->theme;
+    appState_.baseFontSize = ClampBaseFontSize(config->baseFontSize);
+    fontFamilyUtf8_ = config->fontFamilyUtf8;
+    for (const auto& recentFileUtf8 : config->recentFilesUtf8) {
+        if (!recentFileUtf8.empty()) {
+            const std::u8string recentPathUtf8(recentFileUtf8.begin(), recentFileUtf8.end());
+            AddRecentFile(std::filesystem::path(recentPathUtf8));
+        }
+    }
+    return true;
+}
+
+bool ViewerController::SaveConfig() const {
+    if (configPath_.empty()) {
+        return false;
+    }
+
+    AppConfig config;
+    config.theme = appState_.theme;
+    config.fontFamilyUtf8 = fontFamilyUtf8_;
+    config.baseFontSize = appState_.baseFontSize;
+    config.recentFilesUtf8.reserve(recentFiles_.size());
+    for (const auto& recentFile : recentFiles_) {
+        const auto recentFileUtf8 = recentFile.u8string();
+        config.recentFilesUtf8.emplace_back(recentFileUtf8.begin(), recentFileUtf8.end());
+    }
+
+    return SaveAppConfig(configPath_, config);
+}
+
+ThemeMode ViewerController::GetTheme() const {
+    return appState_.theme;
+}
+
+bool ViewerController::SetTheme(ThemeMode theme) {
+    std::lock_guard<std::mutex> lock(appState_.mtx);
+    if (appState_.theme == theme) {
+        return false;
+    }
+
+    appState_.theme = theme;
+    appState_.needsRepaint = true;
+    return true;
+}
+
+float ViewerController::GetBaseFontSize() const {
+    return appState_.baseFontSize;
+}
+
+bool ViewerController::SetBaseFontSize(float baseFontSize) {
+    const float clampedFontSize = ClampBaseFontSize(baseFontSize);
+
+    std::lock_guard<std::mutex> lock(appState_.mtx);
+    if (std::abs(clampedFontSize - appState_.baseFontSize) < 0.01f) {
+        return false;
+    }
+
+    appState_.baseFontSize = clampedFontSize;
+    return true;
+}
+
+bool ViewerController::CanZoomIn(float delta) const {
+    return GetBaseFontSize() < ClampBaseFontSize(GetBaseFontSize() + delta);
+}
+
+bool ViewerController::CanZoomOut(float delta) const {
+    return GetBaseFontSize() > ClampBaseFontSize(GetBaseFontSize() - delta);
+}
+
+bool ViewerController::ZoomIn(float delta) {
+    return SetBaseFontSize(GetBaseFontSize() + delta);
+}
+
+bool ViewerController::ZoomOut(float delta) {
+    return SetBaseFontSize(GetBaseFontSize() - delta);
+}
+
+bool ViewerController::SetFontFamilyUtf8(std::string fontFamilyUtf8) {
+    if (fontFamilyUtf8_ == fontFamilyUtf8) {
+        return false;
+    }
+
+    fontFamilyUtf8_ = std::move(fontFamilyUtf8);
+    return true;
+}
+
+bool ViewerController::ResetFontFamily() {
+    return SetFontFamilyUtf8({});
+}
+
+OpenDocumentStatus ViewerController::OpenFile(
     const std::filesystem::path& path,
     float width,
     SkTypeface* typeface,
-    float baseFontSize,
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider,
     bool pushHistory) {
@@ -30,29 +148,28 @@ OpenDocumentStatus OpenDocument(
         result.docModel,
         width,
         typeface,
-        ClampBaseFontSize(baseFontSize),
+        ClampBaseFontSize(appState_.baseFontSize),
         imageSizeProvider);
 
-    appState.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
+    appState_.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
+    AddRecentFile(path);
     return OpenDocumentStatus::Success;
 }
 
-bool RelayoutDocument(
-    AppState& appState,
+bool ViewerController::Relayout(
     float width,
     SkTypeface* typeface,
-    float baseFontSize,
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider) {
     DocumentModel docModel;
     std::filesystem::path currentPath;
     {
-        std::lock_guard<std::mutex> lock(appState.mtx);
-        if (appState.sourceText.empty()) {
+        std::lock_guard<std::mutex> lock(appState_.mtx);
+        if (appState_.sourceText.empty()) {
             return false;
         }
-        docModel = appState.docModel;
-        currentPath = appState.currentFilePath;
+        docModel = appState_.docModel;
+        currentPath = appState_.currentFilePath;
     }
 
     if (preloadDocument) {
@@ -63,35 +180,63 @@ bool RelayoutDocument(
         docModel,
         width,
         typeface,
-        ClampBaseFontSize(baseFontSize),
+        ClampBaseFontSize(appState_.baseFontSize),
         imageSizeProvider);
 
     {
-        std::lock_guard<std::mutex> lock(appState.mtx);
-        appState.docLayout = std::move(layout);
-        appState.needsRepaint = true;
+        std::lock_guard<std::mutex> lock(appState_.mtx);
+        appState_.docLayout = std::move(layout);
+        appState_.needsRepaint = true;
     }
     return true;
 }
 
-std::optional<HistoryNavigationTarget> GetHistoryNavigationTarget(AppState& appState, HistoryDirection direction) {
-    std::lock_guard<std::mutex> lock(appState.mtx);
+std::optional<HistoryNavigationTarget> ViewerController::GetHistoryNavigationTarget(HistoryDirection direction) const {
+    std::lock_guard<std::mutex> lock(appState_.mtx);
     if (direction == HistoryDirection::Back) {
-        if (!appState.CanGoBack()) {
+        if (!appState_.CanGoBack()) {
             return std::nullopt;
         }
-        return HistoryNavigationTarget{appState.history[appState.historyIndex - 1], appState.historyIndex - 1};
+        return HistoryNavigationTarget{appState_.history[appState_.historyIndex - 1], appState_.historyIndex - 1};
     }
 
-    if (!appState.CanGoForward()) {
+    if (!appState_.CanGoForward()) {
         return std::nullopt;
     }
-    return HistoryNavigationTarget{appState.history[appState.historyIndex + 1], appState.historyIndex + 1};
+    return HistoryNavigationTarget{appState_.history[appState_.historyIndex + 1], appState_.historyIndex + 1};
 }
 
-void CommitHistoryNavigation(AppState& appState, size_t historyIndex) {
-    std::lock_guard<std::mutex> lock(appState.mtx);
-    appState.historyIndex = historyIndex;
+bool ViewerController::CommitHistoryNavigation(size_t historyIndex) {
+    std::lock_guard<std::mutex> lock(appState_.mtx);
+    if (historyIndex >= appState_.history.size()) {
+        return false;
+    }
+
+    appState_.historyIndex = historyIndex;
+    return true;
+}
+
+LinkTarget ViewerController::ResolveLinkTarget(const std::string& url, bool forceExternal) const {
+    return mdviewer::ResolveLinkTarget(appState_.currentFilePath, url, forceExternal);
+}
+
+std::filesystem::path ViewerController::NormalizeRecentFilePath(const std::filesystem::path& path) {
+    try {
+        return std::filesystem::absolute(path).lexically_normal();
+    } catch (...) {
+        return path.lexically_normal();
+    }
+}
+
+void ViewerController::AddRecentFile(const std::filesystem::path& path) {
+    const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
+    recentFiles_.erase(
+        std::remove(recentFiles_.begin(), recentFiles_.end(), normalizedPath),
+        recentFiles_.end());
+    recentFiles_.insert(recentFiles_.begin(), normalizedPath);
+    if (recentFiles_.size() > kMaxRecentFiles) {
+        recentFiles_.resize(kMaxRecentFiles);
+    }
 }
 
 } // namespace mdviewer

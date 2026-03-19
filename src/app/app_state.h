@@ -39,7 +39,7 @@ struct AppState {
     // Maps code block button regions to the range of text in that code block
     std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;
 
-    std::mutex mtx;
+    mutable std::mutex mtx;
 
     std::vector<std::filesystem::path> history;
     size_t historyIndex = 0;
