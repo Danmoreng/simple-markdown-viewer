@@ -10,6 +10,8 @@
 #include <functional>
 #include <optional>
 
+#include "platform/win/win_app.h"
+
 namespace mdviewer::win {
 
 struct WindowCommandHandlers {
@@ -30,6 +32,7 @@ struct WindowCommandHandlers {
 bool RegisterMainWindowClass(HINSTANCE instance, WNDPROC windowProc, int appIconResourceId, const wchar_t* className);
 HWND CreateMainWindow(HINSTANCE instance, const wchar_t* className, const wchar_t* title, int width, int height);
 int RunMessageLoop();
+std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, WinApp& app);
 
 bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& handlers);
 

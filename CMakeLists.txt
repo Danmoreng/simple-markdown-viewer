@@ -29,6 +29,7 @@ set(SOURCES
     src/app/viewer_controller.cpp
     src/platform/win/win_clipboard.cpp
     src/platform/win/win_file_dialog.cpp
+    src/platform/win/win_app.cpp
     src/platform/win/win_interaction.cpp
     src/platform/win/win_main.cpp
     src/platform/win/win_menu.cpp

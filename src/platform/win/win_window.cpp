@@ -1,8 +1,65 @@
 #include "platform/win/win_window.h"
 
+#include <windowsx.h>
+
+#include "platform/win/win_file_dialog.h"
+#include "platform/win/win_interaction.h"
 #include "platform/win/win_menu.h"
+#include "platform/win/win_viewer_host.h"
 
 namespace mdviewer::win {
+
+namespace {
+
+WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
+    auto* appPtr = &app;
+    return WindowCommandHandlers{
+        .openFile = [hwnd, appPtr]() {
+            if (const auto path = ShowOpenFileDialog(hwnd)) {
+                LoadFile(hwnd, appPtr->Host(), *path);
+            }
+        },
+        .openRecentFile = [hwnd, appPtr](const std::filesystem::path& path) {
+            LoadFile(hwnd, appPtr->Host(), path);
+        },
+        .exitApp = [hwnd]() {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        },
+        .selectFont = [hwnd, appPtr]() {
+            if (const auto familyName = ShowFontDialog(hwnd, appPtr->GetSelectedFontFamily())) {
+                ApplySelectedFont(hwnd, appPtr->Host(), WinApp::WideToUtf8(*familyName));
+            }
+        },
+        .useDefaultFont = [hwnd, appPtr]() {
+            if (appPtr->Controller().HasCustomFontFamily()) {
+                ApplySelectedFont(hwnd, appPtr->Host(), "");
+            }
+        },
+        .applyLightTheme = [hwnd, appPtr]() {
+            ApplyTheme(hwnd, appPtr->Host(), ThemeMode::Light);
+        },
+        .applySepiaTheme = [hwnd, appPtr]() {
+            ApplyTheme(hwnd, appPtr->Host(), ThemeMode::Sepia);
+        },
+        .applyDarkTheme = [hwnd, appPtr]() {
+            ApplyTheme(hwnd, appPtr->Host(), ThemeMode::Dark);
+        },
+        .goBack = [hwnd, appPtr]() {
+            GoBack(hwnd, appPtr->Host());
+        },
+        .goForward = [hwnd, appPtr]() {
+            GoForward(hwnd, appPtr->Host());
+        },
+        .zoomOut = [hwnd, appPtr]() {
+            AdjustBaseFontSize(hwnd, appPtr->Host(), -1.0f);
+        },
+        .zoomIn = [hwnd, appPtr]() {
+            AdjustBaseFontSize(hwnd, appPtr->Host(), 1.0f);
+        },
+    };
+}
+
+} // namespace
 
 bool RegisterMainWindowClass(HINSTANCE instance, WNDPROC windowProc, int appIconResourceId, const wchar_t* className) {
     auto* largeIcon = static_cast<HICON>(LoadImageW(
@@ -55,6 +112,91 @@ int RunMessageLoop() {
         DispatchMessageW(&message);
     }
     return static_cast<int>(message.wParam);
+}
+
+std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, WinApp& app) {
+    switch (message) {
+        case WM_CREATE:
+            DragAcceptFiles(hwnd, TRUE);
+            UpdateSurface(hwnd, app.Host());
+            SyncMenuState(hwnd, app.Host());
+            return 0;
+        case WM_DESTROY:
+            StopAutoScroll(hwnd, app.Interaction());
+            CleanupMenus();
+            PostQuitMessage(0);
+            return 0;
+        case WM_PAINT:
+            Render(hwnd, app.Host());
+            return 0;
+        case WM_MEASUREITEM:
+            if (HandleMeasureMenuItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lParam))) {
+                return TRUE;
+            }
+            return std::nullopt;
+        case WM_DRAWITEM:
+            if (HandleDrawMenuItem(
+                    reinterpret_cast<DRAWITEMSTRUCT*>(lParam),
+                    GetCurrentThemePalette(app.Host()))) {
+                return TRUE;
+            }
+            return std::nullopt;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_DROPFILES:
+            HandleDropFiles(hwnd, app.Interaction(), reinterpret_cast<HDROP>(wParam));
+            return 0;
+        case WM_COMMAND:
+            if (DispatchWindowCommand(LOWORD(wParam), MakeWindowCommandHandlers(hwnd, app))) {
+                return 0;
+            }
+            return std::nullopt;
+        case WM_LBUTTONDOWN:
+            HandlePrimaryButtonDown(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            return 0;
+        case WM_XBUTTONDOWN:
+            HandleXButtonDown(hwnd, app.Interaction(), wParam);
+            return TRUE;
+        case WM_MOUSEMOVE:
+            HandlePointerMove(
+                hwnd,
+                app.Interaction(),
+                wParam,
+                GET_X_LPARAM(lParam),
+                GET_Y_LPARAM(lParam));
+            return 0;
+        case WM_LBUTTONUP:
+            HandlePrimaryButtonUp(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            return 0;
+        case WM_MBUTTONDOWN:
+            HandleMiddleButtonDown(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            return 0;
+        case WM_MBUTTONUP:
+            return 0;
+        case WM_MOUSEWHEEL:
+            HandleMouseWheel(hwnd, app.Interaction(), GET_WHEEL_DELTA_WPARAM(wParam));
+            return 0;
+        case WM_KEYDOWN:
+            if (HandleKeyDown(hwnd, app.Interaction(), wParam)) {
+                return 0;
+            }
+            return std::nullopt;
+        case WM_TIMER:
+            if (HandleTimer(hwnd, app.Interaction(), wParam)) {
+                return 0;
+            }
+            return std::nullopt;
+        case WM_CAPTURECHANGED:
+            HandleCaptureChanged(hwnd, app.Interaction(), lParam);
+            return 0;
+        case WM_SIZE:
+            UpdateSurface(hwnd, app.Host());
+            RelayoutCurrentDocument(hwnd, app.Host());
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        default:
+            return std::nullopt;
+    }
 }
 
 bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& handlers) {
