@@ -33,6 +33,7 @@ set(SOURCES
     src/platform/win/win_menu.cpp
     src/platform/win/win_shell.cpp
     src/platform/win/win_surface.cpp
+    src/platform/win/win_viewer_host.cpp
     src/platform/win/win_window.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
