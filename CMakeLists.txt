@@ -39,6 +39,8 @@ set(SOURCES
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
     src/render/document_renderer.cpp
+    src/render/document_typefaces.cpp
+    src/render/image_cache.cpp
     src/render/theme.cpp
     src/render/typography.cpp
     src/view/document_hit_test.cpp

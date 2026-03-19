@@ -30,10 +30,11 @@
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
 #include "platform/win/win_window.h"
+#include "render/document_typefaces.h"
 #include "render/document_renderer.h"
+#include "render/image_cache.h"
 #include "render/theme.h"
 #include "render/typography.h"
-#include "util/skia_font_utils.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 
@@ -47,11 +48,6 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMetrics.h"
-#include "include/core/SkFontMgr.h"
-#include "include/core/SkFontStyle.h"
-#include "include/core/SkTypeface.h"
-#include "include/core/SkFontTypes.h"
-#include "include/core/SkData.h"
 #include "include/core/SkImage.h"
 #pragma warning(pop)
 
@@ -59,11 +55,8 @@ namespace {
     mdviewer::ViewerController g_viewerController;
     mdviewer::AppState& g_appState = g_viewerController.GetMutableAppState();
     sk_sp<SkSurface> g_surface;
-    sk_sp<SkTypeface> g_typeface;
-    sk_sp<SkTypeface> g_boldTypeface;
-    sk_sp<SkTypeface> g_headingTypeface;
-    sk_sp<SkTypeface> g_codeTypeface;
-    sk_sp<SkFontMgr> g_fontMgr;
+    mdviewer::DocumentTypefaceCache g_typefaces;
+    mdviewer::DocumentImageCache g_imageCache;
 
     void OnGoBack(HWND hwnd);
     void OnGoForward(HWND hwnd);
@@ -94,13 +87,6 @@ namespace {
         std::string url;
         mdviewer::InlineStyle style = mdviewer::InlineStyle::Plain;
     };
-
-    struct CachedImageEntry {
-        sk_sp<SkImage> baseImage;
-        std::map<uint64_t, sk_sp<SkImage>> scaledImages;
-    };
-
-    std::map<std::string, CachedImageEntry> g_imageCache;
 
     mdviewer::ThemeMode GetCurrentThemeMode() {
         return g_appState.theme;
@@ -178,28 +164,6 @@ namespace {
         return executablePath.parent_path() / L"mdviewer.ini";
     }
 
-    void ResetResolvedTypefaces() {
-        g_typeface.reset();
-        g_boldTypeface.reset();
-        g_headingTypeface.reset();
-        g_codeTypeface.reset();
-    }
-
-    sk_sp<SkTypeface> CreateDocumentTypeface(SkFontStyle style) {
-        if (!g_fontMgr) {
-            return nullptr;
-        }
-
-        if (g_viewerController.HasCustomFontFamily()) {
-            const std::string& utf8Family = g_viewerController.GetFontFamilyUtf8();
-            if (auto typeface = mdviewer::CreateStyledTypeface(g_fontMgr, utf8Family.c_str(), style)) {
-                return typeface;
-            }
-        }
-
-        return mdviewer::CreateDefaultTypeface(g_fontMgr, style);
-    }
-
     bool CanZoomIn() {
         return g_viewerController.CanZoomIn();
     }
@@ -209,53 +173,17 @@ namespace {
     }
 
     bool EnsureFontSystem() {
-        if (!g_fontMgr) {
-            g_fontMgr = mdviewer::CreateFontManager();
-        }
+        return g_typefaces.EnsureInitialized(g_viewerController.GetFontFamilyUtf8());
+    }
 
-        if (!g_typeface) {
-            g_typeface = CreateDocumentTypeface(SkFontStyle::Normal());
-        }
-
-        if (!g_boldTypeface) {
-            g_boldTypeface = CreateDocumentTypeface(SkFontStyle::Bold());
-            if (!g_boldTypeface) {
-                g_boldTypeface = g_typeface;
-            }
-        }
-
-        if (!g_headingTypeface) {
-            g_headingTypeface = g_boldTypeface;
-            if (!g_headingTypeface) {
-                g_headingTypeface = g_typeface;
-            }
-        }
-
-        if (!g_codeTypeface) {
-            g_codeTypeface = mdviewer::CreatePreferredTypeface(
-                g_fontMgr,
-                {"Cascadia Mono", "Consolas", "JetBrains Mono", "Courier New"});
-            if (!g_codeTypeface) {
-                g_codeTypeface = g_typeface;
-            }
-        }
-
-        return g_fontMgr != nullptr &&
-               g_typeface != nullptr &&
-               g_boldTypeface != nullptr &&
-               g_headingTypeface != nullptr &&
-               g_codeTypeface != nullptr;
+    mdviewer::DocumentTypefaceSet GetDocumentTypefaces() {
+        return g_typefaces.GetTypefaceSet();
     }
 
     void ConfigureFont(RenderContext& ctx, mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
         mdviewer::ConfigureDocumentFont(
             ctx.font,
-            mdviewer::DocumentTypefaceSet{
-                .regular = g_typeface.get(),
-                .bold = g_boldTypeface.get(),
-                .heading = g_headingTypeface.get(),
-                .code = g_codeTypeface.get(),
-            },
+            GetDocumentTypefaces(),
             blockType,
             inlineStyle,
             g_appState.baseFontSize);
@@ -399,7 +327,7 @@ namespace {
         RenderContext ctx;
         ctx.canvas = nullptr;
         ctx.paint.setAntiAlias(true);
-        ctx.font.setTypeface(g_typeface);
+        ctx.font.setTypeface(sk_ref_sp(g_typefaces.GetRegularTypeface()));
 
         const auto sharedHit = mdviewer::HitTestDocument(
             g_appState.docLayout,
@@ -425,109 +353,6 @@ namespace {
         return hit;
     }
 
-    uint64_t MakeScaledImageKey(float width, float height) {
-        const uint32_t roundedWidth = static_cast<uint32_t>(std::max(1.0f, std::round(width)));
-        const uint32_t roundedHeight = static_cast<uint32_t>(std::max(1.0f, std::round(height)));
-        return (static_cast<uint64_t>(roundedWidth) << 32) | roundedHeight;
-    }
-
-    sk_sp<SkImage> CreateRasterImageFromFile(const std::filesystem::path& imagePath) {
-        if (!std::filesystem::exists(imagePath)) {
-            return nullptr;
-        }
-
-        auto data = SkData::MakeFromFileName(imagePath.string().c_str());
-        if (!data) {
-            return nullptr;
-        }
-
-        auto image = SkImages::DeferredFromEncodedData(data);
-        if (!image) {
-            return nullptr;
-        }
-
-        return image->makeRasterImage();
-    }
-
-    sk_sp<SkImage> GetOrLoadBaseImage(const std::string& url, const std::filesystem::path& baseDir) {
-        auto& entry = g_imageCache[url];
-        if (entry.baseImage) {
-            return entry.baseImage;
-        }
-
-        std::filesystem::path imagePath = url;
-        if (imagePath.is_relative()) {
-            imagePath = baseDir / url;
-        }
-
-        entry.baseImage = CreateRasterImageFromFile(imagePath);
-        return entry.baseImage;
-    }
-
-    sk_sp<SkImage> GetCachedScaledImage(const std::string& url, const std::filesystem::path& baseDir, float displayWidth, float displayHeight) {
-        sk_sp<SkImage> baseImage = GetOrLoadBaseImage(url, baseDir);
-        if (!baseImage) {
-            return nullptr;
-        }
-
-        const int targetWidth = std::max(1, static_cast<int>(std::round(displayWidth)));
-        const int targetHeight = std::max(1, static_cast<int>(std::round(displayHeight)));
-        if (baseImage->width() == targetWidth && baseImage->height() == targetHeight) {
-            return baseImage;
-        }
-
-        auto& entry = g_imageCache[url];
-        const uint64_t scaledKey = MakeScaledImageKey(static_cast<float>(targetWidth), static_cast<float>(targetHeight));
-        auto it = entry.scaledImages.find(scaledKey);
-        if (it != entry.scaledImages.end()) {
-            return it->second;
-        }
-
-        const auto info = SkImageInfo::MakeN32Premul(targetWidth, targetHeight);
-        auto surface = SkSurfaces::Raster(info);
-        if (!surface) {
-            return baseImage;
-        }
-
-        SkCanvas* scaleCanvas = surface->getCanvas();
-        scaleCanvas->clear(SK_ColorTRANSPARENT);
-        scaleCanvas->drawImageRect(
-            baseImage,
-            SkRect::MakeXYWH(0.0f, 0.0f, static_cast<float>(targetWidth), static_cast<float>(targetHeight)),
-            SkSamplingOptions(SkFilterMode::kLinear));
-
-        auto scaledImage = surface->makeImageSnapshot();
-        if (scaledImage) {
-            scaledImage = scaledImage->makeRasterImage();
-        }
-        if (scaledImage) {
-            entry.scaledImages[scaledKey] = scaledImage;
-            return scaledImage;
-        }
-
-        return baseImage;
-    }
-
-    void PreloadImage(const std::string& url, const std::filesystem::path& baseDir) {
-        GetOrLoadBaseImage(url, baseDir);
-    }
-
-    void PreloadImages(const mdviewer::DocumentModel& doc, const std::filesystem::path& baseDir) {
-        for (const auto& block : doc.blocks) {
-            for (const auto& run : block.inlineRuns) {
-                if (run.style == mdviewer::InlineStyle::Image) {
-                    PreloadImage(run.url, baseDir);
-                }
-            }
-
-            if (!block.children.empty()) {
-                mdviewer::DocumentModel subDoc;
-                subDoc.blocks = block.children;
-                PreloadImages(subDoc, baseDir);
-            }
-        }
-    }
-
     void UpdateSurface(HWND hwnd) {
         mdviewer::win::EnsureRasterSurfaceSize(hwnd, g_surface);
     }
@@ -551,18 +376,13 @@ namespace {
         {
             std::lock_guard<std::mutex> lock(g_appState.mtx);
             g_appState.codeBlockButtons.clear();
-            mdviewer::RenderDocumentScene(
-                mdviewer::DocumentSceneParams{
-                    .canvas = canvas,
-                    .appState = &g_appState,
-                    .palette = palette,
-                    .typefaces = mdviewer::DocumentTypefaceSet{
-                        .regular = g_typeface.get(),
-                        .bold = g_boldTypeface.get(),
-                        .heading = g_headingTypeface.get(),
-                        .code = g_codeTypeface.get(),
-                    },
-                    .baseFontSize = g_appState.baseFontSize,
+                mdviewer::RenderDocumentScene(
+                    mdviewer::DocumentSceneParams{
+                        .canvas = canvas,
+                        .appState = &g_appState,
+                        .palette = palette,
+                        .typefaces = GetDocumentTypefaces(),
+                        .baseFontSize = g_appState.baseFontSize,
                     .contentTopInset = GetContentTopInset(),
                     .viewportHeight = GetViewportHeight(hwnd),
                     .surfaceWidth = static_cast<float>(g_surface->width()),
@@ -570,11 +390,11 @@ namespace {
                     .scrollbarWidth = kScrollbarWidth,
                     .scrollbarMargin = kScrollbarMargin,
                     .currentTickCount = GetTickCount64(),
-                    .visibleDocumentTop = g_appState.scrollOffset,
-                    .visibleDocumentBottom = g_appState.scrollOffset + GetViewportHeight(hwnd),
-                    .scrollbarThumbRect = GetScrollbarThumbRect(hwnd),
-                    .resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
-                        return GetCachedScaledImage(
+                        .visibleDocumentTop = g_appState.scrollOffset,
+                        .visibleDocumentBottom = g_appState.scrollOffset + GetViewportHeight(hwnd),
+                        .scrollbarThumbRect = GetScrollbarThumbRect(hwnd),
+                        .resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
+                        return g_imageCache.GetImage(
                             url,
                             g_appState.currentFilePath.parent_path(),
                             displayWidth,
@@ -590,7 +410,7 @@ namespace {
             canvas,
             hwnd,
             g_surface->width(),
-            g_typeface.get(),
+            g_typefaces.GetRegularTypeface(),
             palette,
             g_appState.CanGoBack(),
             g_appState.CanGoForward(),
@@ -609,24 +429,18 @@ namespace {
         RECT rect;
         GetClientRect(hwnd, &rect);
         const float width = static_cast<float>(rect.right - rect.left);
+        const std::filesystem::path baseDir = path.parent_path();
 
-        auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
-            auto it = g_imageCache.find(url);
-            if (it != g_imageCache.end() && it->second.baseImage) {
-                return {
-                    static_cast<float>(it->second.baseImage->width()),
-                    static_cast<float>(it->second.baseImage->height())
-                };
-            }
-            return {0.0f, 0.0f};
+        auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
+            return g_imageCache.GetImageSize(url, baseDir);
         };
 
         const auto status = g_viewerController.OpenFile(
             path,
             width,
-            g_typeface.get(),
-            [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
-                PreloadImages(docModel, baseDir);
+            g_typefaces.GetRegularTypeface(),
+            [&](const mdviewer::DocumentModel& docModel, const std::filesystem::path& preloadBaseDir) {
+                g_imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
             },
             imageSizeProvider,
             pushHistory);
@@ -695,23 +509,17 @@ namespace {
         RECT rect;
         GetClientRect(hwnd, &rect);
         const float width = static_cast<float>(rect.right - rect.left);
+        const std::filesystem::path baseDir = g_appState.currentFilePath.parent_path();
 
-        auto imageSizeProvider = [](const std::string& url) -> std::pair<float, float> {
-            auto it = g_imageCache.find(url);
-            if (it != g_imageCache.end() && it->second.baseImage) {
-                return {
-                    static_cast<float>(it->second.baseImage->width()),
-                    static_cast<float>(it->second.baseImage->height())
-                };
-            }
-            return {0.0f, 0.0f};
+        auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
+            return g_imageCache.GetImageSize(url, baseDir);
         };
 
         if (!g_viewerController.Relayout(
                 width,
-                g_typeface.get(),
-                [](const mdviewer::DocumentModel& docModel, const std::filesystem::path& baseDir) {
-                    PreloadImages(docModel, baseDir);
+                g_typefaces.GetRegularTypeface(),
+                [&](const mdviewer::DocumentModel& docModel, const std::filesystem::path& preloadBaseDir) {
+                    g_imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
                 },
                 imageSizeProvider)) {
             return;
@@ -738,11 +546,9 @@ namespace {
     void ApplySelectedFont(HWND hwnd, const std::wstring& familyName) {
         const std::string previousFamily = g_viewerController.GetFontFamilyUtf8();
         g_viewerController.SetFontFamilyUtf8(WideToUtf8(familyName));
-        ResetResolvedTypefaces();
 
         if (!EnsureFontSystem()) {
             g_viewerController.SetFontFamilyUtf8(previousFamily);
-            ResetResolvedTypefaces();
             EnsureFontSystem();
             MessageBoxW(hwnd, L"The selected font could not be loaded.", L"Error", MB_ICONERROR);
             return;

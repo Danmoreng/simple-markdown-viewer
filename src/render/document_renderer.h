@@ -6,6 +6,7 @@
 #include <string>
 
 #include "app/app_state.h"
+#include "render/document_typefaces.h"
 #include "render/theme.h"
 
 // Suppress warnings from Skia headers
@@ -20,13 +21,6 @@
 #pragma warning(pop)
 
 namespace mdviewer {
-
-struct DocumentTypefaceSet {
-    SkTypeface* regular = nullptr;
-    SkTypeface* bold = nullptr;
-    SkTypeface* heading = nullptr;
-    SkTypeface* code = nullptr;
-};
 
 struct DocumentSceneParams {
     SkCanvas* canvas = nullptr;
