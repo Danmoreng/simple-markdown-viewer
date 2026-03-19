@@ -83,6 +83,28 @@ Out of scope:
 - multi-document workspace UI
 - full rich-text editor behavior
 
+## Architecture Status
+
+The codebase is no longer centered around one large Windows source file.
+
+Current structure:
+
+- `src/app/`: shared application state, config, document loading, link resolution, and controller logic
+- `src/render/`: shared themes, typography, document rendering, typeface management, and image caching
+- `src/view/`: shared hit testing and document interaction helpers
+- `src/platform/win/`: Win32 host code split into bootstrap, window dispatch, menus, dialogs, clipboard, shell, surface, host orchestration, and input translation
+
+Important Windows files:
+
+- `win_main.cpp`: process startup and bootstrap
+- `win_app.cpp`: owns controller/surface/cache wiring for the Windows host
+- `win_window.cpp`: main window message dispatch
+- `win_viewer_host.cpp`: document load, relayout, render, theme/font/zoom orchestration
+- `win_interaction.cpp`: pointer, keyboard, wheel, drag, and timer behavior
+- `win_menu.cpp`: custom top bar and menu handling
+
+The next architectural step is finishing the cleanup around the custom top bar/menu layer and then adding targeted automated tests before starting the Linux host.
+
 ## Build Requirements
 
 - Windows
@@ -206,10 +228,12 @@ Third-party dependency notices are included in [THIRD_PARTY_NOTICES](THIRD_PARTY
 
 ```text
 src/
-  app/            App state
+  app/            Shared app state, config, controller, loading, links
   layout/         Document layout and text flow
   markdown/       Markdown parsing into the internal model
-  platform/win/   Win32 window, input, menus, and rendering host
+  render/         Shared themes, typography, renderer, typefaces, image cache
+  view/           Shared hit testing and interaction logic
+  platform/win/   Win32 bootstrap, window dispatch, menus, input, and host code
   util/           File I/O and font helpers
 
 resources/
@@ -229,3 +253,4 @@ CMakeLists.txt    CMake project definition
 - The app currently targets Windows first, but the architecture is intended to stay portable.
 - The menu bar is client-drawn so it can follow the selected theme.
 - The document zoom affects rendered document typography, not the top menu bar.
+- Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.

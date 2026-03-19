@@ -13,7 +13,7 @@ This is a document viewer, not a generic UI toolkit and not an editor.
 
 ## Current Status
 
-The project already has a working Windows prototype with:
+The project has a working Windows implementation with:
 
 - Markdown parsing via `md4c`
 - custom Skia document rendering
@@ -25,31 +25,44 @@ The project already has a working Windows prototype with:
 - theme switching
 - code block copy buttons
 
-The main architectural problem is that too much behavior still lives in:
+The large early architectural bottleneck in `win_main.cpp` has now been substantially reduced.
+
+Completed refactor work so far:
+
+- persistent config in `app_config` for theme, font family, base font size, and recent files
+- shared theme and typography modules in `src/render/`
+- shared controller logic in `src/app/viewer_controller.*`
+- shared hit testing and interaction helpers in `src/view/`
+- shared document typeface and image cache helpers in `src/render/`
+- extracted Windows helpers for clipboard, file dialog, shell, surface, interaction, host orchestration, window dispatch, and app bootstrap
+
+The Windows host is now split across:
 
 - [src/platform/win/win_main.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_main.cpp)
+- [src/platform/win/win_app.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_app.cpp)
+- [src/platform/win/win_window.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_window.cpp)
+- [src/platform/win/win_viewer_host.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_viewer_host.cpp)
+- [src/platform/win/win_interaction.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_interaction.cpp)
+- [src/platform/win/win_menu.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_menu.cpp)
 
-That file currently mixes:
+The main remaining Windows-specific architectural question before Linux is no longer "split `win_main.cpp` at all costs". It is:
 
-- Win32 startup and message loop
-- menus and top bar logic
-- theme definitions
-- document rendering
-- hit testing and selection behavior
-- file loading and navigation
-- shell integration
-- image cache and layout helpers
+- finish the cleanup around the custom top bar / menu layer and confirm the final platform-vs-shared boundary for that UI
 
-This must be split before the Linux implementation starts.
+Remaining platform-heavy areas are mostly:
+
+- [src/platform/win/win_menu.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_menu.cpp) for custom menu bar state, drawing, and command hit testing
+- [src/platform/win/win_window.cpp](/C:/Development/simple-markdown-viewer/src/platform/win/win_window.cpp) for message dispatch and event translation
+- the lack of targeted automated tests around config/history/link-resolution/layout behavior
+
+That remaining cleanup should happen before the Linux implementation starts.
 
 ## Immediate Objectives
 
-1. Refactor the Windows implementation into multiple files with a thin platform layer.
-2. Move shared logic out of the Windows layer so it can be reused by Linux.
-3. Add persistent configuration stored in an INI/config file.
-4. Persist theme, font family, and base font size.
-5. Add document zoom in/out controls that change the base font size for all rendered elements.
-6. Prepare a clean application/controller boundary for the Linux host implementation.
+1. Finish the remaining Windows cleanup around custom menu/top-bar ownership and message translation.
+2. Add small automated tests around config parsing, history/navigation, link resolution, and relayout-sensitive behavior.
+3. Confirm which UI pieces stay platform-specific versus shared before introducing a second host.
+4. Start the Linux host only after the Windows boundary is stable.
 
 ## Product Rules
 
@@ -322,12 +335,14 @@ Do not start Linux until the Windows-specific file has been split and the shared
 
 ### Phase 1: Config and Theme Extraction
 
+- status: complete
 - add `app_config`
 - add persistent `theme`, `font_family`, and `base_font_size`
 - move theme palettes out of `win_main.cpp`
 
 ### Phase 2: Typography and Zoom
 
+- status: complete
 - introduce shared typography scaling from `base_font_size`
 - wire `+` and `-` UI controls
 - wire `Ctrl` + `+` and `Ctrl` + `-`
@@ -335,6 +350,7 @@ Do not start Linux until the Windows-specific file has been split and the shared
 
 ### Phase 3: Controller Extraction
 
+- status: complete
 - move file loading
 - move history management
 - move relayout triggers
@@ -343,17 +359,27 @@ Do not start Linux until the Windows-specific file has been split and the shared
 
 ### Phase 4: Renderer and Interaction Extraction
 
+- status: complete
 - move drawing logic into shared render files
 - move hit testing and selection logic into shared view files
 - leave only platform event translation in Win32
 
 ### Phase 5: Windows Cleanup
 
+- status: in progress
 - split `win_main.cpp` into entry, window, menu, shell, clipboard, and surface files
 - remove remaining shared logic from platform files
+- current state:
+  - `win_main.cpp` is now a small bootstrap/entry file
+  - `win_window.cpp` owns message dispatch
+  - `win_app.cpp` owns Windows app-scoped state wiring
+  - `win_viewer_host.cpp` owns document/view orchestration
+  - `win_interaction.cpp` owns Win32 interaction translation
+  - `win_menu.cpp` still owns the custom top-bar/menu implementation and is the main remaining cleanup target
 
 ### Phase 6: Linux Host
 
+- status: not started
 - add Linux platform implementation on top of the shared controller/render/view layers
 
 ## Non-Goals
