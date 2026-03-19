@@ -26,6 +26,7 @@
 #include "app/viewer_controller.h"
 #include "platform/win/win_clipboard.h"
 #include "platform/win/win_file_dialog.h"
+#include "platform/win/win_interaction.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
@@ -61,29 +62,14 @@ namespace {
 
     std::wstring Utf8ToWide(const std::string& text);
     mdviewer::win::ViewerHostContext& GetHostContext();
+    mdviewer::win::ViewerInteractionContext& GetInteractionContext();
 
-    constexpr float kCodeBlockMarginY = 16.0f;
-    constexpr float kAutoScrollDeadZone = 2.0f;
     constexpr UINT_PTR kAutoScrollTimerId = 2001;
     constexpr UINT_PTR kCopiedFeedbackTimerId = 2002;
     constexpr UINT kAutoScrollTimerMs = 16;
-    constexpr int kLinkClickSlop = 4;
     constexpr int kInitialWindowWidth = 900;
     constexpr int kInitialWindowHeight = 1200;
     constexpr int kAppIconResourceId = 101;
-
-    struct RenderContext {
-        SkCanvas* canvas;
-        SkPaint paint;
-        SkFont font;
-    };
-
-    struct TextHit {
-        size_t position = 0;
-        bool valid = false;
-        std::string url;
-        mdviewer::InlineStyle style = mdviewer::InlineStyle::Plain;
-    };
 
     std::wstring GetSelectedFontFamily() {
         const std::string& fontFamilyUtf8 = g_viewerController.GetFontFamilyUtf8();
@@ -148,244 +134,17 @@ namespace {
         return context;
     }
 
-    void ConfigureFont(RenderContext& ctx, mdviewer::BlockType blockType, mdviewer::InlineStyle inlineStyle) {
-        mdviewer::ConfigureDocumentFont(
-            ctx.font,
-            mdviewer::win::GetDocumentTypefaces(GetHostContext()),
-            blockType,
-            inlineStyle,
-            g_appState.baseFontSize);
-    }
-
-    float GetContentX(const mdviewer::BlockLayout& block) {
-        return mdviewer::GetDocumentContentX(block);
-    }
-
-    size_t GetSelectionStart() {
-        return mdviewer::GetSelectionStart(g_appState);
-    }
-
-    size_t GetSelectionEnd() {
-        return mdviewer::GetSelectionEnd(g_appState);
-    }
-
-    mdviewer::InteractionTextHit ToInteractionHit(const TextHit& hit) {
-        return mdviewer::InteractionTextHit{
-            .position = hit.position,
-            .valid = hit.valid,
-            .url = hit.url,
+    mdviewer::win::ViewerInteractionContext& GetInteractionContext() {
+        static mdviewer::win::ViewerInteractionContext context{
+            .host = GetHostContext(),
+            .autoScrollTimerId = kAutoScrollTimerId,
+            .copiedFeedbackTimerId = kCopiedFeedbackTimerId,
+            .autoScrollTimerMs = kAutoScrollTimerMs,
+            .autoScrollDeadZone = 2.0f,
+            .linkClickSlop = 4,
         };
+        return context;
     }
-
-    void StopAutoScroll(HWND hwnd) {
-        const bool shouldReleaseCapture = GetCapture() == hwnd;
-        {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            mdviewer::StopAutoScrollState(g_appState);
-        }
-        KillTimer(hwnd, kAutoScrollTimerId);
-        if (shouldReleaseCapture) {
-            ReleaseCapture();
-        }
-    }
-
-    void StartAutoScroll(HWND hwnd, int x, int y) {
-        {
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            mdviewer::StartAutoScrollState(g_appState, static_cast<float>(x), static_cast<float>(y));
-        }
-        SetCapture(hwnd);
-        SetTimer(hwnd, kAutoScrollTimerId, kAutoScrollTimerMs, nullptr);
-    }
-
-    bool TickAutoScroll(HWND hwnd) {
-        std::lock_guard<std::mutex> lock(g_appState.mtx);
-        return mdviewer::TickAutoScroll(g_appState, mdviewer::win::GetMaxScroll(hwnd, GetHostContext()), kAutoScrollDeadZone);
-    }
-
-    size_t GetRunTextEnd(const mdviewer::RunLayout& run) {
-        if (run.style == mdviewer::InlineStyle::Image) {
-            return run.textStart;
-        }
-        return run.textStart + run.text.size();
-    }
-
-    float GetRunVisualWidth(RenderContext& ctx, mdviewer::BlockType blockType, const mdviewer::RunLayout& run) {
-        if (run.style == mdviewer::InlineStyle::Image) {
-            return run.imageWidth;
-        }
-        ConfigureFont(ctx, blockType, run.style);
-        return ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
-    }
-
-    size_t FindTextPositionInRun(RenderContext& ctx, mdviewer::BlockType blockType, const mdviewer::RunLayout& run, float xInRun) {
-        if (run.style == mdviewer::InlineStyle::Image) {
-            return run.textStart;
-        }
-
-        ConfigureFont(ctx, blockType, run.style);
-
-        if (xInRun <= 0.0f) {
-            return run.textStart;
-        }
-
-        float bestDistance = std::numeric_limits<float>::max();
-        size_t bestOffset = run.text.size();
-
-        for (size_t offset = 0; offset <= run.text.size(); ) {
-            const float width = ctx.font.measureText(run.text.c_str(), offset, SkTextEncoding::kUTF8);
-            const float distance = std::abs(width - xInRun);
-            if (distance <= bestDistance) {
-                bestDistance = distance;
-                bestOffset = offset;
-            }
-
-            if (offset == run.text.size()) {
-                break;
-            }
-
-            offset++;
-            while (offset < run.text.size() && (static_cast<unsigned char>(run.text[offset]) & 0xC0) == 0x80) {
-                offset++;
-            }
-        }
-
-        return run.textStart + bestOffset;
-    }
-
-    TextHit HitTestText(float x, float viewportY) {
-        TextHit hit;
-        if (!mdviewer::win::EnsureFontSystem(GetHostContext())) {
-            return hit;
-        }
-
-        RenderContext ctx;
-        ctx.canvas = nullptr;
-        ctx.paint.setAntiAlias(true);
-        ctx.font.setTypeface(sk_ref_sp(mdviewer::win::GetRegularTypeface(GetHostContext())));
-
-        const auto sharedHit = mdviewer::HitTestDocument(
-            g_appState.docLayout,
-            g_appState.scrollOffset,
-            mdviewer::win::GetContentTopInset(),
-            x,
-            viewportY,
-            mdviewer::HitTestCallbacks{
-                .get_content_x = [&](const mdviewer::BlockLayout& block) {
-                    return GetContentX(block);
-                },
-                .get_run_visual_width = [&](const mdviewer::BlockLayout& block, const mdviewer::RunLayout& run) {
-                    return GetRunVisualWidth(ctx, block.type, run);
-                },
-                .find_text_position_in_run = [&](const mdviewer::BlockLayout& block, const mdviewer::RunLayout& run, float xInRun) {
-                    return FindTextPositionInRun(ctx, block.type, run, xInRun);
-                },
-            });
-        hit.position = sharedHit.position;
-        hit.valid = sharedHit.valid;
-        hit.url = sharedHit.url;
-        hit.style = sharedHit.style;
-        return hit;
-    }
-
-void OnDropFiles(HWND hwnd, HDROP hDrop) {
-    UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
-    if (count > 0) {
-        WCHAR path[MAX_PATH];
-        if (DragQueryFileW(hDrop, 0, path, MAX_PATH)) {
-            mdviewer::win::LoadFile(hwnd, GetHostContext(), path);
-        }
-    }
-    DragFinish(hDrop);
-}
-
-void UpdateSelectionFromPoint(HWND hwnd, int x, int y) {
-    mdviewer::UpdateSelectionFromHit(
-        g_appState,
-        ToInteractionHit(HitTestText(static_cast<float>(x), static_cast<float>(y))),
-        static_cast<float>(y) - mdviewer::win::GetContentTopInset(),
-        mdviewer::win::GetViewportHeight(hwnd, GetHostContext()),
-        mdviewer::win::GetMaxScroll(hwnd, GetHostContext()));
-}
-
-void UpdateScrollOffsetFromThumb(HWND hwnd, int mouseY) {
-    const auto thumb = mdviewer::win::GetScrollbarThumbRect(hwnd, GetHostContext());
-    if (!thumb) {
-        return;
-    }
-
-    mdviewer::UpdateScrollOffsetFromThumb(
-        g_appState,
-        mouseY,
-        *thumb,
-        mdviewer::win::GetViewportHeight(hwnd, GetHostContext()),
-        mdviewer::win::GetMaxScroll(hwnd, GetHostContext()),
-        mdviewer::win::kScrollbarMargin);
-}
-
-bool CopySelection(HWND hwnd) {
-    if (!g_appState.HasSelection()) {
-        return false;
-    }
-
-    const size_t selectionStart = GetSelectionStart();
-    const size_t selectionEnd = GetSelectionEnd();
-    if (selectionEnd > g_appState.docLayout.plainText.size() || selectionStart >= selectionEnd) {
-        return false;
-    }
-
-    return mdviewer::win::CopyUtf8TextToClipboard(
-        hwnd,
-        g_appState.docLayout.plainText.substr(selectionStart, selectionEnd - selectionStart));
-}
-
-mdviewer::InteractionKey TranslateInteractionKey(WPARAM wParam) {
-    switch (wParam) {
-        case VK_ESCAPE:
-            return mdviewer::InteractionKey::Escape;
-        case VK_OEM_PLUS:
-        case VK_ADD:
-            return mdviewer::InteractionKey::ZoomIn;
-        case VK_OEM_MINUS:
-        case VK_SUBTRACT:
-            return mdviewer::InteractionKey::ZoomOut;
-        case VK_LEFT:
-            return mdviewer::InteractionKey::Left;
-        case VK_RIGHT:
-            return mdviewer::InteractionKey::Right;
-        case VK_BACK:
-            return mdviewer::InteractionKey::Back;
-        case 'C':
-        case 'c':
-            return mdviewer::InteractionKey::Copy;
-        default:
-            return mdviewer::InteractionKey::Unknown;
-    }
-}
-
-bool ExecuteKeyCommand(HWND hwnd, const mdviewer::KeyCommandResult& command) {
-    if (command.stopAutoScroll) {
-        StopAutoScroll(hwnd);
-        InvalidateRect(hwnd, NULL, FALSE);
-    }
-    if (command.zoomIn) {
-        mdviewer::win::AdjustBaseFontSize(hwnd, GetHostContext(), 1.0f);
-    }
-    if (command.zoomOut) {
-        mdviewer::win::AdjustBaseFontSize(hwnd, GetHostContext(), -1.0f);
-    }
-    if (command.goBack) {
-        mdviewer::win::GoBack(hwnd, GetHostContext());
-    }
-    if (command.goForward) {
-        mdviewer::win::GoForward(hwnd, GetHostContext());
-    }
-    if (command.copySelection) {
-        std::lock_guard<std::mutex> lock(g_appState.mtx);
-        CopySelection(hwnd);
-    }
-    return command.handled;
-}
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
@@ -395,7 +154,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             mdviewer::win::SyncMenuState(hwnd, GetHostContext());
             return 0;
         case WM_DESTROY:
-            StopAutoScroll(hwnd);
+            mdviewer::win::StopAutoScroll(hwnd, GetInteractionContext());
             mdviewer::win::CleanupMenus();
             PostQuitMessage(0);
             return 0;
@@ -417,7 +176,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_ERASEBKGND:
             return 1;
         case WM_DROPFILES:
-            OnDropFiles(hwnd, (HDROP)wParam);
+            mdviewer::win::HandleDropFiles(hwnd, GetInteractionContext(), (HDROP)wParam);
             return 0;
         case WM_COMMAND:
             if (mdviewer::win::DispatchWindowCommand(
@@ -470,232 +229,45 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         case WM_LBUTTONDOWN: {
-            const int x = GET_X_LPARAM(lParam);
-            const int y = GET_Y_LPARAM(lParam);
-            const int topMenuIndex = mdviewer::win::HitTestTopMenu(hwnd, x, y, g_surface->width());
-            if (topMenuIndex != -1) {
-                StopAutoScroll(hwnd);
-                SetFocus(hwnd);
-                if (const UINT command = mdviewer::win::OpenTopMenu(hwnd, topMenuIndex); command != 0) {
-                    SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(command, 0), 0);
-                }
-                return 0;
-            }
-
-            auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
-
-            // Check code block copy buttons
-            {
-                std::lock_guard<std::mutex> buttonLock(g_appState.mtx);
-                const float docX = static_cast<float>(x);
-                const float docY = static_cast<float>(y) - mdviewer::win::GetContentTopInset() + g_appState.scrollOffset;
-                for (const auto& btn : g_appState.codeBlockButtons) {
-                    if (btn.first.contains(docX, docY)) {
-                        const size_t start = btn.second.first;
-                        const size_t end = btn.second.second;
-                        if (end > start && end <= g_appState.docLayout.plainText.size()) {
-                            mdviewer::win::CopyUtf8TextToClipboard(
-                                hwnd,
-                                g_appState.docLayout.plainText.substr(start, end - start));
-                            
-                            // Show "Copied!" feedback
-                            g_appState.copiedFeedbackTimeout = GetTickCount64() + 2000;
-                            SetTimer(hwnd, kCopiedFeedbackTimerId, 2000, nullptr);
-                            InvalidateRect(hwnd, NULL, FALSE);
-                        }
-                        return 0;
-                    }
-                }
-            }
-
-            StopAutoScroll(hwnd);
-            SetFocus(hwnd);
-            SetCapture(hwnd);
-            if (const auto thumb = mdviewer::win::GetScrollbarThumbRect(hwnd, GetHostContext());
-                thumb && thumb->contains(static_cast<float>(x), static_cast<float>(y))) {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                mdviewer::BeginScrollbarDrag(g_appState, static_cast<float>(y) - thumb->top());
-            } else if (
-                x >= g_surface->width() - static_cast<int>(mdviewer::win::kScrollbarWidth + (mdviewer::win::kScrollbarMargin * 2.0f)) &&
-                mdviewer::win::GetScrollbarThumbRect(hwnd, GetHostContext())) {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                mdviewer::BeginScrollbarDrag(
-                    g_appState,
-                    mdviewer::win::GetScrollbarThumbRect(hwnd, GetHostContext())->height() * 0.5f);
-                UpdateScrollOffsetFromThumb(hwnd, y);
-            } else {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                mdviewer::BeginSelection(
-                    g_appState,
-                    ToInteractionHit(hit),
-                    (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                    x,
-                    y);
-            }
-            InvalidateRect(hwnd, NULL, FALSE);
+            mdviewer::win::HandlePrimaryButtonDown(hwnd, GetInteractionContext(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         }
         case WM_XBUTTONDOWN:
-            if (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) {
-                mdviewer::win::GoBack(hwnd, GetHostContext());
-            } else if (GET_XBUTTON_WPARAM(wParam) == XBUTTON2) {
-                mdviewer::win::GoForward(hwnd, GetHostContext());
-            }
+            mdviewer::win::HandleXButtonDown(hwnd, GetInteractionContext(), wParam);
             return TRUE;
         case WM_MOUSEMOVE: {
-            const int x = GET_X_LPARAM(lParam);
-            const int y = GET_Y_LPARAM(lParam);
-
-            if (mdviewer::win::UpdateTopMenuHover(hwnd, x, y, g_surface->width())) {
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
-
-            // Update hovered URL
-            {
-                auto hit = HitTestText(static_cast<float>(x), static_cast<float>(y));
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                if (mdviewer::UpdateHoveredUrl(g_appState, ToInteractionHit(hit))) {
-                    InvalidateRect(hwnd, NULL, FALSE);
-                }
-            }
-
-            bool isAutoScrolling = false;
-            {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                isAutoScrolling = g_appState.isAutoScrolling;
-                if (isAutoScrolling) {
-                    mdviewer::UpdateAutoScrollCursor(
-                        g_appState,
-                        static_cast<float>(GET_X_LPARAM(lParam)),
-                        static_cast<float>(GET_Y_LPARAM(lParam)));
-                }
-            }
-            if (isAutoScrolling) {
-                TickAutoScroll(hwnd);
-                InvalidateRect(hwnd, NULL, FALSE);
-                return 0;
-            }
-
-            if ((wParam & MK_LBUTTON) == 0) {
-                return 0;
-            }
-
-            std::lock_guard<std::mutex> lock(g_appState.mtx);
-            if (g_appState.isDraggingScrollbar) {
-                UpdateScrollOffsetFromThumb(hwnd, GET_Y_LPARAM(lParam));
-                mdviewer::win::ClampScrollOffset(hwnd, GetHostContext());
-                InvalidateRect(hwnd, NULL, FALSE);
-            } else if (g_appState.isSelecting) {
-                if (!mdviewer::CancelPendingLinkIfDragged(g_appState, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), kLinkClickSlop) &&
-                    g_appState.pendingLinkClick) {
-                    return 0;
-                }
-                UpdateSelectionFromPoint(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-                mdviewer::win::ClampScrollOffset(hwnd, GetHostContext());
-                InvalidateRect(hwnd, NULL, FALSE);
-            }
+            mdviewer::win::HandlePointerMove(
+                hwnd,
+                GetInteractionContext(),
+                wParam,
+                GET_X_LPARAM(lParam),
+                GET_Y_LPARAM(lParam));
             return 0;
         }
         case WM_LBUTTONUP: {
-            const int x = GET_X_LPARAM(lParam);
-            const int y = GET_Y_LPARAM(lParam);
-            const auto releaseHit = HitTestText(static_cast<float>(x), static_cast<float>(y));
-
-            bool shouldUpdateSelection = false;
-            bool activateLink = false;
-            bool forceExternal = false;
-            std::string linkUrl;
-
-            {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                const auto result = mdviewer::FinishPrimaryPointerInteraction(g_appState, ToInteractionHit(releaseHit));
-                shouldUpdateSelection = result.shouldUpdateSelection;
-                activateLink = result.activateLink;
-                forceExternal = result.forceExternal;
-                linkUrl = result.linkUrl;
-            }
-
-            ReleaseCapture();
-
-            if (shouldUpdateSelection) {
-                UpdateSelectionFromPoint(hwnd, x, y);
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                mdviewer::FinalizeSelectionInteraction(g_appState);
-            }
-
-            if (activateLink) {
-                mdviewer::win::HandleLinkClick(hwnd, GetHostContext(), linkUrl, forceExternal);
-            }
-
-            InvalidateRect(hwnd, NULL, FALSE);
+            mdviewer::win::HandlePrimaryButtonUp(hwnd, GetInteractionContext(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         }
         case WM_MBUTTONDOWN:
-            if (GET_Y_LPARAM(lParam) < mdviewer::win::kMenuBarHeight) {
-                return 0;
-            }
-            SetFocus(hwnd);
-            if (g_appState.isAutoScrolling) {
-                StopAutoScroll(hwnd);
-            } else {
-                StartAutoScroll(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-            }
-            InvalidateRect(hwnd, NULL, FALSE);
+            mdviewer::win::HandleMiddleButtonDown(hwnd, GetInteractionContext(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         case WM_MBUTTONUP:
             return 0;
-        case WM_MOUSEWHEEL: {
-            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            {
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                mdviewer::ApplyWheelScroll(
-                    g_appState,
-                    static_cast<float>(delta),
-                    mdviewer::win::GetMaxScroll(hwnd, GetHostContext()));
-            }
-            InvalidateRect(hwnd, NULL, FALSE);
+        case WM_MOUSEWHEEL:
+            mdviewer::win::HandleMouseWheel(hwnd, GetInteractionContext(), GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
-        }
         case WM_KEYDOWN:
-            if (ExecuteKeyCommand(
-                    hwnd,
-                    mdviewer::HandleKeyDown(
-                        g_appState,
-                        mdviewer::KeyEvent{
-                            .key = TranslateInteractionKey(wParam),
-                            .ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                            .alt = (GetKeyState(VK_MENU) & 0x8000) != 0,
-                        }))) {
+            if (mdviewer::win::HandleKeyDown(hwnd, GetInteractionContext(), wParam)) {
                 return 0;
             }
             break;
         case WM_TIMER:
-            if (wParam == kAutoScrollTimerId) {
-                if (TickAutoScroll(hwnd)) {
-                    InvalidateRect(hwnd, NULL, FALSE);
-                }
-                return 0;
-            }
-            if (wParam == kCopiedFeedbackTimerId) {
-                {
-                    std::lock_guard<std::mutex> timerLock(g_appState.mtx);
-                    g_appState.copiedFeedbackTimeout = 0;
-                }
-                KillTimer(hwnd, kCopiedFeedbackTimerId);
-                InvalidateRect(hwnd, NULL, FALSE);
+            if (mdviewer::win::HandleTimer(hwnd, GetInteractionContext(), wParam)) {
                 return 0;
             }
             break;
         case WM_CAPTURECHANGED:
-            if (reinterpret_cast<HWND>(lParam) != hwnd) {
-                StopAutoScroll(hwnd);
-                std::lock_guard<std::mutex> lock(g_appState.mtx);
-                mdviewer::ClearPendingLinkState(g_appState);
-                InvalidateRect(hwnd, NULL, FALSE);
-            }
+            mdviewer::win::HandleCaptureChanged(hwnd, GetInteractionContext(), lParam);
             return 0;
         case WM_SIZE: {
             mdviewer::win::UpdateSurface(hwnd, GetHostContext());
