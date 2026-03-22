@@ -278,7 +278,7 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
     } else if (action == GLFW_RELEASE) {
         const auto hit = HitTest(window, *app, xpos, ypos);
         auto result = FinishPrimaryPointerInteraction(appState, hit);
-        if (result.activateLink) OpenExternalUrl(result.linkUrl);
+        if (result.activateLink) HandleLinkClick(window, app->GetHostContext(), result.linkUrl, result.forceExternal);
         FinalizeSelectionInteraction(appState);
         appState.needsRepaint = true;
     }

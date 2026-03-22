@@ -4,6 +4,7 @@
 #include "platform/linux/linux_menu.h"
 #include "render/menu_renderer.h"
 #include "render/typography.h"
+#include "platform/linux/linux_shell.h"
 #include "util/skia_font_utils.h"
 
 #include "include/core/SkCanvas.h"
@@ -206,6 +207,27 @@ void GoForward(GLFWwindow* window, LinuxHostContext context) {
         if (LoadFile(window, context, target->path, false)) {
             context.controller.CommitHistoryNavigation(target->index);
         }
+    }
+}
+
+void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::string& url, bool forceExternal) {
+    if (url.empty()) {
+        return;
+    }
+
+    const auto target = context.controller.ResolveLinkTarget(url, forceExternal);
+    switch (target.kind) {
+        case LinkTargetKind::InternalDocument:
+            LoadFile(window, context, target.path);
+            break;
+        case LinkTargetKind::ExternalUrl:
+            OpenExternalUrl(target.externalUrl);
+            break;
+        case LinkTargetKind::ExternalPath:
+            OpenPath(target.path);
+            break;
+        case LinkTargetKind::Invalid:
+            break;
     }
 }
 

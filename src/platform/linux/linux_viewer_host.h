@@ -31,6 +31,7 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
 void GoBack(GLFWwindow* window, LinuxHostContext context);
 void GoForward(GLFWwindow* window, LinuxHostContext context);
 void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context);
+void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::string& url, bool forceExternal);
 void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta);
 
 std::optional<SkRect> GetScrollbarThumbRect(GLFWwindow* window, const LinuxHostContext context);
