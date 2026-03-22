@@ -34,7 +34,7 @@ bool DocumentTypefaceCache::EnsureInitialized(const std::string& preferredFontFa
     if (!code_) {
         code_ = CreatePreferredTypeface(
             fontMgr_,
-            {"Cascadia Mono", "Consolas", "JetBrains Mono", "Courier New"});
+            {"Cascadia Mono", "Consolas", "JetBrains Mono", "Courier New", "monospace"});
         if (!code_) {
             code_ = regular_;
         }

@@ -78,6 +78,7 @@ elseif(UNIX AND NOT APPLE)
         src/platform/linux/linux_app.cpp
         src/platform/linux/linux_clipboard.cpp
         src/platform/linux/linux_file_dialog.cpp
+        src/platform/linux/linux_font_dialog.cpp
         src/platform/linux/linux_interaction.cpp
         src/platform/linux/linux_main.cpp
         src/platform/linux/linux_menu.cpp

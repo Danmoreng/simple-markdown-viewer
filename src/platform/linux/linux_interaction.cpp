@@ -3,6 +3,7 @@
 #include "platform/linux/linux_viewer_host.h"
 #include "platform/linux/linux_menu.h"
 #include "platform/linux/linux_file_dialog.h"
+#include "platform/linux/linux_font_dialog.h"
 #include "platform/linux/linux_shell.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
@@ -120,17 +121,15 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     HitTestCallbacks callbacks;
     callbacks.get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
         if (run.text.empty()) return run.imageWidth;
-        auto* tf = app.GetHostContext().typefaces.GetOrCreateTypeface("", run.style);
-        if (!tf) return 0.0f;
-        SkFont font(sk_ref_sp(tf), GetBlockFontSize(block.type, appState.baseFontSize));
+        SkFont font;
+        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.style, appState.baseFontSize);
         return font.measureText(run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
     };
 
     callbacks.find_text_position_in_run = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run, float x_in_run) {
         if (run.text.empty()) return run.textStart;
-        auto* tf = app.GetHostContext().typefaces.GetOrCreateTypeface("", run.style);
-        if (!tf) return run.textStart;
-        SkFont font(sk_ref_sp(tf), GetBlockFontSize(block.type, appState.baseFontSize));
+        SkFont font;
+        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.style, appState.baseFontSize);
         
         const char* text = run.text.data();
         size_t len = run.text.size();
@@ -148,7 +147,6 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
 }
 
 void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
-    std::cerr << "Executing menu command: " << static_cast<int>(cmd) << std::endl;
     auto host = app.GetHostContext();
     switch (cmd) {
         case MenuCommand::Exit: glfwSetWindowShouldClose(window, GLFW_TRUE); break;
@@ -157,10 +155,31 @@ void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
                 LoadFile(window, host, *path);
             }
         } break;
+        case MenuCommand::SelectFont: {
+            if (auto fontName = ShowFontDialog()) {
+                std::cerr << "GTK Font Dialog returned: '" << *fontName << "'" << std::endl;
+                const std::string previousFamily = app.Controller().GetFontFamilyUtf8();
+                app.Controller().SetFontFamilyUtf8(*fontName);
+                if (!EnsureFontSystem(host)) {
+                    std::cerr << "EnsureFontSystem failed for: '" << *fontName << "', reverting to: '" << previousFamily << "'" << std::endl;
+                    app.Controller().SetFontFamilyUtf8(previousFamily);
+                    EnsureFontSystem(host);
+                } else {
+                    std::cerr << "EnsureFontSystem succeeded for: '" << *fontName << "'" << std::endl;
+                }
+                RelayoutCurrentDocument(window, host);
+            } else {
+                std::cerr << "GTK Font Dialog returned nullopt (cancelled)" << std::endl;
+            }
+        } break;
         case MenuCommand::ThemeLight: app.Controller().SetTheme(ThemeMode::Light); break;
         case MenuCommand::ThemeSepia: app.Controller().SetTheme(ThemeMode::Sepia); break;
         case MenuCommand::ThemeDark: app.Controller().SetTheme(ThemeMode::Dark); break;
-        case MenuCommand::UseDefaultFont: app.Controller().ResetFontFamily(); RelayoutCurrentDocument(window, host); break;
+        case MenuCommand::UseDefaultFont: 
+            app.Controller().ResetFontFamily(); 
+            EnsureFontSystem(host);
+            RelayoutCurrentDocument(window, host); 
+            break;
         default: break;
     }
 }

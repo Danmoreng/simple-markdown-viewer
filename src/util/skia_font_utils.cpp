@@ -56,7 +56,21 @@ sk_sp<SkTypeface> CreateStyledTypeface(const sk_sp<SkFontMgr>& fontMgr,
         return nullptr;
     }
 
-    return fontMgr->matchFamilyStyle(familyName, style);
+    if (auto tf = fontMgr->matchFamilyStyle(familyName, style)) {
+        return tf;
+    }
+
+    // Try stripping out common weights that GTK appends (e.g. " Regular")
+    std::string familyStr = familyName;
+    size_t spacePos = familyStr.find_last_of(' ');
+    if (spacePos != std::string::npos) {
+        std::string stripped = familyStr.substr(0, spacePos);
+        if (auto tf = fontMgr->matchFamilyStyle(stripped.c_str(), style)) {
+            return tf;
+        }
+    }
+
+    return fontMgr->legacyMakeTypeface(familyName, style);
 }
 
 sk_sp<SkTypeface> CreatePreferredTypeface(const sk_sp<SkFontMgr>& fontMgr,
