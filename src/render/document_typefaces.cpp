@@ -66,6 +66,41 @@ SkTypeface* DocumentTypefaceCache::GetRegularTypeface() const {
     return regular_.get();
 }
 
+SkTypeface* DocumentTypefaceCache::GetOrCreateTypeface(const std::string& familyNameUtf8, SkFontStyle style) {
+    if (!fontMgr_) {
+        fontMgr_ = CreateFontManager();
+    }
+
+    if (preferredFontFamilyUtf8_ != familyNameUtf8) {
+        preferredFontFamilyUtf8_ = familyNameUtf8;
+        ResetResolvedTypefaces();
+    }
+
+    if (familyNameUtf8.empty()) {
+        if (!regular_) {
+            regular_ = CreateDefaultTypeface(fontMgr_, style);
+        }
+        return regular_.get();
+    }
+
+    if (!regular_) {
+        regular_ = CreateStyledTypeface(fontMgr_, familyNameUtf8.c_str(), style);
+        if (!regular_) {
+            regular_ = CreateDefaultTypeface(fontMgr_, style);
+        }
+    }
+
+    return regular_.get();
+}
+
+SkTypeface* DocumentTypefaceCache::GetOrCreateTypeface(const std::string& familyNameUtf8, InlineStyle style) {
+    SkFontStyle skStyle = SkFontStyle::Normal();
+    if (style == InlineStyle::Strong) {
+        skStyle = SkFontStyle::Bold();
+    }
+    return GetOrCreateTypeface(familyNameUtf8, skStyle);
+}
+
 sk_sp<SkTypeface> DocumentTypefaceCache::CreateDocumentTypeface(SkFontStyle style) const {
     if (!fontMgr_) {
         return nullptr;

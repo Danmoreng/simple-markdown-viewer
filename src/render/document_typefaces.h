@@ -2,14 +2,10 @@
 
 #include <string>
 
-// Suppress warnings from Skia headers
-#pragma warning(push)
-#pragma warning(disable: 4244)
-#pragma warning(disable: 4267)
+#include "layout/document_model.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkTypeface.h"
-#pragma warning(pop)
 
 namespace mdviewer {
 
@@ -26,7 +22,9 @@ public:
     void Reset();
 
     DocumentTypefaceSet GetTypefaceSet() const;
-    SkTypeface* GetRegularTypeface() const;
+SkTypeface* GetRegularTypeface() const;
+    SkTypeface* GetOrCreateTypeface(const std::string& familyNameUtf8, SkFontStyle style);
+    SkTypeface* GetOrCreateTypeface(const std::string& familyNameUtf8, InlineStyle style);
 
 private:
     sk_sp<SkTypeface> CreateDocumentTypeface(SkFontStyle style) const;

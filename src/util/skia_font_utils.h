@@ -8,6 +8,12 @@
 
 namespace mdviewer {
 
+struct SkiaFontSystem {
+    sk_sp<SkFontMgr> fontMgr;
+};
+
+SkiaFontSystem* CreateSkiaFontSystem();
+
 sk_sp<SkFontMgr> CreateFontManager();
 sk_sp<SkTypeface> CreateDefaultTypeface(const sk_sp<SkFontMgr>& fontMgr,
                                         SkFontStyle style = SkFontStyle::Normal());
