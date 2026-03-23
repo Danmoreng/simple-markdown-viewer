@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <cstdint>
 #include <filesystem>
 
 #include "GLFW/glfw3.h"
@@ -10,6 +11,14 @@
 #include "platform/linux/linux_viewer_host.h"
 
 namespace mdviewer::linux_platform {
+
+namespace {
+
+uint64_t GetCurrentTickCountMs() {
+    return static_cast<uint64_t>(glfwGetTime() * 1000.0);
+}
+
+} // namespace
 
 int RunLinuxApp(int argc, char* argv[]) {
     std::cerr << "Starting Linux application..." << std::endl;
@@ -62,15 +71,27 @@ int RunLinuxApp(int argc, char* argv[]) {
     std::cerr << "Entering main loop..." << std::endl;
     GetAppState(app.GetHostContext()).needsRepaint = true;
     while (!glfwWindowShouldClose(window)) {
-        if (GetAppState(app.GetHostContext()).needsRepaint) {
-            GetAppState(app.GetHostContext()).needsRepaint = false;
+        auto& appState = GetAppState(app.GetHostContext());
+        const uint64_t nowMs = GetCurrentTickCountMs();
+        if (appState.copiedFeedbackTimeout > 0 && appState.copiedFeedbackTimeout <= nowMs) {
+            appState.copiedFeedbackTimeout = 0;
+            appState.needsRepaint = true;
+        }
+
+        if (appState.needsRepaint) {
+            appState.needsRepaint = false;
             if (EnsureSurfaceSize(window, app.SurfaceContext())) {
                 Render(window, app.GetHostContext());
                 PresentSurface(window, app.SurfaceContext());
             }
         }
 
-        glfwWaitEvents();
+        if (appState.copiedFeedbackTimeout > nowMs) {
+            const double timeoutSeconds = static_cast<double>(appState.copiedFeedbackTimeout - nowMs) / 1000.0;
+            glfwWaitEventsTimeout(timeoutSeconds);
+        } else {
+            glfwWaitEvents();
+        }
     }
 
     std::cerr << "Cleaning up..." << std::endl;

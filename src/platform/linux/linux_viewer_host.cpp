@@ -1,5 +1,7 @@
 #include "platform/linux/linux_viewer_host.h"
 
+#include <algorithm>
+
 #include "app/document_loader.h"
 #include "platform/linux/linux_menu.h"
 #include "render/menu_renderer.h"
@@ -189,6 +191,7 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
         auto& appState = GetAppState(context);
         appState.scrollOffset = 0;
         appState.needsRepaint = true;
+        context.controller.SaveConfig();
         return true;
     }
     return false;
@@ -256,12 +259,37 @@ void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delt
     if (delta > 0) {
         if (context.controller.ZoomIn(delta)) {
             RelayoutCurrentDocument(window, context);
+            context.controller.SaveConfig();
         }
     } else {
         if (context.controller.ZoomOut(-delta)) {
             RelayoutCurrentDocument(window, context);
+            context.controller.SaveConfig();
         }
     }
+}
+
+void ApplySelectedFont(GLFWwindow* window, LinuxHostContext context, const std::string& familyUtf8) {
+    const std::string previousFamily = context.controller.GetFontFamilyUtf8();
+    context.controller.SetFontFamilyUtf8(familyUtf8);
+
+    if (!EnsureFontSystem(context)) {
+        context.controller.SetFontFamilyUtf8(previousFamily);
+        EnsureFontSystem(context);
+        return;
+    }
+
+    RelayoutCurrentDocument(window, context);
+    context.controller.SaveConfig();
+}
+
+void ApplyTheme(GLFWwindow* window, LinuxHostContext context, ThemeMode theme) {
+    if (!context.controller.SetTheme(theme)) {
+        return;
+    }
+
+    context.controller.SaveConfig();
+    GetAppState(context).needsRepaint = true;
 }
 
 std::optional<SkRect> GetScrollbarThumbRect(GLFWwindow* window, const LinuxHostContext context) {

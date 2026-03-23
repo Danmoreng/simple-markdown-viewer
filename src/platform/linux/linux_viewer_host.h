@@ -32,6 +32,8 @@ void GoBack(GLFWwindow* window, LinuxHostContext context);
 void GoForward(GLFWwindow* window, LinuxHostContext context);
 void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context);
 void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::string& url, bool forceExternal);
+void ApplyTheme(GLFWwindow* window, LinuxHostContext context, ThemeMode theme);
+void ApplySelectedFont(GLFWwindow* window, LinuxHostContext context, const std::string& familyUtf8);
 void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta);
 
 std::optional<SkRect> GetScrollbarThumbRect(GLFWwindow* window, const LinuxHostContext context);

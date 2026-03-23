@@ -1,4 +1,5 @@
-#include <string>
+#include "platform/linux/linux_clipboard.h"
+
 #include "GLFW/glfw3.h"
 
 namespace mdviewer::linux_platform {

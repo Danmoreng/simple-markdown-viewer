@@ -2,6 +2,7 @@
 
 #include "platform/linux/linux_viewer_host.h"
 #include "platform/linux/linux_menu.h"
+#include "platform/linux/linux_clipboard.h"
 #include "platform/linux/linux_file_dialog.h"
 #include "platform/linux/linux_font_dialog.h"
 #include "platform/linux/linux_shell.h"
@@ -13,11 +14,30 @@
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMgr.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 
 namespace mdviewer::linux_platform {
 
 namespace {
+
+bool CopySelection(GLFWwindow* window, LinuxApp& app) {
+    auto& appState = GetAppState(app.GetHostContext());
+    if (!appState.HasSelection()) {
+        return false;
+    }
+
+    const size_t selectionStart = GetSelectionStart(appState);
+    const size_t selectionEnd = GetSelectionEnd(appState);
+    if (selectionEnd > appState.docLayout.plainText.size() || selectionStart >= selectionEnd) {
+        return false;
+    }
+
+    SetClipboardText(window, appState.docLayout.plainText.substr(selectionStart, selectionEnd - selectionStart));
+    return true;
+}
 
 struct MenuRect {
     SkRect rect;
@@ -157,28 +177,14 @@ void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
         } break;
         case MenuCommand::SelectFont: {
             if (auto fontName = ShowFontDialog()) {
-                std::cerr << "GTK Font Dialog returned: '" << *fontName << "'" << std::endl;
-                const std::string previousFamily = app.Controller().GetFontFamilyUtf8();
-                app.Controller().SetFontFamilyUtf8(*fontName);
-                if (!EnsureFontSystem(host)) {
-                    std::cerr << "EnsureFontSystem failed for: '" << *fontName << "', reverting to: '" << previousFamily << "'" << std::endl;
-                    app.Controller().SetFontFamilyUtf8(previousFamily);
-                    EnsureFontSystem(host);
-                } else {
-                    std::cerr << "EnsureFontSystem succeeded for: '" << *fontName << "'" << std::endl;
-                }
-                RelayoutCurrentDocument(window, host);
-            } else {
-                std::cerr << "GTK Font Dialog returned nullopt (cancelled)" << std::endl;
+                ApplySelectedFont(window, host, *fontName);
             }
         } break;
-        case MenuCommand::ThemeLight: app.Controller().SetTheme(ThemeMode::Light); break;
-        case MenuCommand::ThemeSepia: app.Controller().SetTheme(ThemeMode::Sepia); break;
-        case MenuCommand::ThemeDark: app.Controller().SetTheme(ThemeMode::Dark); break;
-        case MenuCommand::UseDefaultFont: 
-            app.Controller().ResetFontFamily(); 
-            EnsureFontSystem(host);
-            RelayoutCurrentDocument(window, host); 
+        case MenuCommand::ThemeLight: ApplyTheme(window, host, ThemeMode::Light); break;
+        case MenuCommand::ThemeSepia: ApplyTheme(window, host, ThemeMode::Sepia); break;
+        case MenuCommand::ThemeDark: ApplyTheme(window, host, ThemeMode::Dark); break;
+        case MenuCommand::UseDefaultFont:
+            ApplySelectedFont(window, host, {});
             break;
         default: break;
     }
@@ -267,6 +273,25 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
         }
 
         const auto hit = HitTest(window, *app, xpos, ypos);
+        {
+            auto& lockedState = GetAppState(app->GetHostContext());
+            const float docX = static_cast<float>(xpos);
+            const float docY = static_cast<float>(ypos) - GetContentTopInset() + lockedState.scrollOffset;
+            for (const auto& buttonRegion : lockedState.codeBlockButtons) {
+                if (!buttonRegion.first.contains(docX, docY)) {
+                    continue;
+                }
+
+                const size_t start = buttonRegion.second.first;
+                const size_t end = buttonRegion.second.second;
+                if (end > start && end <= lockedState.docLayout.plainText.size()) {
+                    SetClipboardText(window, lockedState.docLayout.plainText.substr(start, end - start));
+                    lockedState.copiedFeedbackTimeout = static_cast<uint64_t>(glfwGetTime() * 1000.0) + 2000;
+                    lockedState.needsRepaint = true;
+                }
+                return;
+            }
+        }
         const auto thumbRect = GetScrollbarThumbRect(window, app->GetHostContext());
         if (thumbRect && thumbRect->contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
             BeginScrollbarDrag(appState, static_cast<float>(ypos) - thumbRect->fTop);
@@ -295,23 +320,37 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (!app || (action != GLFW_PRESS && action != GLFW_REPEAT)) return;
 
     KeyEvent ev;
+    ev.key = InteractionKey::Unknown;
     ev.ctrl = (mods & GLFW_MOD_CONTROL);
     ev.alt = (mods & GLFW_MOD_ALT);
     switch (key) {
+        case GLFW_KEY_ESCAPE:
+            ev.key = InteractionKey::Escape;
+            if (GetAppState(app->GetHostContext()).menuBarState.activeIndex != -1) {
+                GetAppState(app->GetHostContext()).menuBarState.activeIndex = -1;
+                GetAppState(app->GetHostContext()).needsRepaint = true;
+            }
+            break;
         case GLFW_KEY_C: ev.key = InteractionKey::Copy; break;
         case GLFW_KEY_EQUAL: if (ev.ctrl) ev.key = InteractionKey::ZoomIn; break;
+        case GLFW_KEY_KP_ADD: if (ev.ctrl) ev.key = InteractionKey::ZoomIn; break;
         case GLFW_KEY_MINUS: if (ev.ctrl) ev.key = InteractionKey::ZoomOut; break;
+        case GLFW_KEY_KP_SUBTRACT: if (ev.ctrl) ev.key = InteractionKey::ZoomOut; break;
+        case GLFW_KEY_LEFT: ev.key = InteractionKey::Left; break;
+        case GLFW_KEY_RIGHT: ev.key = InteractionKey::Right; break;
+        case GLFW_KEY_BACKSPACE: ev.key = InteractionKey::Back; break;
         case GLFW_KEY_O: if (ev.ctrl) ExecuteMenuCommand(window, *app, MenuCommand::OpenFile); break;
-        case GLFW_KEY_ESCAPE: if (GetAppState(app->GetHostContext()).menuBarState.activeIndex != -1) {
-            GetAppState(app->GetHostContext()).menuBarState.activeIndex = -1;
-            GetAppState(app->GetHostContext()).needsRepaint = true;
-        } break;
     }
 
     auto result = HandleKeyDown(GetAppState(app->GetHostContext()), ev);
+    if (result.goBack) GoBack(window, app->GetHostContext());
+    if (result.goForward) GoForward(window, app->GetHostContext());
+    if (result.copySelection && CopySelection(window, *app)) {
+        GetAppState(app->GetHostContext()).needsRepaint = true;
+    }
     if (result.zoomIn) AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
     if (result.zoomOut) AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
-    if (result.zoomIn || result.zoomOut) GetAppState(app->GetHostContext()).needsRepaint = true;
+    if (result.handled) GetAppState(app->GetHostContext()).needsRepaint = true;
 }
 
 void OnFramebufferSize(GLFWwindow* window, int width, int height) {
