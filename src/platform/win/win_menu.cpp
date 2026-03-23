@@ -10,16 +10,13 @@
 #include <utility>
 #include <vector>
 
+#include "render/menu_renderer.h"
+
 // Suppress warnings from Skia headers
 #pragma warning(push)
 #pragma warning(disable: 4244)
 #pragma warning(disable: 4267)
 #include "include/core/SkCanvas.h"
-#include "include/core/SkColor.h"
-#include "include/core/SkFont.h"
-#include "include/core/SkFontMetrics.h"
-#include "include/core/SkPaint.h"
-#include "include/core/SkPathBuilder.h"
 #include "include/core/SkTypeface.h"
 #pragma warning(pop)
 
@@ -33,7 +30,6 @@ constexpr int kMenuArrowAreaWidth = 16;
 constexpr int kMenuLabelGap = 12;
 constexpr int kMenuBarLeftInset = 12;
 constexpr int kMenuBarItemGap = 8;
-constexpr float kTopMenuFontSize = 17.5f;
 constexpr UINT_PTR kCommandRecentFileBase = 1400;
 constexpr size_t kMaxRecentFiles = 8;
 
@@ -55,8 +51,7 @@ std::vector<std::filesystem::path> g_recentFiles;
 HBRUSH g_menuBackgroundBrush = nullptr;
 HFONT g_menuFont = nullptr;
 bool g_ownsMenuFont = false;
-int g_hoveredTopMenuIndex = -1;
-int g_activeTopMenuIndex = -1;
+MenuBarState g_menuBarState;
 std::list<MenuItemData> g_menuItemData;
 
 std::array<TopMenuItem, 2> GetTopMenuItems() {
@@ -64,6 +59,14 @@ std::array<TopMenuItem, 2> GetTopMenuItems() {
         {L"File", g_fileMenu},
         {L"View", g_viewMenu},
     }};
+}
+
+const std::vector<MenuBarItem>& GetTopMenuBarItems() {
+    static const std::vector<MenuBarItem> items = {
+        {"File", 0},
+        {"View", 1},
+    };
+    return items;
 }
 
 COLORREF ToColorRef(SkColor color) {
@@ -240,43 +243,6 @@ std::vector<RECT> GetTopMenuItemRects(HWND hwnd) {
     return rects;
 }
 
-void DrawArrow(SkCanvas* canvas, float x, float y, float size, bool right, SkColor color) {
-    SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setColor(color);
-    paint.setStyle(SkPaint::kStroke_Style);
-    paint.setStrokeWidth(2.0f);
-    paint.setStrokeCap(SkPaint::kRound_Cap);
-    paint.setStrokeJoin(SkPaint::kRound_Join);
-
-    const float halfSize = size * 0.5f;
-    const float tipX = right ? x + halfSize : x - halfSize;
-    const float tailX = right ? x - halfSize : x + halfSize;
-
-    SkPathBuilder builder;
-    builder.moveTo(tailX, y);
-    builder.lineTo(tipX, y);
-    builder.moveTo(tipX - (right ? 4 : -4), y - 4);
-    builder.lineTo(tipX, y);
-    builder.lineTo(tipX - (right ? 4 : -4), y + 4);
-    canvas->drawPath(builder.detach(), paint);
-}
-
-void DrawZoomGlyph(SkCanvas* canvas, float x, float y, float size, bool plus, SkColor color) {
-    SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setColor(color);
-    paint.setStyle(SkPaint::kStroke_Style);
-    paint.setStrokeWidth(2.0f);
-    paint.setStrokeCap(SkPaint::kRound_Cap);
-
-    const float halfSize = size * 0.5f;
-    canvas->drawLine(x - halfSize, y, x + halfSize, y, paint);
-    if (plus) {
-        canvas->drawLine(x, y - halfSize, x, y + halfSize, paint);
-    }
-}
-
 } // namespace
 
 bool CreateMenus(const ThemePalette& palette) {
@@ -310,8 +276,7 @@ bool CreateMenus(const ThemePalette& palette) {
 }
 
 void CleanupMenus() {
-    g_hoveredTopMenuIndex = -1;
-    g_activeTopMenuIndex = -1;
+    g_menuBarState = {};
     if (g_menuBackgroundBrush) {
         DeleteObject(g_menuBackgroundBrush);
         g_menuBackgroundBrush = nullptr;
@@ -544,15 +509,15 @@ bool UpdateTopMenuHover(HWND hwnd, int x, int y, int surfaceWidth) {
     int hoveredIndex = -1;
     if (y < kMenuBarHeight) {
         hoveredIndex = HitTestTopMenu(hwnd, x, y, surfaceWidth);
-    } else if (g_activeTopMenuIndex != -1) {
+    } else if (g_menuBarState.activeIndex != -1) {
         return false;
     }
 
-    if (hoveredIndex == g_hoveredTopMenuIndex) {
+    if (hoveredIndex == g_menuBarState.hoveredIndex) {
         return false;
     }
 
-    g_hoveredTopMenuIndex = hoveredIndex;
+    g_menuBarState.hoveredIndex = hoveredIndex;
     return true;
 }
 
@@ -581,7 +546,7 @@ UINT OpenTopMenu(HWND hwnd, int menuIndex) {
         return 0;
     }
 
-    g_activeTopMenuIndex = menuIndex;
+    g_menuBarState.activeIndex = menuIndex;
     InvalidateRect(hwnd, nullptr, FALSE);
 
     POINT screenPoint = {rects[menuIndex].left, rects[menuIndex].bottom};
@@ -594,8 +559,8 @@ UINT OpenTopMenu(HWND hwnd, int menuIndex) {
         hwnd,
         nullptr);
 
-    g_activeTopMenuIndex = -1;
-    g_hoveredTopMenuIndex = -1;
+    g_menuBarState.activeIndex = -1;
+    g_menuBarState.hoveredIndex = -1;
     InvalidateRect(hwnd, nullptr, FALSE);
     return command;
 }
@@ -610,100 +575,22 @@ void DrawTopMenuBar(
     bool canGoForward,
     bool canZoomOut,
     bool canZoomIn) {
-    SkPaint backgroundPaint;
-    backgroundPaint.setAntiAlias(false);
-    backgroundPaint.setColor(palette.menuBackground);
-    canvas->drawRect(
-        SkRect::MakeXYWH(0.0f, 0.0f, static_cast<float>(surfaceWidth), static_cast<float>(kMenuBarHeight)),
-        backgroundPaint);
+    (void)hwnd;
 
-    if (!typeface) {
-        return;
-    }
+    MenuBarState renderState = g_menuBarState;
+    renderState.canGoBack = canGoBack;
+    renderState.canGoForward = canGoForward;
+    renderState.canZoomOut = canZoomOut;
+    renderState.canZoomIn = canZoomIn;
 
-    SkFont menuFont;
-    menuFont.setTypeface(sk_ref_sp(typeface));
-    menuFont.setSize(kTopMenuFontSize);
-    menuFont.setHinting(SkFontHinting::kSlight);
-    menuFont.setSubpixel(true);
-    menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
-    SkFontMetrics menuMetrics;
-    menuFont.getMetrics(&menuMetrics);
-    const float menuTextHeight = menuMetrics.fDescent - menuMetrics.fAscent;
-    const float menuBaselineY =
-        std::round(((static_cast<float>(kMenuBarHeight) - menuTextHeight) * 0.5f) - menuMetrics.fAscent);
-
-    SkPaint textPaint;
-    textPaint.setAntiAlias(true);
-
-    const auto rects = GetTopMenuItemRects(hwnd);
-    const auto items = GetTopMenuItems();
-
-    for (size_t index = 0; index < rects.size() && index < items.size(); ++index) {
-        const bool isHighlighted = static_cast<int>(index) == g_hoveredTopMenuIndex ||
-                                   static_cast<int>(index) == g_activeTopMenuIndex;
-        const RECT& rect = rects[index];
-
-        if (isHighlighted) {
-            SkPaint highlightPaint;
-            highlightPaint.setAntiAlias(true);
-            highlightPaint.setColor(palette.menuSelectedBackground);
-            canvas->drawRoundRect(
-                SkRect::MakeLTRB(
-                    static_cast<float>(rect.left),
-                    4.0f,
-                    static_cast<float>(rect.right),
-                    static_cast<float>(kMenuBarHeight - 4)),
-                6.0f,
-                6.0f,
-                highlightPaint);
-        }
-
-        textPaint.setColor(isHighlighted ? palette.menuSelectedText : palette.menuText);
-        const float textX = static_cast<float>(rect.left + kMenuHorizontalPadding);
-        canvas->drawSimpleText(
-            items[index].label,
-            wcslen(items[index].label) * sizeof(wchar_t),
-            SkTextEncoding::kUTF16,
-            textX,
-            menuBaselineY,
-            menuFont,
-            textPaint);
-    }
-
-    const float rightEdge = static_cast<float>(surfaceWidth) - 12.0f;
-    const float btnSize = 34.0f;
-    const float gap = 4.0f;
-    const float forwardBtnX = rightEdge - btnSize;
-    const float backBtnX = forwardBtnX - btnSize - gap;
-    const float zoomInBtnX = backBtnX - btnSize - gap;
-    const float zoomOutBtnX = zoomInBtnX - btnSize - gap;
-    const float btnY = (static_cast<float>(kMenuBarHeight) - btnSize) * 0.5f;
-
-    auto drawToolbarButton = [&](float x, float y, bool enabled, int hoverIndex, auto&& glyphDrawer) {
-        const bool isHovered = g_hoveredTopMenuIndex == hoverIndex;
-        if (enabled && isHovered) {
-            SkPaint highlightPaint;
-            highlightPaint.setAntiAlias(true);
-            highlightPaint.setColor(palette.menuSelectedBackground);
-            canvas->drawRoundRect(SkRect::MakeXYWH(x, y, btnSize, btnSize), 6.0f, 6.0f, highlightPaint);
-        }
-        const SkColor color = enabled ? (isHovered ? palette.menuSelectedText : palette.menuText) : palette.menuDisabledText;
-        glyphDrawer(color, x, y);
-    };
-
-    drawToolbarButton(zoomOutBtnX, btnY, canZoomOut, -4, [&](SkColor color, float x, float y) {
-        DrawZoomGlyph(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 12.0f, false, color);
-    });
-    drawToolbarButton(zoomInBtnX, btnY, canZoomIn, -5, [&](SkColor color, float x, float y) {
-        DrawZoomGlyph(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 12.0f, true, color);
-    });
-    drawToolbarButton(backBtnX, btnY, canGoBack, -2, [&](SkColor color, float x, float y) {
-        DrawArrow(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 14.0f, false, color);
-    });
-    drawToolbarButton(forwardBtnX, btnY, canGoForward, -3, [&](SkColor color, float x, float y) {
-        DrawArrow(canvas, x + btnSize * 0.5f, y + btnSize * 0.5f, 14.0f, true, color);
-    });
+    DrawMenuBar(
+        *canvas,
+        static_cast<float>(surfaceWidth),
+        static_cast<float>(kMenuBarHeight),
+        GetTopMenuBarItems(),
+        renderState,
+        typeface,
+        palette);
 }
 
 } // namespace mdviewer::win
