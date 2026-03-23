@@ -45,6 +45,7 @@ bool CanZoomOut(const ViewerHostContext& context);
 bool EnsureFontSystem(ViewerHostContext& context);
 DocumentTypefaceSet GetDocumentTypefaces(ViewerHostContext& context);
 SkTypeface* GetRegularTypeface(ViewerHostContext& context);
+SkTypeface* GetMenuTypeface(ViewerHostContext& context);
 
 float GetContentTopInset();
 float GetViewportHeight(HWND hwnd, const ViewerHostContext& context);

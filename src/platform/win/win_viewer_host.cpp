@@ -55,6 +55,10 @@ SkTypeface* GetRegularTypeface(ViewerHostContext& context) {
     return context.typefaces.GetRegularTypeface();
 }
 
+SkTypeface* GetMenuTypeface(ViewerHostContext& context) {
+    return context.typefaces.GetUiTypeface();
+}
+
 float GetContentTopInset() {
     return static_cast<float>(kMenuBarHeight);
 }
@@ -162,7 +166,7 @@ void Render(HWND hwnd, ViewerHostContext& context) {
         canvas,
         hwnd,
         context.surface->width(),
-        GetRegularTypeface(context),
+        GetMenuTypeface(context),
         palette,
         appState.CanGoBack(),
         appState.CanGoForward(),

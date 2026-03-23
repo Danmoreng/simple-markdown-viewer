@@ -55,7 +55,7 @@ MenuBarLayout GetMenuBarLayout(GLFWwindow* window, LinuxApp& app) {
     return ComputeMenuBarLayout(
         static_cast<float>(width),
         GetContentTopInset(),
-        MeasureMenuBarItemWidths(GetLinuxMenuBarItems(), app.GetHostContext().typefaces.GetRegularTypeface()));
+        MeasureMenuBarItemWidths(GetLinuxMenuBarItems(), GetMenuTypeface(app.GetHostContext())));
 }
 
 SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
@@ -68,7 +68,7 @@ SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
     const float x = layout.itemRects[menuIndex].left();
     const float y = GetContentTopInset();
     
-    auto* tf = app.GetHostContext().typefaces.GetRegularTypeface();
+    auto* tf = GetMenuTypeface(app.GetHostContext());
     if (!tf) return SkRect::MakeEmpty();
 
     std::vector<DropdownItem> dropItems;

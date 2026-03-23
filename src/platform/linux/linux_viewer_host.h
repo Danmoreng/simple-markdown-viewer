@@ -20,6 +20,7 @@ ThemePalette GetCurrentThemePalette(const LinuxHostContext& context);
 
 bool EnsureFontSystem(LinuxHostContext context);
 SkTypeface* GetRegularTypeface(LinuxHostContext context);
+SkTypeface* GetMenuTypeface(LinuxHostContext context);
 
 float GetContentTopInset();
 float GetViewportHeight(GLFWwindow* window, const LinuxHostContext context);

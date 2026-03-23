@@ -47,6 +47,10 @@ SkTypeface* GetRegularTypeface(LinuxHostContext context) {
     return context.typefaces.GetOrCreateTypeface(family, SkFontStyle::Normal());
 }
 
+SkTypeface* GetMenuTypeface(LinuxHostContext context) {
+    return context.typefaces.GetUiTypeface();
+}
+
 float GetContentTopInset() {
     // Height of the custom menu bar
     return 30.0f; 
@@ -126,7 +130,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
         GetContentTopInset(),
         GetMenuBarItems(),
         appState.menuBarState,
-        GetRegularTypeface(context),
+        GetMenuTypeface(context),
         palette);
 
     // Render active dropdown
@@ -139,14 +143,11 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
                 dropItems.push_back({item.label, item.isSeparator});
             }
 
-            float currentX = 12.0f;
-            SkFont font(sk_ref_sp(GetRegularTypeface(context)), 17.5f);
-            for (int i = 0; i < appState.menuBarState.activeIndex; ++i) {
-                SkRect b;
-                auto barItems = GetMenuBarItems();
-                font.measureText(barItems[i].label.c_str(), barItems[i].label.size(), SkTextEncoding::kUTF8, &b);
-                currentX += b.width() + 20.0f + 8.0f;
-            }
+            const auto menuLayout = ComputeMenuBarLayout(
+                static_cast<float>(width),
+                GetContentTopInset(),
+                MeasureMenuBarItemWidths(GetMenuBarItems(), GetMenuTypeface(context)));
+            const float currentX = menuLayout.itemRects[appState.menuBarState.activeIndex].left();
 
             DrawDropdown(
                 *canvas,
@@ -154,7 +155,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
                 GetContentTopInset(),
                 dropItems,
                 appState.menuBarState.hoveredItemIndex,
-                GetRegularTypeface(context),
+                GetMenuTypeface(context),
                 palette);
         }
     }
