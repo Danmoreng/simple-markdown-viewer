@@ -12,6 +12,95 @@ constexpr float kMenuBarItemGap = 8.0f;
 constexpr float kMenuTextPadding = 10.0f;
 constexpr float kTopMenuFontSize = 17.5f;
 
+std::vector<float> MeasureMenuBarItemWidths(const std::vector<MenuBarItem>& items, SkTypeface* typeface) {
+    std::vector<float> widths;
+    widths.reserve(items.size());
+
+    if (!typeface) {
+        widths.resize(items.size(), 0.0f);
+        return widths;
+    }
+
+    SkFont menuFont(sk_ref_sp(typeface), kTopMenuFontSize);
+    menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+    menuFont.setSubpixel(true);
+
+    for (const auto& item : items) {
+        SkRect textBounds;
+        menuFont.measureText(item.label.c_str(), item.label.size(), SkTextEncoding::kUTF8, &textBounds);
+        widths.push_back(textBounds.width());
+    }
+
+    return widths;
+}
+
+MenuBarLayout ComputeMenuBarLayout(float width, float height, const std::vector<float>& itemWidths) {
+    MenuBarLayout layout;
+    layout.bounds = SkRect::MakeXYWH(0.0f, 0.0f, width, height);
+
+    float currentX = kMenuBarHorizontalPadding;
+    for (float textWidth : itemWidths) {
+        const float itemWidth = textWidth + kMenuTextPadding * 2.0f;
+        layout.itemRects.push_back(SkRect::MakeXYWH(currentX, 0.0f, itemWidth, height));
+        currentX += itemWidth + kMenuBarItemGap;
+    }
+
+    const float btnSize = 34.0f;
+    const float gap = 4.0f;
+    const float btnY = (height - btnSize) * 0.5f;
+    float rightX = width - kMenuBarHorizontalPadding - btnSize;
+
+    layout.forwardRect = SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize);
+    rightX -= (btnSize + gap);
+    layout.backRect = SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize);
+    rightX -= (btnSize + gap);
+    layout.zoomInRect = SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize);
+    rightX -= (btnSize + gap);
+    layout.zoomOutRect = SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize);
+
+    return layout;
+}
+
+int HitTestMenuBarLayout(const MenuBarLayout& layout, float x, float y) {
+    if (!layout.bounds.contains(x, y)) {
+        return -1;
+    }
+
+    for (size_t index = 0; index < layout.itemRects.size(); ++index) {
+        if (layout.itemRects[index].contains(x, y)) {
+            return static_cast<int>(index);
+        }
+    }
+
+    if (layout.zoomOutRect.contains(x, y)) return -4;
+    if (layout.zoomInRect.contains(x, y)) return -5;
+    if (layout.backRect.contains(x, y)) return -2;
+    if (layout.forwardRect.contains(x, y)) return -3;
+    return -1;
+}
+
+float MeasureDropdownWidth(const std::vector<DropdownItem>& items, SkTypeface* typeface) {
+    if (!typeface || items.empty()) {
+        return 150.0f;
+    }
+
+    SkFont menuFont(sk_ref_sp(typeface), kTopMenuFontSize);
+    menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+    menuFont.setSubpixel(true);
+
+    float maxWidth = 150.0f;
+    for (const auto& item : items) {
+        if (item.isSeparator) {
+            continue;
+        }
+        SkRect bounds;
+        menuFont.measureText(item.label.c_str(), item.label.size(), SkTextEncoding::kUTF8, &bounds);
+        maxWidth = std::max(maxWidth, bounds.width() + 40.0f);
+    }
+
+    return maxWidth;
+}
+
 void DrawMenuBar(
     SkCanvas& canvas,
     float width,
@@ -35,55 +124,52 @@ void DrawMenuBar(
     menuFont.getMetrics(&metrics);
     const float baselineY = std::round((height - (metrics.fDescent - metrics.fAscent)) * 0.5f - metrics.fAscent);
 
-    float currentX = kMenuBarHorizontalPadding;
+    const auto layout = ComputeMenuBarLayout(width, height, MeasureMenuBarItemWidths(items, typeface));
     SkPaint textPaint;
     textPaint.setAntiAlias(true);
 
     for (size_t i = 0; i < items.size(); ++i) {
         const bool isHighlighted = (static_cast<int>(i) == state.hoveredIndex || static_cast<int>(i) == state.activeIndex);
-        
-        SkRect textBounds;
-        menuFont.measureText(items[i].label.c_str(), items[i].label.size(), SkTextEncoding::kUTF8, &textBounds);
-        
-        const float itemWidth = textBounds.width() + kMenuTextPadding * 2.0f;
+        const SkRect& itemRect = layout.itemRects[i];
 
         if (isHighlighted) {
             SkPaint highlightPaint;
             highlightPaint.setAntiAlias(true);
             highlightPaint.setColor(palette.menuSelectedBackground);
-            canvas.drawRoundRect(SkRect::MakeXYWH(currentX, 4.0f, itemWidth, height - 8.0f), 6.0f, 6.0f, highlightPaint);
+            canvas.drawRoundRect(
+                SkRect::MakeXYWH(itemRect.x(), 4.0f, itemRect.width(), height - 8.0f),
+                6.0f,
+                6.0f,
+                highlightPaint);
         }
 
         textPaint.setColor(isHighlighted ? palette.menuSelectedText : palette.menuText);
-        canvas.drawSimpleText(items[i].label.c_str(), items[i].label.size(), SkTextEncoding::kUTF8, 
-                             currentX + kMenuTextPadding, baselineY, menuFont, textPaint);
-        
-        currentX += itemWidth + kMenuBarItemGap;
+        canvas.drawSimpleText(
+            items[i].label.c_str(),
+            items[i].label.size(),
+            SkTextEncoding::kUTF8,
+            itemRect.x() + kMenuTextPadding,
+            baselineY,
+            menuFont,
+            textPaint);
     }
 
-    // Draw Toolbar Buttons (Right side)
-    const float btnSize = 34.0f;
-    const float gap = 4.0f;
-    const float btnY = (height - btnSize) * 0.5f;
-    float rightX = width - kMenuBarHorizontalPadding - btnSize;
-
-    auto drawBtn = [&](bool enabled, int hoverId, auto&& glyph) {
+    auto drawBtn = [&](const SkRect& rect, bool enabled, int hoverId, auto&& glyph) {
         const bool isHovered = (state.hoveredIndex == hoverId);
         if (enabled && isHovered) {
             SkPaint hp;
             hp.setAntiAlias(true);
             hp.setColor(palette.menuSelectedBackground);
-            canvas.drawRoundRect(SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize), 6.0f, 6.0f, hp);
+            canvas.drawRoundRect(rect, 6.0f, 6.0f, hp);
         }
         SkColor c = enabled ? (isHovered ? palette.menuSelectedText : palette.menuText) : palette.menuDisabledText;
-        glyph(c, rightX + btnSize * 0.5f, btnY + btnSize * 0.5f);
-        rightX -= (btnSize + gap);
+        glyph(c, rect.centerX(), rect.centerY());
     };
 
-    drawBtn(state.canGoForward, -3, [&](SkColor c, float cx, float cy) { DrawArrow(canvas, cx, cy, 14.0f, true, c); });
-    drawBtn(state.canGoBack, -2, [&](SkColor c, float cx, float cy) { DrawArrow(canvas, cx, cy, 14.0f, false, c); });
-    drawBtn(state.canZoomIn, -5, [&](SkColor c, float cx, float cy) { DrawZoomGlyph(canvas, cx, cy, 12.0f, true, c); });
-    drawBtn(state.canZoomOut, -4, [&](SkColor c, float cx, float cy) { DrawZoomGlyph(canvas, cx, cy, 12.0f, false, c); });
+    drawBtn(layout.forwardRect, state.canGoForward, -3, [&](SkColor c, float cx, float cy) { DrawArrow(canvas, cx, cy, 14.0f, true, c); });
+    drawBtn(layout.backRect, state.canGoBack, -2, [&](SkColor c, float cx, float cy) { DrawArrow(canvas, cx, cy, 14.0f, false, c); });
+    drawBtn(layout.zoomInRect, state.canZoomIn, -5, [&](SkColor c, float cx, float cy) { DrawZoomGlyph(canvas, cx, cy, 12.0f, true, c); });
+    drawBtn(layout.zoomOutRect, state.canZoomOut, -4, [&](SkColor c, float cx, float cy) { DrawZoomGlyph(canvas, cx, cy, 12.0f, false, c); });
 }
 
 void DrawDropdown(
@@ -101,15 +187,8 @@ void DrawDropdown(
     menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
     menuFont.setSubpixel(true);
 
-    float maxWidth = 150.0f;
-    for (const auto& item : items) {
-        if (item.isSeparator) continue;
-        SkRect bounds;
-        menuFont.measureText(item.label.c_str(), item.label.size(), SkTextEncoding::kUTF8, &bounds);
-        maxWidth = std::max(maxWidth, bounds.width() + 40.0f);
-    }
-
     const float itemHeight = 30.0f;
+    const float maxWidth = MeasureDropdownWidth(items, typeface);
     const float dropdownHeight = items.size() * itemHeight;
 
     SkPaint bgPaint;

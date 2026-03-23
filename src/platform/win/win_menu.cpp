@@ -52,6 +52,7 @@ HBRUSH g_menuBackgroundBrush = nullptr;
 HFONT g_menuFont = nullptr;
 bool g_ownsMenuFont = false;
 MenuBarState g_menuBarState;
+std::optional<MenuBarLayout> g_lastMenuBarLayout;
 std::list<MenuItemData> g_menuItemData;
 
 std::array<TopMenuItem, 2> GetTopMenuItems() {
@@ -61,12 +62,47 @@ std::array<TopMenuItem, 2> GetTopMenuItems() {
     }};
 }
 
+HFONT GetMenuFontHandle();
+
 const std::vector<MenuBarItem>& GetTopMenuBarItems() {
     static const std::vector<MenuBarItem> items = {
         {"File", 0},
         {"View", 1},
     };
     return items;
+}
+
+std::vector<float> MeasureTopMenuItemWidths(HWND hwnd) {
+    std::vector<float> widths;
+    widths.reserve(GetTopMenuItems().size());
+
+    HDC hdc = GetDC(hwnd);
+    if (!hdc) {
+        widths.resize(GetTopMenuItems().size(), 0.0f);
+        return widths;
+    }
+
+    HGDIOBJ oldFont = SelectObject(hdc, GetMenuFontHandle());
+    for (const auto& item : GetTopMenuItems()) {
+        SIZE size = {};
+        GetTextExtentPoint32W(hdc, item.label, static_cast<int>(wcslen(item.label)), &size);
+        widths.push_back(static_cast<float>(size.cx));
+    }
+    SelectObject(hdc, oldFont);
+    ReleaseDC(hwnd, hdc);
+    return widths;
+}
+
+MenuBarLayout GetTopMenuBarLayout(HWND hwnd, int surfaceWidth) {
+    if (g_lastMenuBarLayout &&
+        std::abs(g_lastMenuBarLayout->bounds.width() - static_cast<float>(surfaceWidth)) < 0.01f) {
+        return *g_lastMenuBarLayout;
+    }
+
+    return ComputeMenuBarLayout(
+        static_cast<float>(surfaceWidth),
+        static_cast<float>(kMenuBarHeight),
+        MeasureTopMenuItemWidths(hwnd));
 }
 
 COLORREF ToColorRef(SkColor color) {
@@ -213,33 +249,20 @@ void RefreshMenuThemeResources(HWND hwnd, const ThemePalette& palette) {
 }
 
 std::vector<RECT> GetTopMenuItemRects(HWND hwnd) {
+    std::vector<RECT> rects;
     RECT clientRect = {};
     GetClientRect(hwnd, &clientRect);
+    const auto layout = GetTopMenuBarLayout(hwnd, clientRect.right - clientRect.left);
 
-    std::vector<RECT> rects;
-    int currentX = kMenuBarLeftInset;
-
-    HDC hdc = GetDC(hwnd);
-    if (!hdc) {
-        return rects;
-    }
-
-    HGDIOBJ oldFont = SelectObject(hdc, GetMenuFontHandle());
-    for (const auto& item : GetTopMenuItems()) {
-        SIZE size = {};
-        GetTextExtentPoint32W(hdc, item.label, static_cast<int>(wcslen(item.label)), &size);
+    for (const auto& itemRect : layout.itemRects) {
         RECT rect = {
-            currentX,
-            0,
-            currentX + size.cx + (kMenuHorizontalPadding * 2),
-            kMenuBarHeight
+            static_cast<LONG>(std::lround(itemRect.left())),
+            static_cast<LONG>(std::lround(itemRect.top())),
+            static_cast<LONG>(std::lround(itemRect.right())),
+            static_cast<LONG>(std::lround(itemRect.bottom()))
         };
         rects.push_back(rect);
-        currentX = rect.right + kMenuBarItemGap;
     }
-
-    SelectObject(hdc, oldFont);
-    ReleaseDC(hwnd, hdc);
     return rects;
 }
 
@@ -277,6 +300,7 @@ bool CreateMenus(const ThemePalette& palette) {
 
 void CleanupMenus() {
     g_menuBarState = {};
+    g_lastMenuBarLayout.reset();
     if (g_menuBackgroundBrush) {
         DeleteObject(g_menuBackgroundBrush);
         g_menuBackgroundBrush = nullptr;
@@ -478,31 +502,7 @@ int HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth) {
         return -1;
     }
 
-    const auto rects = GetTopMenuItemRects(hwnd);
-    for (size_t index = 0; index < rects.size(); ++index) {
-        const RECT& rect = rects[index];
-        if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom) {
-            return static_cast<int>(index);
-        }
-    }
-
-    const float rightEdge = static_cast<float>(surfaceWidth) - 12.0f;
-    const float btnSize = 34.0f;
-    const float gap = 4.0f;
-    const float forwardBtnX = rightEdge - btnSize;
-    const float backBtnX = forwardBtnX - btnSize - gap;
-    const float zoomInBtnX = backBtnX - btnSize - gap;
-    const float zoomOutBtnX = zoomInBtnX - btnSize - gap;
-    const float btnY = (static_cast<float>(kMenuBarHeight) - btnSize) * 0.5f;
-
-    if (y >= btnY && y < btnY + btnSize) {
-        if (x >= zoomOutBtnX && x < zoomOutBtnX + btnSize) return -4;
-        if (x >= zoomInBtnX && x < zoomInBtnX + btnSize) return -5;
-        if (x >= backBtnX && x < backBtnX + btnSize) return -2;
-        if (x >= forwardBtnX && x < forwardBtnX + btnSize) return -3;
-    }
-
-    return -1;
+    return HitTestMenuBarLayout(GetTopMenuBarLayout(hwnd, surfaceWidth), static_cast<float>(x), static_cast<float>(y));
 }
 
 bool UpdateTopMenuHover(HWND hwnd, int x, int y, int surfaceWidth) {
@@ -536,8 +536,10 @@ UINT OpenTopMenu(HWND hwnd, int menuIndex) {
     }
 
     const auto items = GetTopMenuItems();
-    const auto rects = GetTopMenuItemRects(hwnd);
-    if (menuIndex < 0 || static_cast<size_t>(menuIndex) >= items.size() || static_cast<size_t>(menuIndex) >= rects.size()) {
+    RECT clientRect = {};
+    GetClientRect(hwnd, &clientRect);
+    const auto layout = GetTopMenuBarLayout(hwnd, clientRect.right - clientRect.left);
+    if (menuIndex < 0 || static_cast<size_t>(menuIndex) >= items.size() || static_cast<size_t>(menuIndex) >= layout.itemRects.size()) {
         return 0;
     }
 
@@ -549,7 +551,11 @@ UINT OpenTopMenu(HWND hwnd, int menuIndex) {
     g_menuBarState.activeIndex = menuIndex;
     InvalidateRect(hwnd, nullptr, FALSE);
 
-    POINT screenPoint = {rects[menuIndex].left, rects[menuIndex].bottom};
+    const SkRect& itemRect = layout.itemRects[menuIndex];
+    POINT screenPoint = {
+        static_cast<LONG>(std::lround(itemRect.left())),
+        static_cast<LONG>(std::lround(itemRect.bottom()))
+    };
     ClientToScreen(hwnd, &screenPoint);
     const UINT command = TrackPopupMenuEx(
         menu,
@@ -582,6 +588,10 @@ void DrawTopMenuBar(
     renderState.canGoForward = canGoForward;
     renderState.canZoomOut = canZoomOut;
     renderState.canZoomIn = canZoomIn;
+    g_lastMenuBarLayout = ComputeMenuBarLayout(
+        static_cast<float>(surfaceWidth),
+        static_cast<float>(kMenuBarHeight),
+        MeasureMenuBarItemWidths(GetTopMenuBarItems(), typeface));
 
     DrawMenuBar(
         *canvas,

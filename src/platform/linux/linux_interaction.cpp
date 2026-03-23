@@ -16,7 +16,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstring>
 #include <iostream>
 
 namespace mdviewer::linux_platform {
@@ -39,86 +38,56 @@ bool CopySelection(GLFWwindow* window, LinuxApp& app) {
     return true;
 }
 
-struct MenuRect {
-    SkRect rect;
-    int index;
-};
+const std::vector<MenuBarItem>& GetLinuxMenuBarItems() {
+    static const std::vector<MenuBarItem> items = {
+        {"File", 0},
+        {"View", 1},
+        {"Theme", 2},
+    };
+    return items;
+}
 
-std::vector<MenuRect> GetMenuBarRects(GLFWwindow* window, LinuxApp& app) {
-    const float height = GetContentTopInset();
-    int width, w_height;
-    glfwGetWindowSize(window, &width, &w_height);
+MenuBarLayout GetMenuBarLayout(GLFWwindow* window, LinuxApp& app) {
+    int width = 0;
+    int height = 0;
+    glfwGetWindowSize(window, &width, &height);
 
-    auto* tf = app.GetHostContext().typefaces.GetRegularTypeface();
-    if (!tf) return {};
-    SkFont font(sk_ref_sp(tf), 17.5f);
-    
-    std::vector<MenuRect> rects;
-    float currentX = 12.0f; 
-    const float itemGap = 8.0f;
-    const float textPadding = 10.0f;
-
-    auto items = { "File", "View", "Theme" };
-    int idx = 0;
-    for (const char* label : items) {
-        SkRect bounds;
-        font.measureText(label, strlen(label), SkTextEncoding::kUTF8, &bounds);
-        float itemWidth = bounds.width() + textPadding * 2.0f;
-        rects.push_back({SkRect::MakeXYWH(currentX, 0, itemWidth, height), idx++});
-        currentX += itemWidth + itemGap;
-    }
-
-    const float btnSize = 34.0f;
-    const float gap = 4.0f;
-    float rightX = static_cast<float>(width) - 12.0f - btnSize;
-    const float btnY = (height - btnSize) * 0.5f;
-
-    rects.push_back({SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize), -3}); // Forward
-    rightX -= (btnSize + gap);
-    rects.push_back({SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize), -2}); // Back
-    rightX -= (btnSize + gap);
-    rects.push_back({SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize), -5}); // Zoom In
-    rightX -= (btnSize + gap);
-    rects.push_back({SkRect::MakeXYWH(rightX, btnY, btnSize, btnSize), -4}); // Zoom Out
-
-    return rects;
+    return ComputeMenuBarLayout(
+        static_cast<float>(width),
+        GetContentTopInset(),
+        MeasureMenuBarItemWidths(GetLinuxMenuBarItems(), app.GetHostContext().typefaces.GetRegularTypeface()));
 }
 
 SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
-    auto barRects = GetMenuBarRects(window, app);
-    if (menuIndex < 0 || menuIndex >= static_cast<int>(barRects.size())) return SkRect::MakeEmpty();
+    const auto layout = GetMenuBarLayout(window, app);
+    if (menuIndex < 0 || menuIndex >= static_cast<int>(layout.itemRects.size())) return SkRect::MakeEmpty();
 
     auto menus = GetLinuxMenus();
     if (menuIndex >= static_cast<int>(menus.size())) return SkRect::MakeEmpty();
 
-    const float x = barRects[menuIndex].rect.fLeft;
+    const float x = layout.itemRects[menuIndex].left();
     const float y = GetContentTopInset();
     
     auto* tf = app.GetHostContext().typefaces.GetRegularTypeface();
     if (!tf) return SkRect::MakeEmpty();
 
-    SkFont font(sk_ref_sp(tf), 17.5f);
-    float maxWidth = 150.0f;
+    std::vector<DropdownItem> dropItems;
+    dropItems.reserve(menus[menuIndex].items.size());
     for (const auto& item : menus[menuIndex].items) {
-        if (item.isSeparator) continue;
-        SkRect bounds;
-        font.measureText(item.label.c_str(), item.label.size(), SkTextEncoding::kUTF8, &bounds);
-        maxWidth = std::max(maxWidth, bounds.width() + 40.0f);
+        dropItems.push_back({item.label, item.isSeparator});
     }
 
-    return SkRect::MakeXYWH(x, y, maxWidth, menus[menuIndex].items.size() * 30.0f);
+    return SkRect::MakeXYWH(
+        x,
+        y,
+        MeasureDropdownWidth(dropItems, tf),
+        static_cast<float>(menus[menuIndex].items.size()) * 30.0f);
 }
 
 int HitTestMenuBar(GLFWwindow* window, LinuxApp& app, double x, double y) {
     if (y > GetContentTopInset()) return -100; 
 
-    auto rects = GetMenuBarRects(window, app);
-    for (const auto& mr : rects) {
-        if (mr.rect.contains(static_cast<float>(x), static_cast<float>(y))) {
-            return mr.index;
-        }
-    }
-    return -1;
+    return HitTestMenuBarLayout(GetMenuBarLayout(window, app), static_cast<float>(x), static_cast<float>(y));
 }
 
 int HitTestDropdown(GLFWwindow* window, LinuxApp& app, double x, double y) {

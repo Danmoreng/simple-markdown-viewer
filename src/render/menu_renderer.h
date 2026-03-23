@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,20 @@ struct DropdownItem {
     std::string label;
     bool isSeparator = false;
 };
+
+struct MenuBarLayout {
+    SkRect bounds = SkRect::MakeEmpty();
+    std::vector<SkRect> itemRects;
+    SkRect zoomOutRect = SkRect::MakeEmpty();
+    SkRect zoomInRect = SkRect::MakeEmpty();
+    SkRect backRect = SkRect::MakeEmpty();
+    SkRect forwardRect = SkRect::MakeEmpty();
+};
+
+std::vector<float> MeasureMenuBarItemWidths(const std::vector<MenuBarItem>& items, SkTypeface* typeface);
+MenuBarLayout ComputeMenuBarLayout(float width, float height, const std::vector<float>& itemWidths);
+int HitTestMenuBarLayout(const MenuBarLayout& layout, float x, float y);
+float MeasureDropdownWidth(const std::vector<DropdownItem>& items, SkTypeface* typeface);
 
 void DrawMenuBar(
     SkCanvas& canvas,
