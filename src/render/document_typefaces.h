@@ -22,7 +22,8 @@ public:
     void Reset();
 
     DocumentTypefaceSet GetTypefaceSet() const;
-SkTypeface* GetRegularTypeface() const;
+    SkTypeface* GetRegularTypeface() const;
+    SkTypeface* GetUiTypeface() const;
     SkTypeface* GetOrCreateTypeface(const std::string& familyNameUtf8, SkFontStyle style);
     SkTypeface* GetOrCreateTypeface(const std::string& familyNameUtf8, InlineStyle style);
 
@@ -36,6 +37,7 @@ private:
     sk_sp<SkTypeface> bold_;
     sk_sp<SkTypeface> heading_;
     sk_sp<SkTypeface> code_;
+    sk_sp<SkTypeface> ui_;
 };
 
 } // namespace mdviewer

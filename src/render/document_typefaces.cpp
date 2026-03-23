@@ -40,17 +40,26 @@ bool DocumentTypefaceCache::EnsureInitialized(const std::string& preferredFontFa
         }
     }
 
+    if (!ui_) {
+        ui_ = CreateDefaultTypeface(fontMgr_, SkFontStyle::Normal());
+        if (!ui_) {
+            ui_ = regular_;
+        }
+    }
+
     return fontMgr_ != nullptr &&
            regular_ != nullptr &&
            bold_ != nullptr &&
            heading_ != nullptr &&
-           code_ != nullptr;
+           code_ != nullptr &&
+           ui_ != nullptr;
 }
 
 void DocumentTypefaceCache::Reset() {
     preferredFontFamilyUtf8_.clear();
     fontMgr_.reset();
     ResetResolvedTypefaces();
+    ui_.reset();
 }
 
 DocumentTypefaceSet DocumentTypefaceCache::GetTypefaceSet() const {
@@ -64,6 +73,10 @@ DocumentTypefaceSet DocumentTypefaceCache::GetTypefaceSet() const {
 
 SkTypeface* DocumentTypefaceCache::GetRegularTypeface() const {
     return regular_.get();
+}
+
+SkTypeface* DocumentTypefaceCache::GetUiTypeface() const {
+    return ui_.get();
 }
 
 SkTypeface* DocumentTypefaceCache::GetOrCreateTypeface(const std::string& familyNameUtf8, SkFontStyle style) {

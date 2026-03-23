@@ -68,6 +68,11 @@ public:
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider,
         bool pushHistory = true);
+    OpenDocumentStatus ReloadCurrentFile(
+        float width,
+        SkTypeface* typeface,
+        const DocumentPreloadCallback& preloadDocument,
+        LayoutEngine::ImageSizeProvider imageSizeProvider);
 
     bool Relayout(
         float width,
@@ -75,12 +80,17 @@ public:
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider);
 
+    bool HasCurrentFile() const;
+    bool HasCurrentFileChanged() const;
+    void SyncCurrentFileWriteTime();
+
     std::optional<HistoryNavigationTarget> GetHistoryNavigationTarget(HistoryDirection direction) const;
     bool CommitHistoryNavigation(size_t historyIndex);
 
     LinkTarget ResolveLinkTarget(const std::string& url, bool forceExternal) const;
 
 private:
+    static std::optional<std::filesystem::file_time_type> TryGetFileWriteTime(const std::filesystem::path& path);
     static std::filesystem::path NormalizeRecentFilePath(const std::filesystem::path& path);
     void AddRecentFile(const std::filesystem::path& path);
 

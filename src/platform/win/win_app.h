@@ -10,6 +10,7 @@
 #include <string>
 
 #include "app/viewer_controller.h"
+#include "platform/win/win_file_watcher.h"
 #include "platform/win/win_interaction.h"
 #include "platform/win/win_viewer_host.h"
 #include "render/document_typefaces.h"
@@ -44,6 +45,7 @@ private:
     sk_sp<SkSurface> surface_;
     DocumentTypefaceCache typefaces_;
     DocumentImageCache imageCache_;
+    WinFileWatcher fileWatcher_;
     ViewerHostContext hostContext_;
     ViewerInteractionContext interactionContext_;
 };

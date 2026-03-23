@@ -125,6 +125,17 @@ bool ViewerController::ResetFontFamily() {
     return SetFontFamilyUtf8({});
 }
 
+std::optional<std::filesystem::file_time_type> ViewerController::TryGetFileWriteTime(const std::filesystem::path& path) {
+    try {
+        if (path.empty() || !std::filesystem::exists(path)) {
+            return std::nullopt;
+        }
+        return std::filesystem::last_write_time(path);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 OpenDocumentStatus ViewerController::OpenFile(
     const std::filesystem::path& path,
     float width,
@@ -152,8 +163,22 @@ OpenDocumentStatus ViewerController::OpenFile(
         imageSizeProvider);
 
     appState_.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
+    appState_.currentFileLastWriteTime = TryGetFileWriteTime(path);
     AddRecentFile(path);
     return OpenDocumentStatus::Success;
+}
+
+OpenDocumentStatus ViewerController::ReloadCurrentFile(
+    float width,
+    SkTypeface* typeface,
+    const DocumentPreloadCallback& preloadDocument,
+    LayoutEngine::ImageSizeProvider imageSizeProvider) {
+    const std::filesystem::path currentPath = appState_.currentFilePath;
+    if (currentPath.empty()) {
+        return OpenDocumentStatus::FileReadError;
+    }
+
+    return OpenFile(currentPath, width, typeface, preloadDocument, imageSizeProvider, false);
 }
 
 bool ViewerController::Relayout(
@@ -189,6 +214,34 @@ bool ViewerController::Relayout(
         appState_.needsRepaint = true;
     }
     return true;
+}
+
+bool ViewerController::HasCurrentFile() const {
+    return !appState_.currentFilePath.empty();
+}
+
+bool ViewerController::HasCurrentFileChanged() const {
+    if (!HasCurrentFile()) {
+        return false;
+    }
+
+    const auto currentWriteTime = TryGetFileWriteTime(appState_.currentFilePath);
+    if (!currentWriteTime && !appState_.currentFileLastWriteTime) {
+        return false;
+    }
+    if (!currentWriteTime || !appState_.currentFileLastWriteTime) {
+        return true;
+    }
+    return *currentWriteTime != *appState_.currentFileLastWriteTime;
+}
+
+void ViewerController::SyncCurrentFileWriteTime() {
+    if (!HasCurrentFile()) {
+        appState_.currentFileLastWriteTime.reset();
+        return;
+    }
+
+    appState_.currentFileLastWriteTime = TryGetFileWriteTime(appState_.currentFilePath);
 }
 
 std::optional<HistoryNavigationTarget> ViewerController::GetHistoryNavigationTarget(HistoryDirection direction) const {

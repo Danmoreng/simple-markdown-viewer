@@ -3,6 +3,7 @@
 #include <windowsx.h>
 
 #include "platform/win/win_file_dialog.h"
+#include "platform/win/win_file_watcher.h"
 #include "platform/win/win_interaction.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_viewer_host.h"
@@ -118,11 +119,13 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
     switch (message) {
         case WM_CREATE:
             DragAcceptFiles(hwnd, TRUE);
+            app.Host().fileWatcher.Start(hwnd);
             UpdateSurface(hwnd, app.Host());
             SyncMenuState(hwnd, app.Host());
             return 0;
         case WM_DESTROY:
             StopAutoScroll(hwnd, app.Interaction());
+            app.Host().fileWatcher.Stop();
             CleanupMenus();
             PostQuitMessage(0);
             return 0;
@@ -193,6 +196,9 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             UpdateSurface(hwnd, app.Host());
             RelayoutCurrentDocument(hwnd, app.Host());
             InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case kMessageWatchedFileChanged:
+            ReloadIfFileChanged(hwnd, app.Host());
             return 0;
         default:
             return std::nullopt;

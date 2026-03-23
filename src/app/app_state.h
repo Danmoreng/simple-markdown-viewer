@@ -2,6 +2,7 @@
 #include <string>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 
 #include "layout/document_model.h"
 #include "layout/layout_engine.h"
@@ -33,6 +34,7 @@ struct AppState {
     bool needsRepaint = true;
     std::string hoveredUrl;
     uint64_t copiedFeedbackTimeout = 0; // Tick count when feedback should expire
+    std::optional<std::filesystem::file_time_type> currentFileLastWriteTime;
     bool pendingLinkClick = false;
     bool pendingLinkForceExternal = false;
     int pendingLinkPressX = 0;
@@ -96,6 +98,7 @@ struct AppState {
         needsRepaint = true;
         hoveredUrl.clear();
         copiedFeedbackTimeout = 0;
+        currentFileLastWriteTime.reset();
         pendingLinkClick = false;
         pendingLinkForceExternal = false;
         pendingLinkPressX = 0;

@@ -1,6 +1,6 @@
 # Simple Markdown Viewer
 
-Simple Markdown Viewer is a native, read-only Markdown viewer for Windows.
+Simple Markdown Viewer is a native, read-only Markdown viewer with a validated Windows build and a Linux host under active integration.
 
 Download the latest ready-to-run Windows build from the repository's `Releases` page.
 
@@ -64,6 +64,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Custom client-drawn menu bar
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
+- Automatic document reload on external file changes while the file is open
 - Persistent settings in `mdviewer.ini` for theme, reading font, zoom level, and recent files
 - Embedded Windows app icon
 
@@ -93,6 +94,7 @@ Current structure:
 - `src/render/`: shared themes, typography, document rendering, typeface management, and image caching
 - `src/view/`: shared hit testing and document interaction helpers
 - `src/platform/win/`: Win32 host code split into bootstrap, window dispatch, menus, dialogs, clipboard, shell, surface, host orchestration, and input translation
+- `src/platform/linux/`: Linux host code built on the same shared controller, rendering, and interaction layers
 
 Important Windows files:
 
@@ -103,7 +105,9 @@ Important Windows files:
 - `win_interaction.cpp`: pointer, keyboard, wheel, drag, and timer behavior
 - `win_menu.cpp`: custom top bar and menu handling
 
-The next architectural step is finishing the cleanup around the custom top bar/menu layer and then adding targeted automated tests before starting the Linux host.
+Recent refactor work also moved top-bar layout and hit testing into shared rendering code, kept the menu UI typeface independent from the document font, and added Windows-native file watching for live reload.
+
+Windows remains the primary validated build target. The Linux host is in-tree, but final runtime validation is still pending.
 
 ## Build Requirements
 
@@ -141,7 +145,7 @@ Useful variants:
 - GitHub Actions builds the Windows release on pushes to `main` and on pull requests.
 - CI prefers a prebuilt Windows Skia bundle so normal app builds do not rebuild Skia from source.
 - Each workflow run uploads `mdviewer-windows-x64.zip` as a build artifact.
-- Pushing a tag like `v0.1.0` also creates or updates a GitHub release and attaches the packaged Windows build.
+- Pushing a tag like `v0.1.2` also creates or updates a GitHub release and attaches the packaged Windows build.
 - Release archives contain `mdviewer.exe`, `LICENSE`, and `THIRD_PARTY_NOTICES`.
 
 Default output:
@@ -175,6 +179,7 @@ The app stores `mdviewer.ini` next to the executable and uses it for theme, font
 - middle mouse button: auto-scroll mode
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
+- external file save: reload the currently open document automatically
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
 - `Ctrl` + `+` / `-`: zoom document text in and out
@@ -233,6 +238,7 @@ src/
   markdown/       Markdown parsing into the internal model
   render/         Shared themes, typography, renderer, typefaces, image cache
   view/           Shared hit testing and interaction logic
+  platform/linux/ Linux host integration
   platform/win/   Win32 bootstrap, window dispatch, menus, input, and host code
   util/           File I/O and font helpers
 
@@ -250,7 +256,8 @@ CMakeLists.txt    CMake project definition
 ## Notes
 
 - The viewer copies rendered text content, not raw Markdown markup.
-- The app currently targets Windows first, but the architecture is intended to stay portable.
+- The app currently targets Windows first, with Linux host integration in progress.
 - The menu bar is client-drawn so it can follow the selected theme.
 - The document zoom affects rendered document typography, not the top menu bar.
+- On Windows, live reload is event-driven via OS file-change notifications rather than polling.
 - Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.

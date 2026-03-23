@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "platform/win/win_menu.h"
+#include "platform/win/win_file_watcher.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
 
@@ -212,6 +213,7 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
 
     const std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
     SetWindowTextW(hwnd, title.c_str());
+    context.fileWatcher.SetWatchedFile(path);
     context.controller.SaveConfig();
     SyncMenuState(hwnd, context);
 
@@ -282,6 +284,51 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
     }
 
     ClampScrollOffset(hwnd, context);
+}
+
+bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrollOffset) {
+    if (!EnsureFontSystem(context)) {
+        return false;
+    }
+
+    RECT rect = {};
+    GetClientRect(hwnd, &rect);
+    const float width = static_cast<float>(rect.right - rect.left);
+    const std::filesystem::path currentPath = State(context).currentFilePath;
+    const std::filesystem::path baseDir = currentPath.parent_path();
+    const float previousScrollOffset = State(context).scrollOffset;
+
+    const auto status = context.controller.ReloadCurrentFile(
+        width,
+        GetRegularTypeface(context),
+        [&](const DocumentModel& docModel, const std::filesystem::path& preloadBaseDir) {
+            context.imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
+        },
+        [&](const std::string& url) -> std::pair<float, float> {
+            return context.imageCache.GetImageSize(url, baseDir);
+        });
+    if (status != OpenDocumentStatus::Success) {
+        return false;
+    }
+
+    if (preserveScrollOffset) {
+        State(context).scrollOffset = previousScrollOffset;
+        ClampScrollOffset(hwnd, context);
+    }
+
+    context.fileWatcher.SetWatchedFile(currentPath);
+    InvalidateRect(hwnd, nullptr, FALSE);
+    return true;
+}
+
+void ReloadIfFileChanged(HWND hwnd, ViewerHostContext& context) {
+    if (!context.controller.HasCurrentFileChanged()) {
+        return;
+    }
+
+    if (!ReloadCurrentFile(hwnd, context, true)) {
+        context.controller.SyncCurrentFileWriteTime();
+    }
 }
 
 void SetBaseFontSize(HWND hwnd, ViewerHostContext& context, float baseFontSize) {

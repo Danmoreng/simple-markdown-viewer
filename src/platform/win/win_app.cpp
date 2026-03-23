@@ -20,6 +20,7 @@ WinApp::WinApp()
           .surface = surface_,
           .typefaces = typefaces_,
           .imageCache = imageCache_,
+          .fileWatcher = fileWatcher_,
       },
       interactionContext_{
           .host = hostContext_,

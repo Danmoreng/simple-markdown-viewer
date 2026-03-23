@@ -30,11 +30,14 @@ namespace mdviewer::win {
 inline constexpr float kScrollbarWidth = 10.0f;
 inline constexpr float kScrollbarMargin = 4.0f;
 
+class WinFileWatcher;
+
 struct ViewerHostContext {
     ViewerController& controller;
     sk_sp<SkSurface>& surface;
     DocumentTypefaceCache& typefaces;
     DocumentImageCache& imageCache;
+    WinFileWatcher& fileWatcher;
 };
 
 AppState& GetAppState(const ViewerHostContext& context);
@@ -62,6 +65,8 @@ void GoBack(HWND hwnd, ViewerHostContext& context);
 void GoForward(HWND hwnd, ViewerHostContext& context);
 void HandleLinkClick(HWND hwnd, ViewerHostContext& context, const std::string& url, bool forceExternal);
 void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context);
+bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrollOffset = true);
+void ReloadIfFileChanged(HWND hwnd, ViewerHostContext& context);
 void SetBaseFontSize(HWND hwnd, ViewerHostContext& context, float baseFontSize);
 void AdjustBaseFontSize(HWND hwnd, ViewerHostContext& context, float delta);
 void ApplySelectedFont(HWND hwnd, ViewerHostContext& context, const std::string& familyUtf8);
