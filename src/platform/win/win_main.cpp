@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "platform/win/win_app.h"
+#include "platform/win/win_crash_handler.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_window.h"
 
@@ -41,6 +42,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         MessageBoxW(nullptr, L"COM initialization failed. The application cannot start.", L"Error", MB_ICONERROR);
         return 1;
     }
+
+    mdviewer::win::InstallCrashHandler(mdviewer::win::WinApp::GetExecutableConfigPath().parent_path());
 
     g_app.Controller().SetConfigPath(mdviewer::win::WinApp::GetExecutableConfigPath());
     g_app.Controller().LoadConfig();

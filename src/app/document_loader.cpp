@@ -5,6 +5,7 @@
 
 #include "markdown/markdown_parser.h"
 #include "util/file_io.h"
+#include "util/utf8.h"
 
 namespace mdviewer {
 
@@ -47,19 +48,20 @@ DocumentLoadResult LoadDocumentFromPath(const std::filesystem::path& path) {
         return {DocumentLoadStatus::FileReadError, {}, {}};
     }
 
+    Utf8SanitizationResult sanitized = SanitizeUtf8(*content);
     DocumentModel docModel;
     if (IsMarkdownFile(path)) {
-        docModel = MarkdownParser::Parse(*content);
+        docModel = MarkdownParser::Parse(sanitized.text);
     } else if (IsDefinitelyTextFile(path) || ProbeIsText(*content)) {
         Block block;
         block.type = BlockType::Paragraph;
-        block.inlineRuns.push_back({InlineStyle::Plain, *content, ""});
+        block.inlineRuns.push_back({InlineStyle::Plain, sanitized.text, ""});
         docModel.blocks.push_back(std::move(block));
     } else {
         return {DocumentLoadStatus::BinaryFile, {}, {}};
     }
 
-    return {DocumentLoadStatus::Success, std::move(*content), std::move(docModel)};
+    return {DocumentLoadStatus::Success, std::move(sanitized.text), std::move(docModel)};
 }
 
 } // namespace mdviewer

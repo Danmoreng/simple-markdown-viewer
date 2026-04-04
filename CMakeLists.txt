@@ -47,6 +47,7 @@ set(SOURCES
     src/app/viewer_controller.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
+    src/util/utf8.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
     src/render/document_renderer.cpp
@@ -62,6 +63,7 @@ set(SOURCES
 if(WIN32)
     list(APPEND SOURCES
         src/platform/win/win_clipboard.cpp
+        src/platform/win/win_crash_handler.cpp
         src/platform/win/win_file_dialog.cpp
         src/platform/win/win_file_watcher.cpp
         src/platform/win/win_app.cpp
@@ -126,6 +128,7 @@ if(WIN32)
         dwrite.lib
         usp10.lib
         ole32.lib
+        dbghelp.lib
         user32.lib
         gdi32.lib
     )
