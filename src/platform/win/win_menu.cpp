@@ -286,6 +286,8 @@ bool CreateMenus(const ThemePalette& palette) {
     AppendMenuW(g_viewMenu, MF_STRING, kCommandSelectFont, L"Select &Font...");
     AppendMenuW(g_viewMenu, MF_STRING, kCommandUseDefaultFont, L"Use &Default Font");
     AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(g_viewMenu, MF_STRING, kCommandFind, L"&Find...\tCtrl+F");
+    AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
 
     AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeLight, L"&Light");
     AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeSepia, L"&Sepia");

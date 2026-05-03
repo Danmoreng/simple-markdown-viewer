@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
+#include <string>
 
 namespace mdviewer::linux_platform {
 
@@ -157,8 +158,41 @@ void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
         case MenuCommand::UseDefaultFont:
             ApplySelectedFont(window, host, {});
             break;
+        case MenuCommand::Find: {
+            auto& appState = GetAppState(app.GetHostContext());
+            OpenSearch(appState);
+            appState.needsRepaint = true;
+            break;
+        }
         default: break;
     }
+}
+
+void ScrollSearchMatchIntoView(GLFWwindow* window, LinuxApp& app) {
+    auto& appState = GetAppState(app.GetHostContext());
+    if (ScrollToCurrentSearchMatch(appState, GetViewportHeight(window, app.GetHostContext()), GetMaxScroll(window, app.GetHostContext()))) {
+        ClampScrollOffset(window, app.GetHostContext());
+    }
+}
+
+std::string Utf32CodepointToUtf8(unsigned int codepoint) {
+    std::string result;
+    if (codepoint <= 0x7F) {
+        result.push_back(static_cast<char>(codepoint));
+    } else if (codepoint <= 0x7FF) {
+        result.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0xFFFF) {
+        result.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+        result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0x10FFFF) {
+        result.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+        result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+        result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    return result;
 }
 
 void OnMouseMove(GLFWwindow* window, double xpos, double ypos) {
@@ -245,6 +279,12 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
     if (button != GLFW_MOUSE_BUTTON_LEFT) return;
 
     if (action == GLFW_PRESS) {
+        if (appState.searchActive && appState.searchCloseButtonRect.contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
+            CloseSearch(appState);
+            appState.needsRepaint = true;
+            return;
+        }
+
         if (appState.menuBarState.activeIndex != -1) {
             int itemIdx = HitTestDropdown(window, *app, xpos, ypos);
             if (itemIdx != -1) {
@@ -325,6 +365,7 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
     ev.key = InteractionKey::Unknown;
     ev.ctrl = (mods & GLFW_MOD_CONTROL);
     ev.alt = (mods & GLFW_MOD_ALT);
+    ev.shift = (mods & GLFW_MOD_SHIFT);
     switch (key) {
         case GLFW_KEY_ESCAPE:
             ev.key = InteractionKey::Escape;
@@ -334,6 +375,11 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
             }
             break;
         case GLFW_KEY_C: ev.key = InteractionKey::Copy; break;
+        case GLFW_KEY_F: ev.key = InteractionKey::Find; break;
+        case GLFW_KEY_ENTER:
+        case GLFW_KEY_KP_ENTER:
+            ev.key = InteractionKey::Enter;
+            break;
         case GLFW_KEY_EQUAL: if (ev.ctrl) ev.key = InteractionKey::ZoomIn; break;
         case GLFW_KEY_KP_ADD: if (ev.ctrl) ev.key = InteractionKey::ZoomIn; break;
         case GLFW_KEY_MINUS: if (ev.ctrl) ev.key = InteractionKey::ZoomOut; break;
@@ -352,7 +398,40 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
     }
     if (result.zoomIn) AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
     if (result.zoomOut) AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
+    if (result.openSearch) {
+        OpenSearch(GetAppState(app->GetHostContext()));
+        ScrollSearchMatchIntoView(window, *app);
+    }
+    if (result.closeSearch) {
+        CloseSearch(GetAppState(app->GetHostContext()));
+    }
+    if (result.searchNext) {
+        MoveSearchMatch(GetAppState(app->GetHostContext()), 1);
+        ScrollSearchMatchIntoView(window, *app);
+    }
+    if (result.searchPrevious) {
+        MoveSearchMatch(GetAppState(app->GetHostContext()), -1);
+        ScrollSearchMatchIntoView(window, *app);
+    }
+    if (result.searchBackspace) {
+        DeleteLastSearchCharacter(GetAppState(app->GetHostContext()));
+        ScrollSearchMatchIntoView(window, *app);
+    }
     if (result.handled) GetAppState(app->GetHostContext()).needsRepaint = true;
+}
+
+void OnChar(GLFWwindow* window, unsigned int codepoint) {
+    auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
+    if (!app) return;
+
+    auto& appState = GetAppState(app->GetHostContext());
+    if (!appState.searchActive || codepoint < 32) {
+        return;
+    }
+
+    InsertSearchText(appState, Utf32CodepointToUtf8(codepoint));
+    ScrollSearchMatchIntoView(window, *app);
+    appState.needsRepaint = true;
 }
 
 void OnFramebufferSize(GLFWwindow* window, int width, int height) {
@@ -379,6 +458,7 @@ void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
     glfwSetMouseButtonCallback(window, OnMouseButton);
     glfwSetScrollCallback(window, OnScroll);
     glfwSetKeyCallback(window, OnKey);
+    glfwSetCharCallback(window, OnChar);
     glfwSetFramebufferSizeCallback(window, OnFramebufferSize);
     glfwSetDropCallback(window, OnDrop);
 }

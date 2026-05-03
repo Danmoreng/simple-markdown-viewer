@@ -1,9 +1,52 @@
 #include "view/document_interaction.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace mdviewer {
+namespace {
+
+std::string ToLowerAscii(std::string text) {
+    for (char& ch : text) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return text;
+}
+
+void AppendMatchesInText(AppState& appState, const std::string& haystack, const std::string& needle) {
+    if (needle.empty()) {
+        return;
+    }
+
+    size_t offset = 0;
+    while (offset < haystack.size()) {
+        const size_t found = haystack.find(needle, offset);
+        if (found == std::string::npos) {
+            break;
+        }
+        appState.searchMatches.push_back({found, found + appState.searchQuery.size()});
+        offset = found + std::max<size_t>(needle.size(), 1);
+    }
+}
+
+std::optional<float> FindTextPositionY(const std::vector<BlockLayout>& blocks, size_t textPosition) {
+    for (const auto& block : blocks) {
+        for (const auto& line : block.lines) {
+            if (textPosition >= line.textStart && textPosition <= line.textStart + line.textLength) {
+                return line.y;
+            }
+        }
+
+        if (const auto childY = FindTextPositionY(block.children, textPosition)) {
+            return childY;
+        }
+    }
+
+    return std::nullopt;
+}
+
+} // namespace
 
 size_t GetSelectionStart(const AppState& appState) {
     return std::min(appState.selectionAnchor, appState.selectionFocus);
@@ -11,6 +54,105 @@ size_t GetSelectionStart(const AppState& appState) {
 
 size_t GetSelectionEnd(const AppState& appState) {
     return std::max(appState.selectionAnchor, appState.selectionFocus);
+}
+
+std::optional<std::pair<size_t, size_t>> GetCurrentSearchMatch(const AppState& appState) {
+    if (!appState.searchActive || appState.searchMatches.empty() || appState.currentSearchMatch >= appState.searchMatches.size()) {
+        return std::nullopt;
+    }
+    return appState.searchMatches[appState.currentSearchMatch];
+}
+
+void RebuildSearchMatches(AppState& appState) {
+    appState.searchMatches.clear();
+    appState.currentSearchMatch = 0;
+
+    if (appState.searchQuery.empty()) {
+        return;
+    }
+
+    AppendMatchesInText(appState, ToLowerAscii(appState.docLayout.plainText), ToLowerAscii(appState.searchQuery));
+}
+
+void OpenSearch(AppState& appState) {
+    appState.searchActive = true;
+    appState.searchCloseButtonRect = SkRect::MakeEmpty();
+    appState.selectionAnchor = 0;
+    appState.selectionFocus = 0;
+    RebuildSearchMatches(appState);
+    appState.needsRepaint = true;
+}
+
+void CloseSearch(AppState& appState) {
+    appState.searchActive = false;
+    appState.searchQuery.clear();
+    appState.searchMatches.clear();
+    appState.currentSearchMatch = 0;
+    appState.searchCloseButtonRect = SkRect::MakeEmpty();
+    appState.needsRepaint = true;
+}
+
+void InsertSearchText(AppState& appState, const std::string& text) {
+    if (!appState.searchActive || text.empty()) {
+        return;
+    }
+
+    appState.searchQuery += text;
+    RebuildSearchMatches(appState);
+    appState.needsRepaint = true;
+}
+
+void DeleteLastSearchCharacter(AppState& appState) {
+    if (!appState.searchActive || appState.searchQuery.empty()) {
+        return;
+    }
+
+    size_t eraseFrom = appState.searchQuery.size() - 1;
+    while (eraseFrom > 0 &&
+           (static_cast<unsigned char>(appState.searchQuery[eraseFrom]) & 0xC0) == 0x80) {
+        --eraseFrom;
+    }
+    appState.searchQuery.erase(eraseFrom);
+
+    RebuildSearchMatches(appState);
+    appState.needsRepaint = true;
+}
+
+void MoveSearchMatch(AppState& appState, int direction) {
+    if (!appState.searchActive || appState.searchMatches.empty() || direction == 0) {
+        return;
+    }
+
+    const size_t count = appState.searchMatches.size();
+    if (direction > 0) {
+        appState.currentSearchMatch = (appState.currentSearchMatch + 1) % count;
+    } else {
+        appState.currentSearchMatch = appState.currentSearchMatch == 0 ? count - 1 : appState.currentSearchMatch - 1;
+    }
+    appState.needsRepaint = true;
+}
+
+bool ScrollToCurrentSearchMatch(AppState& appState, float viewportHeight, float maxScroll) {
+    const auto match = GetCurrentSearchMatch(appState);
+    if (!match) {
+        return false;
+    }
+
+    const auto matchY = FindTextPositionY(appState.docLayout.blocks, match->first);
+    if (!matchY) {
+        return false;
+    }
+
+    const float padding = 48.0f;
+    const float previousOffset = appState.scrollOffset;
+    if (*matchY < appState.scrollOffset + padding) {
+        appState.scrollOffset = std::max(*matchY - padding, 0.0f);
+    } else if (*matchY > appState.scrollOffset + viewportHeight - padding) {
+        appState.scrollOffset = std::min(*matchY - viewportHeight + padding, maxScroll);
+    }
+
+    appState.scrollOffset = std::clamp(appState.scrollOffset, 0.0f, maxScroll);
+    return std::abs(previousOffset - appState.scrollOffset) > 0.01f;
 }
 
 void ClearPendingLinkState(AppState& appState) {
@@ -202,6 +344,33 @@ void FinalizeSelectionInteraction(AppState& appState) {
 
 KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) {
     KeyCommandResult result;
+
+    if (event.ctrl && event.key == InteractionKey::Find) {
+        result.handled = true;
+        result.openSearch = true;
+        return result;
+    }
+
+    if (appState.searchActive) {
+        if (event.key == InteractionKey::Escape) {
+            result.handled = true;
+            result.closeSearch = true;
+            return result;
+        }
+
+        if (event.key == InteractionKey::Enter) {
+            result.handled = true;
+            result.searchNext = !event.shift;
+            result.searchPrevious = event.shift;
+            return result;
+        }
+
+        if (event.key == InteractionKey::Back) {
+            result.handled = true;
+            result.searchBackspace = true;
+            return result;
+        }
+    }
 
     if (event.key == InteractionKey::Escape) {
         result.handled = true;

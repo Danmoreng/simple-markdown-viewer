@@ -27,6 +27,7 @@ struct WindowCommandHandlers {
     std::function<void()> goForward;
     std::function<void()> zoomOut;
     std::function<void()> zoomIn;
+    std::function<void()> find;
 };
 
 bool RegisterMainWindowClass(HINSTANCE instance, WNDPROC windowProc, int appIconResourceId, const wchar_t* className);

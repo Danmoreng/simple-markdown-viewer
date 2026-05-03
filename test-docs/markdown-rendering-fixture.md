@@ -69,6 +69,7 @@ A separate ordered list with a custom start value:
 #include <vector>
 
 int main() {
+    const char* needle = "search highlight inside C++ code";
     std::vector<int> values = {1, 2, 3};
     return values.empty() ? 0 : values[0];
 }
@@ -163,6 +164,16 @@ Text above the rule.
 ---
 
 Text below the rule.
+
+## Search Fixture
+
+Use Ctrl+F and search for `needle` to confirm all matches highlight and Enter moves between them.
+
+Needle appears at the start of this sentence.
+
+This sentence contains a lowercase needle in the middle.
+
+The final NEEDLE uses uppercase letters to confirm case-insensitive matching.
 
 ## Raw HTML
 

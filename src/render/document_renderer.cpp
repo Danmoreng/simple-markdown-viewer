@@ -131,15 +131,149 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
         ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
         const size_t highlightStart = std::max(selectionStart, runStart) - runStart;
         const size_t highlightEnd = std::min(selectionEnd, runEnd) - runStart;
-        const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8);
-        const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8);
+        const bool isCodeText = block.type == BlockType::CodeBlock || run.style == InlineStyle::Code;
+        const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
+        const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
+        const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
 
         SkPaint highlightPaint;
         highlightPaint.setAntiAlias(true);
         highlightPaint.setColor(params.palette.selectionFill);
-        ctx.canvas->drawRect(
+        ctx.canvas->drawRoundRect(
             SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
+            isCodeText ? 3.0f : 1.0f,
+            isCodeText ? 3.0f : 1.0f,
             highlightPaint);
+
+        currentX += runWidth;
+    }
+}
+
+void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
+    float currentX = line.x;
+
+    for (const auto& run : line.runs) {
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        const float advance = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.type, run);
+
+        if (run.style == InlineStyle::Code && !run.text.empty()) {
+            SkPaint chipPaint;
+            chipPaint.setAntiAlias(true);
+            chipPaint.setColor(params.palette.codeInlineBackground);
+            ctx.canvas->drawRoundRect(
+                SkRect::MakeLTRB(
+                    currentX - 4.0f,
+                    line.y + 1.0f,
+                    currentX + advance + 4.0f,
+                    line.y + line.height - 1.0f),
+                4.0f,
+                4.0f,
+                chipPaint);
+        }
+
+        currentX += advance;
+    }
+}
+
+void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
+    if (!params.appState || !params.appState->searchActive || params.appState->searchMatches.empty()) {
+        return;
+    }
+
+    const auto currentMatch = GetCurrentSearchMatch(*params.appState);
+    float currentX = line.x;
+
+    for (const auto& run : line.runs) {
+        const size_t runStart = run.textStart;
+        const size_t runEnd = GetRunTextEnd(run);
+        const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.type, run);
+
+        if (runEnd <= runStart || run.style == InlineStyle::Image) {
+            currentX += runWidth;
+            continue;
+        }
+
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        for (const auto& match : params.appState->searchMatches) {
+            if (match.second <= runStart || match.first >= runEnd) {
+                continue;
+            }
+
+            const size_t highlightStart = std::max(match.first, runStart) - runStart;
+            const size_t highlightEnd = std::min(match.second, runEnd) - runStart;
+            if (highlightStart >= highlightEnd) {
+                continue;
+            }
+
+            const bool isCodeText = block.type == BlockType::CodeBlock || run.style == InlineStyle::Code;
+            const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
+            const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
+            const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
+
+            SkPaint highlightPaint;
+            highlightPaint.setAntiAlias(true);
+            highlightPaint.setColor(
+                currentMatch && currentMatch->first == match.first && currentMatch->second == match.second
+                    ? params.palette.menuSelectedBackground
+                    : params.palette.selectionFill);
+            ctx.canvas->drawRoundRect(
+                SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
+                3.0f,
+                3.0f,
+                highlightPaint);
+        }
+
+        currentX += runWidth;
+    }
+}
+
+void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
+    if (!params.appState || !params.appState->searchActive || params.appState->searchMatches.empty()) {
+        return;
+    }
+
+    const auto currentMatch = GetCurrentSearchMatch(*params.appState);
+    float currentX = line.x;
+
+    for (const auto& run : line.runs) {
+        const size_t runStart = run.textStart;
+        const size_t runEnd = GetRunTextEnd(run);
+        const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.type, run);
+
+        if (runEnd <= runStart || run.style == InlineStyle::Image) {
+            currentX += runWidth;
+            continue;
+        }
+
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        for (const auto& match : params.appState->searchMatches) {
+            if (match.second <= runStart || match.first >= runEnd) {
+                continue;
+            }
+
+            const size_t highlightStart = std::max(match.first, runStart) - runStart;
+            const size_t highlightEnd = std::min(match.second, runEnd) - runStart;
+            if (highlightStart >= highlightEnd) {
+                continue;
+            }
+
+            const bool isCodeText = block.type == BlockType::CodeBlock || run.style == InlineStyle::Code;
+            const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
+            const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
+            const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
+            const bool isCurrent = currentMatch && currentMatch->first == match.first && currentMatch->second == match.second;
+
+            SkPaint strokePaint;
+            strokePaint.setAntiAlias(true);
+            strokePaint.setStyle(SkPaint::kStroke_Style);
+            strokePaint.setStrokeWidth(isCurrent ? 1.8f : 1.1f);
+            strokePaint.setColor(isCurrent ? params.palette.linkText : params.palette.menuDisabledText);
+            ctx.canvas->drawRoundRect(
+                SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
+                3.0f,
+                3.0f,
+                strokePaint);
+        }
 
         currentX += runWidth;
     }
@@ -339,21 +473,6 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             continue;
         }
 
-        if (run.style == InlineStyle::Code && !run.text.empty()) {
-            SkPaint chipPaint;
-            chipPaint.setAntiAlias(true);
-            chipPaint.setColor(params.palette.codeInlineBackground);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeLTRB(
-                    currentX - 4.0f,
-                    line.y + 1.0f,
-                    currentX + advance + 4.0f,
-                    line.y + line.height - 1.0f),
-                4.0f,
-                4.0f,
-                chipPaint);
-        }
-
         ctx.paint.setColor(GetDocumentTextColor(params.palette, block.type, run.style));
         ctx.canvas->drawString(run.text.c_str(), currentX, baselineY, ctx.font, ctx.paint);
 
@@ -401,8 +520,11 @@ void DrawBlocks(
         DrawBlockDecoration(ctx, params, block, parentType, parentOrderedListStart, parentOrderedListDelimiter, index);
 
         for (const auto& line : block.lines) {
+            DrawInlineDecorationsForLine(ctx, params, block, line);
+            DrawSearchForLine(ctx, params, block, line);
             DrawSelectionForLine(ctx, params, block, line);
             DrawLine(ctx, params, block, line);
+            DrawSearchStrokeForLine(ctx, params, block, line);
         }
 
         if (!block.children.empty()) {
@@ -448,6 +570,105 @@ void DrawAutoScrollIndicator(SkCanvas* canvas, const ThemePalette& palette, cons
 void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
     if (!params.appState) {
         return;
+    }
+
+    if (params.appState->searchActive) {
+        const float paddingX = 10.0f;
+        const float overlayH = 34.0f;
+        const float overlayW = std::min(430.0f, std::max(240.0f, params.surfaceWidth - 28.0f));
+        const float overlayX = params.surfaceWidth - overlayW - 14.0f;
+        const float overlayY = params.contentTopInset + 10.0f;
+        const float closeSize = 22.0f;
+        const SkRect closeRect = SkRect::MakeXYWH(
+            overlayX + overlayW - closeSize - 6.0f,
+            overlayY + (overlayH - closeSize) * 0.5f,
+            closeSize,
+            closeSize);
+        const_cast<AppState*>(params.appState)->searchCloseButtonRect = closeRect;
+
+        SkPaint backgroundPaint;
+        backgroundPaint.setAntiAlias(true);
+        backgroundPaint.setColor(params.palette.menuBackground);
+        backgroundPaint.setAlphaf(0.96f);
+        ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 6.0f, 6.0f, backgroundPaint);
+
+        SkPaint borderPaint;
+        borderPaint.setAntiAlias(true);
+        borderPaint.setStyle(SkPaint::kStroke_Style);
+        borderPaint.setStrokeWidth(1.0f);
+        borderPaint.setColor(params.palette.menuSeparator);
+        ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 6.0f, 6.0f, borderPaint);
+
+        ctx.font.setTypeface(sk_ref_sp(params.typefaces.bold));
+        ctx.font.setSize(std::max(params.baseFontSize * 0.78f, 12.0f));
+        ctx.paint.setColor(params.palette.menuDisabledText);
+        const char* label = "Find";
+        ctx.canvas->drawString(label, overlayX + paddingX, overlayY + 22.0f, ctx.font, ctx.paint);
+
+        ctx.font.setTypeface(sk_ref_sp(params.typefaces.regular));
+        ctx.paint.setColor(params.palette.menuText);
+        const std::string query = params.appState->searchQuery.empty() ? std::string() : params.appState->searchQuery;
+        const char* placeholder = "type to search";
+        const bool hasQuery = !query.empty();
+        if (!hasQuery) {
+            ctx.paint.setColor(params.palette.menuDisabledText);
+        }
+
+        const float queryX = overlayX + 58.0f;
+        const float countW = 108.0f;
+        ctx.canvas->save();
+        ctx.canvas->clipRect(SkRect::MakeLTRB(queryX, overlayY + 4.0f, closeRect.left() - countW, overlayY + overlayH - 4.0f));
+        const std::string displayQuery = hasQuery ? query : placeholder;
+        ctx.canvas->drawString(displayQuery.c_str(), queryX, overlayY + 22.0f, ctx.font, ctx.paint);
+
+        if (hasQuery) {
+            SkRect queryBounds;
+            ctx.font.measureText(displayQuery.c_str(), displayQuery.size(), SkTextEncoding::kUTF8, &queryBounds);
+            const float caretX = queryX + queryBounds.width() + 2.0f;
+            SkPaint caretPaint;
+            caretPaint.setAntiAlias(false);
+            caretPaint.setColor(params.palette.menuText);
+            ctx.canvas->drawRect(SkRect::MakeXYWH(caretX, overlayY + 9.0f, 1.0f, 17.0f), caretPaint);
+        }
+        ctx.canvas->restore();
+
+        ctx.font.setTypeface(sk_ref_sp(params.typefaces.regular));
+        ctx.font.setSize(std::max(params.baseFontSize * 0.72f, 11.0f));
+        const std::string countText = params.appState->searchQuery.empty()
+            ? "0/0"
+            : (params.appState->searchMatches.empty()
+                ? "0/0"
+                : std::to_string(params.appState->currentSearchMatch + 1) + "/" + std::to_string(params.appState->searchMatches.size()));
+        SkRect countBounds;
+        ctx.font.measureText(countText.c_str(), countText.size(), SkTextEncoding::kUTF8, &countBounds);
+        ctx.paint.setColor(params.appState->searchMatches.empty() && !params.appState->searchQuery.empty()
+            ? params.palette.codeText
+            : params.palette.menuDisabledText);
+        ctx.canvas->drawString(
+            countText.c_str(),
+            closeRect.left() - 10.0f - countBounds.width(),
+            overlayY + 22.0f,
+            ctx.font,
+            ctx.paint);
+
+        SkPaint closePaint;
+        closePaint.setAntiAlias(true);
+        closePaint.setColor(params.palette.menuSelectedBackground);
+        closePaint.setAlphaf(0.55f);
+        ctx.canvas->drawRoundRect(closeRect, 4.0f, 4.0f, closePaint);
+
+        SkPaint closeStroke;
+        closeStroke.setAntiAlias(true);
+        closeStroke.setColor(params.palette.menuText);
+        closeStroke.setStrokeWidth(1.6f);
+        closeStroke.setStrokeCap(SkPaint::kRound_Cap);
+        const float cx = closeRect.centerX();
+        const float cy = closeRect.centerY();
+        const float arm = 5.2f;
+        ctx.canvas->drawLine(cx - arm, cy - arm, cx + arm, cy + arm, closeStroke);
+        ctx.canvas->drawLine(cx + arm, cy - arm, cx - arm, cy + arm, closeStroke);
+    } else {
+        const_cast<AppState*>(params.appState)->searchCloseButtonRect = SkRect::MakeEmpty();
     }
 
     if (!params.appState->hoveredUrl.empty()) {

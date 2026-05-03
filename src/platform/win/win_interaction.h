@@ -29,6 +29,7 @@ bool HandleMiddleButtonDown(HWND hwnd, ViewerInteractionContext& context, int x,
 bool HandleXButtonDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wParam);
 bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta);
 bool HandleKeyDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wParam);
+bool HandleTextInput(HWND hwnd, ViewerInteractionContext& context, wchar_t ch);
 bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId);
 bool HandleCaptureChanged(HWND hwnd, ViewerInteractionContext& context, LPARAM capturedWindow);
 void StopAutoScroll(HWND hwnd, ViewerInteractionContext& context);

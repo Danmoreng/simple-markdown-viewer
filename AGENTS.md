@@ -18,6 +18,7 @@ The project has a working Windows implementation with:
 - Markdown parsing via `md4c`
 - custom Skia document rendering
 - scrolling
+- in-document search
 - text selection and copy
 - native context menus for selection and link actions
 - link rendering and activation
@@ -67,6 +68,15 @@ That remaining cleanup should happen before the Linux implementation starts.
 3. Confirm which UI pieces stay platform-specific versus shared before introducing a second host.
 4. Start the Linux host only after the Windows boundary is stable.
 
+## Backlog
+
+- Add native Mermaid diagram rendering for fenced `mermaid` code blocks.
+  - Keep this browser-free: do not use Chromium, Puppeteer, a webview, or the Mermaid CLI rendering pipeline.
+  - Prefer a lightweight native integration, likely via a Rust static library/C ABI bridge using a mature browser-free renderer such as `mermaid-rs-renderer`.
+  - Render into an app-native image surface, preferably PNG bytes or another Skia-friendly raster path, because the current Skia build does not enable SVG rendering.
+  - Cache rendered diagrams by source hash and fall back to the original code block plus an error message when rendering fails.
+  - Defer this until the added Rust/Cargo build dependency and CI/release impact are acceptable.
+
 ## Product Rules
 
 Keep these constraints:
@@ -86,6 +96,7 @@ Supported interactions for v1:
 - scroll
 - select text
 - copy selection
+- search within the current document
 - use native context menus for copy/link actions
 - activate links
 - navigate history

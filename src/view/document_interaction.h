@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <optional>
+#include <utility>
 
 #include "app/app_state.h"
 
@@ -20,13 +22,16 @@ enum class InteractionKey {
     Left,
     Right,
     Back,
-    Copy
+    Copy,
+    Find,
+    Enter
 };
 
 struct KeyEvent {
     InteractionKey key = InteractionKey::Unknown;
     bool ctrl = false;
     bool alt = false;
+    bool shift = false;
 };
 
 struct KeyCommandResult {
@@ -37,6 +42,11 @@ struct KeyCommandResult {
     bool goForward = false;
     bool zoomIn = false;
     bool zoomOut = false;
+    bool openSearch = false;
+    bool closeSearch = false;
+    bool searchNext = false;
+    bool searchPrevious = false;
+    bool searchBackspace = false;
 };
 
 struct PointerUpResult {
@@ -48,8 +58,16 @@ struct PointerUpResult {
 
 size_t GetSelectionStart(const AppState& appState);
 size_t GetSelectionEnd(const AppState& appState);
+std::optional<std::pair<size_t, size_t>> GetCurrentSearchMatch(const AppState& appState);
 
 void ClearPendingLinkState(AppState& appState);
+void OpenSearch(AppState& appState);
+void CloseSearch(AppState& appState);
+void InsertSearchText(AppState& appState, const std::string& text);
+void DeleteLastSearchCharacter(AppState& appState);
+void MoveSearchMatch(AppState& appState, int direction);
+void RebuildSearchMatches(AppState& appState);
+bool ScrollToCurrentSearchMatch(AppState& appState, float viewportHeight, float maxScroll);
 void BeginScrollbarDrag(AppState& appState, float dragOffset);
 void BeginSelection(AppState& appState, const InteractionTextHit& hit, bool forceExternal, int pressX, int pressY);
 

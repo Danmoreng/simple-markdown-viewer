@@ -3,6 +3,8 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "layout/document_model.h"
 #include "layout/layout_engine.h"
@@ -34,6 +36,11 @@ struct AppState {
     bool needsRepaint = true;
     std::string hoveredUrl;
     uint64_t copiedFeedbackTimeout = 0; // Tick count when feedback should expire
+    bool searchActive = false;
+    std::string searchQuery;
+    std::vector<std::pair<size_t, size_t>> searchMatches;
+    size_t currentSearchMatch = 0;
+    SkRect searchCloseButtonRect = SkRect::MakeEmpty();
     std::optional<std::filesystem::file_time_type> currentFileLastWriteTime;
     bool pendingLinkClick = false;
     bool pendingLinkForceExternal = false;
@@ -98,6 +105,11 @@ struct AppState {
         needsRepaint = true;
         hoveredUrl.clear();
         copiedFeedbackTimeout = 0;
+        searchActive = false;
+        searchQuery.clear();
+        searchMatches.clear();
+        currentSearchMatch = 0;
+        searchCloseButtonRect = SkRect::MakeEmpty();
         currentFileLastWriteTime.reset();
         pendingLinkClick = false;
         pendingLinkForceExternal = false;

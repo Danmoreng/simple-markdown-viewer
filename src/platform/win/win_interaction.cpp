@@ -5,6 +5,7 @@
 #include <limits>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "platform/win/win_clipboard.h"
 #include "platform/win/win_context_menu.h"
@@ -183,8 +184,31 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
         case 'C':
         case 'c':
             return InteractionKey::Copy;
+        case 'F':
+        case 'f':
+            return InteractionKey::Find;
+        case VK_RETURN:
+            return InteractionKey::Enter;
         default:
             return InteractionKey::Unknown;
+    }
+}
+
+std::string Utf16CharToUtf8(wchar_t ch) {
+    const int needed = WideCharToMultiByte(CP_UTF8, 0, &ch, 1, nullptr, 0, nullptr, nullptr);
+    if (needed <= 0) {
+        return {};
+    }
+
+    std::string result(static_cast<size_t>(needed), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, &ch, 1, result.data(), needed, nullptr, nullptr);
+    return result;
+}
+
+void ScrollSearchMatchIntoView(HWND hwnd, ViewerInteractionContext& context) {
+    AppState& appState = GetAppState(context.host);
+    if (ScrollToCurrentSearchMatch(appState, GetViewportHeight(hwnd, context.host), GetMaxScroll(hwnd, context.host))) {
+        ClampScrollOffset(hwnd, context.host);
     }
 }
 
@@ -208,6 +232,30 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
     if (command.copySelection) {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         CopySelection(hwnd, context);
+    }
+    if (command.openSearch || command.closeSearch || command.searchNext || command.searchPrevious || command.searchBackspace) {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        if (command.openSearch) {
+            OpenSearch(appState);
+            ScrollSearchMatchIntoView(hwnd, context);
+        }
+        if (command.closeSearch) {
+            CloseSearch(appState);
+        }
+        if (command.searchNext) {
+            MoveSearchMatch(appState, 1);
+            ScrollSearchMatchIntoView(hwnd, context);
+        }
+        if (command.searchPrevious) {
+            MoveSearchMatch(appState, -1);
+            ScrollSearchMatchIntoView(hwnd, context);
+        }
+        if (command.searchBackspace) {
+            DeleteLastSearchCharacter(appState);
+            ScrollSearchMatchIntoView(hwnd, context);
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
     }
     return command.handled;
 }
@@ -275,6 +323,12 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
     {
         std::lock_guard<std::mutex> buttonLock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
+        if (appState.searchActive && appState.searchCloseButtonRect.contains(static_cast<float>(x), static_cast<float>(y))) {
+            CloseSearch(appState);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+
         const float docX = static_cast<float>(x);
         const float docY = static_cast<float>(y) - GetContentTopInset() + appState.scrollOffset;
         for (const auto& btn : appState.codeBlockButtons) {
@@ -501,7 +555,25 @@ bool HandleKeyDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wParam) 
                 .key = TranslateInteractionKey(wParam),
                 .ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0,
                 .alt = (GetKeyState(VK_MENU) & 0x8000) != 0,
+                .shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0,
             }));
+}
+
+bool HandleTextInput(HWND hwnd, ViewerInteractionContext& context, wchar_t ch) {
+    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 || ch < L' ') {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+    AppState& appState = GetAppState(context.host);
+    if (!appState.searchActive) {
+        return false;
+    }
+
+    InsertSearchText(appState, Utf16CharToUtf8(ch));
+    ScrollSearchMatchIntoView(hwnd, context);
+    InvalidateRect(hwnd, nullptr, FALSE);
+    return true;
 }
 
 bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId) {

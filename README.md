@@ -63,6 +63,8 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - custom scrollbar
   - middle-mouse auto-scroll
 - Mouse text selection and `Ctrl+C` copy
+- In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
+- Search can also be opened from `View -> Find...`
 - Native right-click context menu for copying selected text and link actions
 - Link text remains selectable while links stay clickable
 - Switchable `Light`, `Sepia`, and `Dark` themes
@@ -188,6 +190,10 @@ The app stores `mdviewer.ini` next to the executable and uses it for theme, font
 - middle mouse button: auto-scroll mode
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
+- `Ctrl+F`: search within the current document
+- `Enter` / `Shift+Enter`: move to the next or previous search match while search is open
+- `Escape`: close search
+- Search close button: click the `x` button in the search box
 - right click: open a native context menu with selection/link actions
 - external file save: reload the currently open document automatically
 - `View -> Select Font...`: choose the reading font
@@ -276,6 +282,7 @@ CMakeLists.txt    CMake project definition
 ## Notes
 
 - The viewer copies rendered text content, not raw Markdown markup.
+- Search matches rendered document text, not raw Markdown source.
 - Syntax highlighting uses Tree-sitter for fenced code blocks with known language tags; unknown languages render as plain code.
 - The app currently targets Windows first, with Linux host integration in progress.
 - The menu bar is client-drawn so it can follow the selected theme.

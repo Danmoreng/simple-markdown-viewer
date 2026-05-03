@@ -30,6 +30,7 @@ inline constexpr UINT_PTR kCommandGoBack = 1201;
 inline constexpr UINT_PTR kCommandGoForward = 1202;
 inline constexpr UINT_PTR kCommandZoomOut = 1203;
 inline constexpr UINT_PTR kCommandZoomIn = 1204;
+inline constexpr UINT_PTR kCommandFind = 1205;
 
 bool CreateMenus(const ThemePalette& palette);
 void CleanupMenus();

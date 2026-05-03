@@ -16,7 +16,9 @@ std::vector<MenuDropdown> GetLinuxMenus() {
             "View",
             {
                 {"Select Font...", MenuCommand::SelectFont},
-                {"Use Default Font", MenuCommand::UseDefaultFont}
+                {"Use Default Font", MenuCommand::UseDefaultFont},
+                {"", MenuCommand::None, true},
+                {"Find...", MenuCommand::Find}
             }
         },
         {

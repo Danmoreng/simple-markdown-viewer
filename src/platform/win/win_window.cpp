@@ -2,11 +2,14 @@
 
 #include <windowsx.h>
 
+#include <mutex>
+
 #include "platform/win/win_file_dialog.h"
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_interaction.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_viewer_host.h"
+#include "view/document_interaction.h"
 
 namespace mdviewer::win {
 
@@ -56,6 +59,12 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
         },
         .zoomIn = [hwnd, appPtr]() {
             AdjustBaseFontSize(hwnd, appPtr->Host(), 1.0f);
+        },
+        .find = [hwnd, appPtr]() {
+            auto& appState = GetAppState(appPtr->Host());
+            std::lock_guard<std::mutex> lock(appState.mtx);
+            OpenSearch(appState);
+            InvalidateRect(hwnd, nullptr, FALSE);
         },
     };
 }
@@ -189,6 +198,11 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
                 return 0;
             }
             return std::nullopt;
+        case WM_CHAR:
+            if (HandleTextInput(hwnd, app.Interaction(), static_cast<wchar_t>(wParam))) {
+                return 0;
+            }
+            return std::nullopt;
         case WM_TIMER:
             if (HandleTimer(hwnd, app.Interaction(), wParam)) {
                 return 0;
@@ -272,6 +286,11 @@ bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& hand
         case kCommandZoomIn:
             if (handlers.zoomIn) {
                 handlers.zoomIn();
+            }
+            return true;
+        case kCommandFind:
+            if (handlers.find) {
+                handlers.find();
             }
             return true;
         default:
