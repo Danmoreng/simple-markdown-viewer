@@ -27,6 +27,7 @@ enum class InteractionKey {
     Back,
     Copy,
     Find,
+    ToggleOutline,
     Enter
 };
 
@@ -52,6 +53,7 @@ struct KeyCommandResult {
     bool searchBackspace = false;
     bool outlinePrevious = false;
     bool outlineNext = false;
+    bool toggleOutline = false;
 };
 
 struct PointerUpResult {

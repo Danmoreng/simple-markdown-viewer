@@ -72,10 +72,10 @@ Goal: make long documents substantially easier to navigate.
 - [x] Highlight the current section while scrolling.
 - [x] Click outline items to jump to headings.
 - [x] Add keyboard navigation for the outline.
-- [ ] Add a command and shortcut to show/hide the outline.
-- [ ] Preserve back/forward behavior for internal heading jumps.
-- [ ] Improve heading anchor compatibility with common GitHub-style expectations, including duplicate headings, Unicode headings, emoji, punctuation, and percent-decoded fragments.
-- [ ] Add copy-heading-link support if it fits cleanly into the context menu model.
+- [x] Add a command and shortcut to show/hide the outline.
+- [x] Decide Back/Forward behavior for internal heading jumps: keep Back/Forward file-only; heading jumps do not enter history.
+- [x] Improve heading anchor compatibility with common GitHub-style expectations, including duplicate headings, Unicode headings, emoji, punctuation, and percent-decoded fragments.
+- [x] Decide copy-heading-link support: out of scope for now.
 
 ## Milestone 3: Safer Links and Better File Context
 

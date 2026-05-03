@@ -496,6 +496,12 @@ KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) 
         return result;
     }
 
+    if (event.ctrl && event.shift && event.key == InteractionKey::ToggleOutline) {
+        result.handled = true;
+        result.toggleOutline = true;
+        return result;
+    }
+
     if (appState.searchActive) {
         if (event.key == InteractionKey::Escape) {
             result.handled = true;

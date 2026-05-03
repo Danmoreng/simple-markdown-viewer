@@ -50,7 +50,7 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
         appState.docLayout,
         appState.scrollOffset,
         GetContentTopInset(),
-        x - GetDocumentLeftInset(context.host),
+        x - (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f),
         viewportY,
         HitTestCallbacks{
             .get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
@@ -192,6 +192,9 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
         case 'F':
         case 'f':
             return InteractionKey::Find;
+        case 'O':
+        case 'o':
+            return InteractionKey::ToggleOutline;
         case VK_RETURN:
             return InteractionKey::Enter;
         default:
@@ -280,6 +283,13 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
         ClampScrollOffset(hwnd, context.host);
         InvalidateRect(hwnd, nullptr, FALSE);
     }
+    if (command.toggleOutline) {
+        context.host.controller.ToggleOutlineCollapsed();
+        RelayoutCurrentDocument(hwnd, context.host);
+        context.host.controller.SaveConfig();
+        SyncMenuState(hwnd, context.host);
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
     return command.handled;
 }
 
@@ -352,15 +362,18 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
                 appState,
                 static_cast<float>(x),
                 static_cast<float>(y),
+                context.host.surface ? static_cast<float>(context.host.surface->width()) : 0.0f,
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
             appState.outlineFocused = true;
+            appState.needsRepaint = true;
             toggledOutline = true;
             InvalidateRect(hwnd, nullptr, FALSE);
         } else if (const auto outlineHit = HitTestOutlineSidebar(
                        appState,
                        static_cast<float>(x),
                        static_cast<float>(y),
+                       context.host.surface ? static_cast<float>(context.host.surface->width()) : 0.0f,
                        GetContentTopInset())) {
             FocusOutlineItem(appState, *outlineHit, GetMaxScroll(hwnd, context.host));
             ClampScrollOffset(hwnd, context.host);
@@ -370,6 +383,8 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
     }
     if (toggledOutline) {
         RelayoutCurrentDocument(hwnd, context.host);
+        context.host.controller.SaveConfig();
+        SyncMenuState(hwnd, context.host);
         return true;
     }
 
@@ -384,7 +399,8 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
             return true;
         }
 
-        const float docX = static_cast<float>(x) - GetDocumentLeftInset(context.host);
+        const float docX = static_cast<float>(x) -
+            (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
         const float docY = static_cast<float>(y) - GetContentTopInset() + appState.scrollOffset;
         for (const auto& btn : appState.codeBlockButtons) {
             if (!btn.first.contains(docX, docY)) {
@@ -406,15 +422,16 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
     StopAutoScroll(hwnd, context);
     SetFocus(hwnd);
     SetCapture(hwnd);
-    if (const auto thumb = GetScrollbarThumbRect(hwnd, context.host);
-        thumb && thumb->contains(static_cast<float>(x), static_cast<float>(y))) {
+    const auto scrollbarThumb = GetScrollbarThumbRect(hwnd, context.host);
+    if (scrollbarThumb && scrollbarThumb->contains(static_cast<float>(x), static_cast<float>(y))) {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
-        BeginScrollbarDrag(GetAppState(context.host), static_cast<float>(y) - thumb->top());
+        BeginScrollbarDrag(GetAppState(context.host), static_cast<float>(y) - scrollbarThumb->top());
     } else if (
-        x >= context.host.surface->width() - static_cast<int>(kScrollbarWidth + (kScrollbarMargin * 2.0f)) &&
-        GetScrollbarThumbRect(hwnd, context.host)) {
+        scrollbarThumb &&
+        x >= static_cast<int>(scrollbarThumb->left() - kScrollbarMargin) &&
+        x <= static_cast<int>(scrollbarThumb->right() + kScrollbarMargin)) {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
-        BeginScrollbarDrag(GetAppState(context.host), GetScrollbarThumbRect(hwnd, context.host)->height() * 0.5f);
+        BeginScrollbarDrag(GetAppState(context.host), scrollbarThumb->height() * 0.5f);
         UpdateScrollOffsetFromThumb(hwnd, context, y);
     } else {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);

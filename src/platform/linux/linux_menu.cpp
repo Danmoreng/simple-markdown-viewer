@@ -36,7 +36,11 @@ std::vector<MenuDropdown> GetLinuxMenus() {
                 {"Select Font...", MenuCommand::SelectFont},
                 {"Use Default Font", MenuCommand::UseDefaultFont},
                 {"", MenuCommand::None, true},
-                {"Find...", MenuCommand::Find}
+                {"Find...", MenuCommand::Find},
+                {"", MenuCommand::None, true},
+                {"Show Outline", MenuCommand::ToggleOutline},
+                {"Outline on Left", MenuCommand::OutlineLeft},
+                {"Outline on Right", MenuCommand::OutlineRight}
             }
         },
         {

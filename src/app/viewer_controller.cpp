@@ -27,6 +27,7 @@ void ViewerController::SetLegacyConfigPath(std::filesystem::path path) {
 
 bool ViewerController::LoadConfig() {
     appState_.theme = ThemeMode::Light;
+    appState_.outlineSide = OutlineSide::Left;
     appState_.baseFontSize = kDefaultBaseFontSize;
     fontFamilyUtf8_.clear();
     recentFiles_.clear();
@@ -50,6 +51,7 @@ bool ViewerController::LoadConfig() {
     }
 
     appState_.theme = config->theme;
+    appState_.outlineSide = config->outlineSide;
     appState_.baseFontSize = ClampBaseFontSize(config->baseFontSize);
     fontFamilyUtf8_ = config->fontFamilyUtf8;
     for (const auto& recentFile : config->recentFiles) {
@@ -79,6 +81,7 @@ bool ViewerController::SaveConfig() const {
 
     AppConfig config;
     config.theme = appState_.theme;
+    config.outlineSide = appState_.outlineSide;
     config.fontFamilyUtf8 = fontFamilyUtf8_;
     config.baseFontSize = appState_.baseFontSize;
     config.recentFiles.reserve(recentFiles_.size());
@@ -104,6 +107,29 @@ bool ViewerController::SetTheme(ThemeMode theme) {
     }
 
     appState_.theme = theme;
+    appState_.needsRepaint = true;
+    return true;
+}
+
+OutlineSide ViewerController::GetOutlineSide() const {
+    return appState_.outlineSide;
+}
+
+bool ViewerController::SetOutlineSide(OutlineSide side) {
+    std::lock_guard<std::mutex> lock(appState_.mtx);
+    if (appState_.outlineSide == side) {
+        return false;
+    }
+
+    appState_.outlineSide = side;
+    appState_.needsRepaint = true;
+    return true;
+}
+
+bool ViewerController::ToggleOutlineCollapsed() {
+    std::lock_guard<std::mutex> lock(appState_.mtx);
+    appState_.outlineCollapsed = !appState_.outlineCollapsed;
+    appState_.outlineFocused = true;
     appState_.needsRepaint = true;
     return true;
 }

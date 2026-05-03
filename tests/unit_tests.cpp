@@ -105,6 +105,7 @@ void ConfigParsingAndSaving() {
         "theme=dark\n"
         "font_family= Example Font \n"
         "base_font_size=999\n"
+        "outline_side=right\n"
         "recent_file_0=C:/docs/one.md\n"
         "recent_file_0_opened_at=1700000000\n"
         "recent_file_1=\n"
@@ -113,6 +114,7 @@ void ConfigParsingAndSaving() {
     const auto loaded = mdviewer::LoadAppConfig(configPath);
     Require(loaded.has_value(), "config should load");
     Require(loaded->theme == mdviewer::ThemeMode::Dark, "theme should parse");
+    Require(loaded->outlineSide == mdviewer::OutlineSide::Right, "outline side should parse");
     RequireEqual(loaded->fontFamilyUtf8, std::string("Example Font"), "font family should trim");
     RequireNear(loaded->baseFontSize, mdviewer::ClampBaseFontSize(999.0f), 0.001f, "font size should clamp");
     RequireEqual(loaded->recentFiles.size(), static_cast<size_t>(2), "empty recent entries should be skipped");
@@ -128,6 +130,7 @@ void ConfigParsingAndSaving() {
 
     mdviewer::AppConfig saved;
     saved.theme = mdviewer::ThemeMode::Sepia;
+    saved.outlineSide = mdviewer::OutlineSide::Right;
     saved.fontFamilyUtf8 = "Saved Font";
     saved.baseFontSize = 21.0f;
     saved.recentFiles = {
@@ -138,6 +141,7 @@ void ConfigParsingAndSaving() {
     const auto roundTrip = mdviewer::LoadAppConfig(configPath);
     Require(roundTrip.has_value(), "saved config should reload");
     Require(roundTrip->theme == mdviewer::ThemeMode::Sepia, "saved theme should round-trip");
+    Require(roundTrip->outlineSide == mdviewer::OutlineSide::Right, "saved outline side should round-trip");
     RequireEqual(roundTrip->fontFamilyUtf8, saved.fontFamilyUtf8, "saved font should round-trip");
     RequireEqual(roundTrip->recentFiles.size(), saved.recentFiles.size(), "saved recent files should round-trip");
     RequireEqual(roundTrip->recentFiles[0].pathUtf8, saved.recentFiles[0].pathUtf8, "saved recent path should round-trip");
@@ -285,30 +289,35 @@ void HeadingAnchors() {
     RequireEqual(mdviewer::MakeHeadingAnchor("Hello, World!"), std::string("hello-world"), "punctuation should be stripped");
     RequireEqual(mdviewer::MakeHeadingAnchor("  Multiple   Spaces  "), std::string("multiple-spaces"), "spaces should collapse");
     RequireEqual(mdviewer::MakeHeadingAnchor("🚀 Launch"), std::string("launch"), "emoji should be ignored when ASCII text remains");
-    RequireEqual(mdviewer::MakeHeadingAnchor("日本語"), std::string(), "Unicode-only headings currently have no fallback slug");
+    RequireEqual(mdviewer::MakeHeadingAnchor("日本語"), std::string("日本語"), "Unicode-only headings should keep their text");
+    RequireEqual(mdviewer::MakeHeadingAnchor("Résumé Guide"), std::string("résumé-guide"), "Latin Unicode letters should be preserved");
+    RequireEqual(mdviewer::MakeHeadingAnchor("C++ & C#"), std::string("c-c"), "ASCII punctuation should be stripped");
+    RequireEqual(mdviewer::MakeHeadingAnchor("Emoji ✨ Heading"), std::string("emoji-heading"), "emoji symbols should be stripped without extra hyphens");
 
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(
         "# Hello\n"
         "## Hello\n"
         "# 🚀 Launch\n"
-        "# 日本語\n");
+        "# 日本語\n"
+        "# Résumé Guide\n");
     const auto layout = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, nullptr, mdviewer::kDefaultBaseFontSize);
     Require(layout.anchors.contains("hello"), "first duplicate heading should use base slug");
     Require(layout.anchors.contains("hello-2"), "second duplicate heading should get numeric suffix");
     Require(layout.anchors.contains("launch"), "emoji plus ASCII heading should anchor on ASCII text");
-    Require(!layout.anchors.contains(""), "empty Unicode fallback should not be inserted as an anchor");
-    RequireEqual(layout.outline.size(), static_cast<size_t>(4), "all headings should appear in the document outline");
+    Require(layout.anchors.contains("日本語"), "Unicode-only heading should produce an anchor");
+    Require(layout.anchors.contains("résumé-guide"), "Latin Unicode heading should produce an anchor");
+    RequireEqual(layout.outline.size(), static_cast<size_t>(5), "all headings should appear in the document outline");
     RequireEqual(layout.outline[0].level, 1, "outline should preserve heading level");
     RequireEqual(layout.outline[1].slug, std::string("hello-2"), "outline should preserve unique duplicate slug");
-    RequireEqual(layout.outline[3].text, std::string("日本語"), "outline should include Unicode-only headings");
+    RequireEqual(layout.outline[3].slug, std::string("日本語"), "outline should include Unicode-only heading anchors");
 
     mdviewer::AppState appState;
     appState.docLayout = layout;
     RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineSidebarWidth, 0.001f, "headings should enable outline sidebar");
-    Require(mdviewer::HitTestOutlineToggle(appState, mdviewer::kOutlineSidebarWidth - 18.0f, 42.0f, 30.0f), "outline toggle should hit the fixed top-right button");
-    const auto firstOutlineHit = mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 30.0f);
+    Require(mdviewer::HitTestOutlineToggle(appState, mdviewer::kOutlineSidebarWidth - 18.0f, 42.0f, 900.0f, 30.0f), "outline toggle should hit the fixed top-right button");
+    const auto firstOutlineHit = mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 900.0f, 30.0f);
     Require(firstOutlineHit.has_value() && *firstOutlineHit == 0, "outline hit test should identify the first row");
-    const auto outsideOutlineHit = mdviewer::HitTestOutlineSidebar(appState, mdviewer::kOutlineSidebarWidth + 1.0f, 74.0f, 30.0f);
+    const auto outsideOutlineHit = mdviewer::HitTestOutlineSidebar(appState, mdviewer::kOutlineSidebarWidth + 1.0f, 74.0f, 900.0f, 30.0f);
     Require(!outsideOutlineHit.has_value(), "outline hit test should ignore points outside the sidebar");
     Require(mdviewer::FocusOutlineItem(appState, 1, 10000.0f), "outline item should be focusable");
     RequireEqual(appState.focusedOutlineIndex, static_cast<size_t>(1), "focused outline index should update");
@@ -316,7 +325,12 @@ void HeadingAnchors() {
     RequireEqual(appState.focusedOutlineIndex, static_cast<size_t>(2), "outline focus should move to the next item");
     appState.outlineCollapsed = true;
     RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineCollapsedWidth, 0.001f, "collapsed outline should keep a narrow rail");
-    Require(!mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 30.0f).has_value(), "collapsed outline should not hit rows");
+    Require(!mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "collapsed outline should not hit rows");
+    appState.outlineCollapsed = false;
+    appState.outlineSide = mdviewer::OutlineSide::Right;
+    RequireNear(mdviewer::GetOutlineX(appState, 900.0f), 900.0f - mdviewer::kOutlineSidebarWidth, 0.001f, "right outline should be placed at the right edge");
+    Require(mdviewer::HitTestOutlineToggle(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 18.0f, 42.0f, 900.0f, 30.0f), "right outline toggle should hit at the inner left edge");
+    Require(mdviewer::HitTestOutlineSidebar(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "right outline rows should hit inside the right sidebar");
 }
 
 void LayoutSensitiveBehavior() {

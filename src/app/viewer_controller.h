@@ -53,6 +53,9 @@ public:
 
     ThemeMode GetTheme() const;
     bool SetTheme(ThemeMode theme);
+    OutlineSide GetOutlineSide() const;
+    bool SetOutlineSide(OutlineSide side);
+    bool ToggleOutlineCollapsed();
 
     float GetBaseFontSize() const;
     bool SetBaseFontSize(float baseFontSize);

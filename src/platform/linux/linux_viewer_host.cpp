@@ -360,9 +360,12 @@ std::optional<SkRect> GetScrollbarThumbRect(GLFWwindow* window, const LinuxHostC
     const float scrollRange = appState.docLayout.totalHeight - viewportHeight;
     const float thumbRange = trackHeight - thumbHeight;
     const float thumbY = GetContentTopInset() + kScrollbarMargin + (appState.scrollOffset / scrollRange) * thumbRange;
+    const float thumbX = appState.outlineSide == OutlineSide::Right
+        ? static_cast<float>(width) - GetDocumentLeftInset(context) - kScrollbarWidth - kScrollbarMargin
+        : static_cast<float>(width) - kScrollbarWidth - kScrollbarMargin;
 
     return SkRect::MakeXYWH(
-        static_cast<float>(width) - kScrollbarWidth - kScrollbarMargin,
+        thumbX,
         thumbY,
         kScrollbarWidth,
         thumbHeight);

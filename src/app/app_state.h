@@ -6,9 +6,9 @@
 #include <utility>
 #include <vector>
 
+#include "app/app_config.h"
 #include "layout/document_model.h"
 #include "layout/layout_engine.h"
-#include "render/theme.h"
 #include "render/menu_renderer.h"
 #include "view/scroll_anchor.h"
 
@@ -22,6 +22,7 @@ struct AppState {
     DocumentModel docModel;
     DocumentLayout docLayout;
     ThemeMode theme = ThemeMode::Light;
+    OutlineSide outlineSide = OutlineSide::Left;
     float baseFontSize = 17.0f;
     float scrollOffset = 0.0f;
     std::optional<ScrollAnchor> relayoutScrollAnchor;

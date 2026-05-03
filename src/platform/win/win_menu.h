@@ -33,12 +33,17 @@ inline constexpr UINT_PTR kCommandGoForward = 1202;
 inline constexpr UINT_PTR kCommandZoomOut = 1203;
 inline constexpr UINT_PTR kCommandZoomIn = 1204;
 inline constexpr UINT_PTR kCommandFind = 1205;
+inline constexpr UINT_PTR kCommandToggleOutline = 1206;
+inline constexpr UINT_PTR kCommandOutlineLeft = 1207;
+inline constexpr UINT_PTR kCommandOutlineRight = 1208;
 
 bool CreateMenus(const ThemePalette& palette);
 void CleanupMenus();
 void UpdateMenuState(
     HWND hwnd,
     ThemeMode currentTheme,
+    bool outlineCollapsed,
+    OutlineSide outlineSide,
     bool hasCustomFont,
     const ThemePalette& palette,
     const std::vector<RecentFileEntry>& recentFiles);

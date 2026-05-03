@@ -126,7 +126,7 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
         appState.docLayout,
         appState.scrollOffset,
         contentTop,
-        static_cast<float>(x) - GetDocumentLeftInset(app.GetHostContext()),
+        static_cast<float>(x) - (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app.GetHostContext()) : 0.0f),
         static_cast<float>(y),
         callbacks);
     return InteractionTextHit{docHit.position, docHit.valid, docHit.url};
@@ -158,6 +158,23 @@ void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
             appState.needsRepaint = true;
             break;
         }
+        case MenuCommand::ToggleOutline:
+            host.controller.ToggleOutlineCollapsed();
+            RelayoutCurrentDocument(window, host);
+            host.controller.SaveConfig();
+            break;
+        case MenuCommand::OutlineLeft:
+            if (host.controller.SetOutlineSide(OutlineSide::Left)) {
+                RelayoutCurrentDocument(window, host);
+                host.controller.SaveConfig();
+            }
+            break;
+        case MenuCommand::OutlineRight:
+            if (host.controller.SetOutlineSide(OutlineSide::Right)) {
+                RelayoutCurrentDocument(window, host);
+                host.controller.SaveConfig();
+            }
+            break;
         default: break;
     }
 }
@@ -335,10 +352,13 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
                 appState,
                 static_cast<float>(xpos),
                 static_cast<float>(ypos),
+                app->GetHostContext().surface ? static_cast<float>(app->GetHostContext().surface->width()) : 0.0f,
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
             appState.outlineFocused = true;
+            appState.needsRepaint = true;
             RelayoutCurrentDocument(window, app->GetHostContext());
+            app->GetHostContext().controller.SaveConfig();
             appState.needsRepaint = true;
             return;
         }
@@ -347,6 +367,7 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
                 appState,
                 static_cast<float>(xpos),
                 static_cast<float>(ypos),
+                app->GetHostContext().surface ? static_cast<float>(app->GetHostContext().surface->width()) : 0.0f,
                 GetContentTopInset())) {
             FocusOutlineItem(appState, *outlineHit, GetMaxScroll(window, app->GetHostContext()));
             ClampScrollOffset(window, app->GetHostContext());
@@ -357,7 +378,8 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
         const auto hit = HitTest(window, *app, xpos, ypos);
         {
             auto& lockedState = GetAppState(app->GetHostContext());
-            const float docX = static_cast<float>(xpos) - GetDocumentLeftInset(app->GetHostContext());
+            const float docX = static_cast<float>(xpos) -
+                (lockedState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app->GetHostContext()) : 0.0f);
             const float docY = static_cast<float>(ypos) - GetContentTopInset() + lockedState.scrollOffset;
             for (const auto& buttonRegion : lockedState.codeBlockButtons) {
                 if (!buttonRegion.first.contains(docX, docY)) {
@@ -429,6 +451,13 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
             break;
         case GLFW_KEY_C: ev.key = InteractionKey::Copy; break;
         case GLFW_KEY_F: ev.key = InteractionKey::Find; break;
+        case GLFW_KEY_O:
+            if (ev.ctrl && ev.shift) {
+                ev.key = InteractionKey::ToggleOutline;
+            } else if (ev.ctrl) {
+                ExecuteMenuCommand(window, *app, MenuCommand::OpenFile);
+            }
+            break;
         case GLFW_KEY_ENTER:
         case GLFW_KEY_KP_ENTER:
             ev.key = InteractionKey::Enter;
@@ -442,7 +471,7 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
         case GLFW_KEY_UP: ev.key = InteractionKey::Up; break;
         case GLFW_KEY_DOWN: ev.key = InteractionKey::Down; break;
         case GLFW_KEY_BACKSPACE: ev.key = InteractionKey::Back; break;
-        case GLFW_KEY_O: if (ev.ctrl) ExecuteMenuCommand(window, *app, MenuCommand::OpenFile); break;
+        default: break;
     }
 
     auto result = HandleKeyDown(GetAppState(app->GetHostContext()), ev);
@@ -453,6 +482,11 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
     }
     if (result.zoomIn) AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
     if (result.zoomOut) AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
+    if (result.toggleOutline) {
+        app->GetHostContext().controller.ToggleOutlineCollapsed();
+        RelayoutCurrentDocument(window, app->GetHostContext());
+        app->GetHostContext().controller.SaveConfig();
+    }
     if (result.outlinePrevious) {
         MoveOutlineFocus(GetAppState(app->GetHostContext()), -1, GetMaxScroll(window, app->GetHostContext()));
         ClampScrollOffset(window, app->GetHostContext());

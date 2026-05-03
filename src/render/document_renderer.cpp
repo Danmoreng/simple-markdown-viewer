@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #include "render/typography.h"
@@ -45,6 +46,22 @@ size_t GetRunTextEnd(const RunLayout& run) {
     return run.textStart + run.text.size();
 }
 
+float MeasureTextWithFallback(
+    const DocumentTypefaceSet& typefaces,
+    const SkFont& baseFont,
+    const char* text,
+    size_t length);
+
+void DrawTextWithFallback(
+    SkCanvas* canvas,
+    const DocumentTypefaceSet& typefaces,
+    const char* text,
+    size_t length,
+    float x,
+    float y,
+    const SkFont& baseFont,
+    const SkPaint& paint);
+
 float MeasureRunWidth(
     RenderContext& ctx,
     const DocumentTypefaceSet& typefaces,
@@ -56,7 +73,117 @@ float MeasureRunWidth(
     }
 
     ConfigureDocumentFont(ctx.font, typefaces, blockType, run.style, baseFontSize);
-    return ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+    return MeasureTextWithFallback(typefaces, ctx.font, run.text.c_str(), run.text.size());
+}
+
+size_t DecodeUtf8Codepoint(const char* text, size_t length, size_t offset, uint32_t& codepoint) {
+    const auto byte0 = static_cast<unsigned char>(text[offset]);
+    if (byte0 < 0x80) {
+        codepoint = byte0;
+        return offset + 1;
+    }
+
+    auto continuation = [&](size_t index) -> uint32_t {
+        if (index >= length) {
+            return 0;
+        }
+        const auto byte = static_cast<unsigned char>(text[index]);
+        return (byte & 0xC0) == 0x80 ? static_cast<uint32_t>(byte & 0x3F) : 0;
+    };
+
+    if ((byte0 & 0xE0) == 0xC0 && offset + 1 < length) {
+        codepoint = (static_cast<uint32_t>(byte0 & 0x1F) << 6) | continuation(offset + 1);
+        return offset + 2;
+    }
+    if ((byte0 & 0xF0) == 0xE0 && offset + 2 < length) {
+        codepoint = (static_cast<uint32_t>(byte0 & 0x0F) << 12) |
+                    (continuation(offset + 1) << 6) |
+                    continuation(offset + 2);
+        return offset + 3;
+    }
+    if ((byte0 & 0xF8) == 0xF0 && offset + 3 < length) {
+        codepoint = (static_cast<uint32_t>(byte0 & 0x07) << 18) |
+                    (continuation(offset + 1) << 12) |
+                    (continuation(offset + 2) << 6) |
+                    continuation(offset + 3);
+        return offset + 4;
+    }
+
+    codepoint = byte0;
+    return offset + 1;
+}
+
+sk_sp<SkTypeface> GetFallbackTypefaceForCodepoint(
+    const DocumentTypefaceSet& typefaces,
+    const SkFont& baseFont,
+    uint32_t codepoint) {
+    if (baseFont.unicharToGlyph(static_cast<SkUnichar>(codepoint)) != 0) {
+        return sk_ref_sp(baseFont.getTypeface());
+    }
+    if (!typefaces.fontMgr) {
+        return sk_ref_sp(baseFont.getTypeface());
+    }
+
+    SkFontStyle style = SkFontStyle::Normal();
+    if (SkTypeface* baseTypeface = baseFont.getTypeface()) {
+        style = baseTypeface->fontStyle();
+    }
+
+    if (auto fallback = typefaces.fontMgr->matchFamilyStyleCharacter(
+            nullptr,
+            style,
+            nullptr,
+            0,
+            static_cast<SkUnichar>(codepoint))) {
+        return fallback;
+    }
+    return sk_ref_sp(baseFont.getTypeface());
+}
+
+float MeasureTextWithFallback(
+    const DocumentTypefaceSet& typefaces,
+    const SkFont& baseFont,
+    const char* text,
+    size_t length) {
+    if (!text || length == 0) {
+        return 0.0f;
+    }
+
+    float width = 0.0f;
+    for (size_t offset = 0; offset < length;) {
+        uint32_t codepoint = 0;
+        const size_t nextOffset = DecodeUtf8Codepoint(text, length, offset, codepoint);
+        SkFont segmentFont = baseFont;
+        segmentFont.setTypeface(GetFallbackTypefaceForCodepoint(typefaces, baseFont, codepoint));
+        width += segmentFont.measureText(text + offset, nextOffset - offset, SkTextEncoding::kUTF8);
+        offset = nextOffset;
+    }
+    return width;
+}
+
+void DrawTextWithFallback(
+    SkCanvas* canvas,
+    const DocumentTypefaceSet& typefaces,
+    const char* text,
+    size_t length,
+    float x,
+    float y,
+    const SkFont& baseFont,
+    const SkPaint& paint) {
+    if (!canvas || !text || length == 0) {
+        return;
+    }
+
+    float currentX = x;
+    for (size_t offset = 0; offset < length;) {
+        uint32_t codepoint = 0;
+        const size_t nextOffset = DecodeUtf8Codepoint(text, length, offset, codepoint);
+        SkFont segmentFont = baseFont;
+        segmentFont.setTypeface(GetFallbackTypefaceForCodepoint(typefaces, baseFont, codepoint));
+        canvas->drawSimpleText(text + offset, nextOffset - offset, SkTextEncoding::kUTF8, currentX, y, segmentFont, paint);
+        currentX += segmentFont.measureText(text + offset, nextOffset - offset, SkTextEncoding::kUTF8);
+        offset = nextOffset;
+    }
 }
 
 size_t NextUtf8Offset(const std::string& text, size_t offset) {
@@ -71,10 +198,10 @@ size_t NextUtf8Offset(const std::string& text, size_t offset) {
     return offset;
 }
 
-size_t FitUtf8TextBytes(const SkFont& font, const std::string& text, float maxWidth) {
+size_t FitUtf8TextBytes(const DocumentTypefaceSet& typefaces, const SkFont& font, const std::string& text, float maxWidth) {
     size_t bestOffset = 0;
     for (size_t offset = 0; offset <= text.size();) {
-        const float width = font.measureText(text.c_str(), offset, SkTextEncoding::kUTF8);
+        const float width = MeasureTextWithFallback(typefaces, font, text.c_str(), offset);
         if (width > maxWidth) {
             break;
         }
@@ -456,8 +583,7 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
     for (const auto& run : line.runs) {
         ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
 
-        SkRect textBounds;
-        const float advance = ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8, &textBounds);
+        const float advance = MeasureTextWithFallback(params.typefaces, ctx.font, run.text.c_str(), run.text.size());
         const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
 
         if (run.style == InlineStyle::Image && !run.url.empty()) {
@@ -505,7 +631,15 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
         }
 
         ctx.paint.setColor(GetDocumentTextColor(params.palette, block.type, run.style));
-        ctx.canvas->drawString(run.text.c_str(), currentX, baselineY, ctx.font, ctx.paint);
+        DrawTextWithFallback(
+            ctx.canvas,
+            params.typefaces,
+            run.text.c_str(),
+            run.text.size(),
+            currentX,
+            baselineY,
+            ctx.font,
+            ctx.paint);
 
         if (run.style == InlineStyle::Link && advance > 0.0f) {
             SkPaint underlinePaint;
@@ -788,8 +922,9 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         return;
     }
 
+    const float sidebarX = GetOutlineX(*params.appState, params.surfaceWidth);
     const SkRect sidebarRect = SkRect::MakeXYWH(
-        0.0f,
+        sidebarX,
         params.contentTopInset,
         params.documentLeftInset,
         params.surfaceHeight - params.contentTopInset);
@@ -803,7 +938,11 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
     borderPaint.setAntiAlias(false);
     borderPaint.setColor(params.palette.menuSeparator);
     ctx.canvas->drawRect(
-        SkRect::MakeXYWH(params.documentLeftInset - 1.0f, params.contentTopInset, 1.0f, sidebarRect.height()),
+        SkRect::MakeXYWH(
+            params.appState->outlineSide == OutlineSide::Left ? sidebarRect.right() - 1.0f : sidebarRect.left(),
+            params.contentTopInset,
+            1.0f,
+            sidebarRect.height()),
         borderPaint);
 
     ctx.canvas->save();
@@ -835,7 +974,8 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         iconPaint.setStrokeWidth(2.4f);
         const float caretCenterX = outer.centerX();
         const float caretCenterY = outer.centerY();
-        if (collapsed) {
+        const bool pointsRight = params.appState->outlineSide == OutlineSide::Left ? collapsed : !collapsed;
+        if (pointsRight) {
             ctx.canvas->drawLine(caretCenterX - 2.5f, caretCenterY - 5.0f, caretCenterX + 2.5f, caretCenterY, iconPaint);
             ctx.canvas->drawLine(caretCenterX + 2.5f, caretCenterY, caretCenterX - 2.5f, caretCenterY + 5.0f, iconPaint);
         } else {
@@ -845,9 +985,10 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
     };
 
     const float toggleSize = 24.0f;
-    const float toggleX = params.appState->outlineCollapsed
-        ? 5.0f
+    const float expandedToggleX = params.appState->outlineSide == OutlineSide::Right
+        ? 6.0f
         : std::max(params.documentLeftInset - toggleSize - 6.0f, 6.0f);
+    const float toggleX = sidebarX + (params.appState->outlineCollapsed ? 5.0f : expandedToggleX);
     const SkRect toggleRect = SkRect::MakeXYWH(toggleX, params.contentTopInset + 5.0f, toggleSize, toggleSize);
     SkPaint togglePaint;
     togglePaint.setAntiAlias(true);
@@ -871,8 +1012,9 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
             break;
         }
 
-        const float indent = 14.0f + (static_cast<float>(std::clamp(item.level, 1, 6) - 1) * 14.0f);
-        const SkRect itemRect = SkRect::MakeXYWH(8.0f, itemY, params.documentLeftInset - 16.0f, kOutlineItemHeight);
+        const float localIndent = 14.0f + (static_cast<float>(std::clamp(item.level, 1, 6) - 1) * 14.0f);
+        const float textX = sidebarX + localIndent;
+        const SkRect itemRect = SkRect::MakeXYWH(sidebarX + 8.0f, itemY, params.documentLeftInset - 16.0f, kOutlineItemHeight);
         if (index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)) {
             SkPaint selectedPaint;
             selectedPaint.setAntiAlias(true);
@@ -883,15 +1025,18 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
 
         const std::string fallbackText = "(untitled)";
         const std::string& text = item.text.empty() ? fallbackText : item.text;
-        const float maxTextWidth = std::max(params.documentLeftInset - indent - 16.0f, 16.0f);
-        const size_t bytesToDraw = FitUtf8TextBytes(ctx.font, text, maxTextWidth);
+        const float maxTextWidth = std::max(params.documentLeftInset - localIndent - 16.0f, 16.0f);
+        const size_t bytesToDraw = FitUtf8TextBytes(params.typefaces, ctx.font, text, maxTextWidth);
 
         ctx.paint.setColor(index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)
             ? params.palette.menuSelectedText
             : params.palette.menuText);
-        ctx.canvas->drawString(
-            text.substr(0, bytesToDraw).c_str(),
-            indent,
+        DrawTextWithFallback(
+            ctx.canvas,
+            params.typefaces,
+            text.c_str(),
+            bytesToDraw,
+            textX,
             itemY + 21.0f,
             ctx.font,
             ctx.paint);
@@ -994,9 +1139,15 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
 
     DrawOutlineSidebar(ctx, params);
 
+    const float documentTranslateX = params.appState->outlineSide == OutlineSide::Left ? params.documentLeftInset : 0.0f;
+    const float documentClipLeft = params.appState->outlineSide == OutlineSide::Left ? params.documentLeftInset : 0.0f;
+    const float documentClipRight = params.appState->outlineSide == OutlineSide::Right
+        ? params.surfaceWidth - params.documentLeftInset
+        : params.surfaceWidth;
+
     params.canvas->save();
-    params.canvas->clipRect(SkRect::MakeLTRB(params.documentLeftInset, params.contentTopInset, params.surfaceWidth, params.surfaceHeight));
-    params.canvas->translate(params.documentLeftInset, params.contentTopInset - params.appState->scrollOffset);
+    params.canvas->clipRect(SkRect::MakeLTRB(documentClipLeft, params.contentTopInset, documentClipRight, params.surfaceHeight));
+    params.canvas->translate(documentTranslateX, params.contentTopInset - params.appState->scrollOffset);
 
     DrawBlocks(ctx, params, params.appState->docLayout.blocks);
 
@@ -1009,7 +1160,7 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
         const float emptyStateY = params.viewportHeight * 0.5f;
         params.canvas->drawString(
             message,
-            params.documentLeftInset + ((params.surfaceWidth - params.documentLeftInset - bounds.width()) / 2.0f),
+            documentClipLeft + ((documentClipRight - documentClipLeft - bounds.width()) / 2.0f),
             emptyStateY,
             ctx.font,
             ctx.paint);
@@ -1018,12 +1169,15 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
     params.canvas->restore();
 
     if (params.scrollbarThumbRect) {
+        const float scrollbarTrackX = params.appState->outlineSide == OutlineSide::Right
+            ? params.surfaceWidth - params.documentLeftInset - params.scrollbarWidth - params.scrollbarMargin
+            : params.surfaceWidth - params.scrollbarWidth - params.scrollbarMargin;
         SkPaint trackPaint;
         trackPaint.setAntiAlias(true);
         trackPaint.setColor(params.palette.scrollbarTrack);
         ctx.canvas->drawRoundRect(
             SkRect::MakeXYWH(
-                params.surfaceWidth - params.scrollbarWidth - params.scrollbarMargin,
+                scrollbarTrackX,
                 params.scrollbarMargin + params.contentTopInset,
                 params.scrollbarWidth,
                 std::max(params.viewportHeight - (params.scrollbarMargin * 2.0f), 1.0f)),

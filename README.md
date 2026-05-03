@@ -72,7 +72,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
 - Automatic document reload on external file changes while the file is open on Windows
-- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, and recent files with opened timestamps
+- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side, and recent files with opened timestamps
 - Embedded Windows app icon
 
 ## Scope
@@ -189,7 +189,7 @@ Open a file immediately:
 .\build\Release\mdviewer.exe .\README.md
 ```
 
-The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, and recent-file persistence:
+The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side, and recent-file persistence:
 
 - Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
 - Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set
@@ -218,6 +218,8 @@ The Linux host is compiled from the same CMake target on Linux. It uses GLFW for
 - external file save: reload the currently open document automatically on Windows
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
+- `View -> Show Outline`: show or collapse the heading outline with `Ctrl+Shift+O`
+- `View -> Outline on Left/Right`: choose the outline side; saved as `outline_side=left` or `outline_side=right`
 - `Ctrl` + `+` / `-`: zoom document text in and out
 - **Navigation**:
   - `Alt + Left` or `Backspace`: Go Back

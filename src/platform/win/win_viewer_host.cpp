@@ -132,6 +132,8 @@ void SyncMenuState(HWND hwnd, const ViewerHostContext& context) {
     UpdateMenuState(
         hwnd,
         context.controller.GetTheme(),
+        State(context).outlineCollapsed,
+        context.controller.GetOutlineSide(),
         context.controller.HasCustomFontFamily(),
         GetCurrentThemePalette(context),
         context.controller.GetRecentFiles());
@@ -153,9 +155,12 @@ std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd, const ViewerHostContext& 
     const float maxThumbTravel = viewportHeight - thumbHeight;
     const float maxScroll = GetMaxScroll(hwnd, context);
     const float thumbY = maxScroll > 0.0f ? (appState.scrollOffset / maxScroll) * maxThumbTravel : 0.0f;
+    const float thumbX = appState.outlineSide == OutlineSide::Right
+        ? static_cast<float>(context.surface->width()) - GetDocumentLeftInset(context) - kScrollbarWidth - kScrollbarMargin
+        : static_cast<float>(context.surface->width()) - kScrollbarWidth - kScrollbarMargin;
 
     return SkRect::MakeXYWH(
-        context.surface->width() - kScrollbarWidth - kScrollbarMargin,
+        thumbX,
         thumbY + kScrollbarMargin + GetContentTopInset(),
         kScrollbarWidth,
         thumbHeight);

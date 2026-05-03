@@ -10,6 +10,7 @@
 namespace mdviewer {
 
 struct DocumentTypefaceSet {
+    SkFontMgr* fontMgr = nullptr;
     SkTypeface* regular = nullptr;
     SkTypeface* bold = nullptr;
     SkTypeface* heading = nullptr;

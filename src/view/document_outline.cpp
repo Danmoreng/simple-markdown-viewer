@@ -13,6 +13,14 @@ float GetOutlineSidebarWidth(const AppState& appState) {
     return appState.outlineCollapsed ? kOutlineCollapsedWidth : kOutlineSidebarWidth;
 }
 
+float GetOutlineX(const AppState& appState, float surfaceWidth) {
+    const float width = GetOutlineSidebarWidth(appState);
+    if (width <= 0.0f || appState.outlineSide == OutlineSide::Left) {
+        return 0.0f;
+    }
+    return std::max(surfaceWidth - width, 0.0f);
+}
+
 size_t GetCurrentOutlineIndex(const DocumentLayout& layout, float visibleDocumentTop) {
     size_t currentIndex = 0;
     bool found = false;
@@ -63,22 +71,33 @@ bool HitTestOutlineToggle(
     const AppState& appState,
     float x,
     float y,
+    float surfaceWidth,
     float contentTopInset) {
     const float width = GetOutlineSidebarWidth(appState);
     if (width <= 0.0f || y < contentTopInset + 5.0f || y >= contentTopInset + 29.0f) {
         return false;
     }
 
-    const float toggleX = appState.outlineCollapsed ? 5.0f : std::max(width - 30.0f, 6.0f);
-    return x >= toggleX && x < toggleX + 24.0f;
+    const float outlineX = GetOutlineX(appState, surfaceWidth);
+    const float localX = x - outlineX;
+    const float expandedToggleX = appState.outlineSide == OutlineSide::Right ? 6.0f : std::max(width - 30.0f, 6.0f);
+    const float toggleX = appState.outlineCollapsed ? 5.0f : expandedToggleX;
+    return localX >= toggleX && localX < toggleX + 24.0f;
 }
 
 std::optional<size_t> HitTestOutlineSidebar(
     const AppState& appState,
     float x,
     float y,
+    float surfaceWidth,
     float contentTopInset) {
-    if (appState.outlineCollapsed || appState.docLayout.outline.empty() || x < 0.0f || x >= kOutlineSidebarWidth || y < contentTopInset) {
+    const float outlineX = GetOutlineX(appState, surfaceWidth);
+    const float localX = x - outlineX;
+    if (appState.outlineCollapsed ||
+        appState.docLayout.outline.empty() ||
+        localX < 0.0f ||
+        localX >= kOutlineSidebarWidth ||
+        y < contentTopInset) {
         return std::nullopt;
     }
 

@@ -72,6 +72,29 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
             OpenSearch(appState);
             InvalidateRect(hwnd, nullptr, FALSE);
         },
+        .toggleOutline = [hwnd, appPtr]() {
+            appPtr->Controller().ToggleOutlineCollapsed();
+            RelayoutCurrentDocument(hwnd, appPtr->Host());
+            appPtr->Controller().SaveConfig();
+            SyncMenuState(hwnd, appPtr->Host());
+            InvalidateRect(hwnd, nullptr, FALSE);
+        },
+        .outlineLeft = [hwnd, appPtr]() {
+            if (appPtr->Controller().SetOutlineSide(OutlineSide::Left)) {
+                RelayoutCurrentDocument(hwnd, appPtr->Host());
+                appPtr->Controller().SaveConfig();
+                SyncMenuState(hwnd, appPtr->Host());
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        },
+        .outlineRight = [hwnd, appPtr]() {
+            if (appPtr->Controller().SetOutlineSide(OutlineSide::Right)) {
+                RelayoutCurrentDocument(hwnd, appPtr->Host());
+                appPtr->Controller().SaveConfig();
+                SyncMenuState(hwnd, appPtr->Host());
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        },
     };
 }
 
@@ -301,6 +324,21 @@ bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& hand
         case kCommandFind:
             if (handlers.find) {
                 handlers.find();
+            }
+            return true;
+        case kCommandToggleOutline:
+            if (handlers.toggleOutline) {
+                handlers.toggleOutline();
+            }
+            return true;
+        case kCommandOutlineLeft:
+            if (handlers.outlineLeft) {
+                handlers.outlineLeft();
+            }
+            return true;
+        case kCommandOutlineRight:
+            if (handlers.outlineRight) {
+                handlers.outlineRight();
             }
             return true;
         default:

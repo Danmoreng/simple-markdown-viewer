@@ -64,6 +64,7 @@ void DocumentTypefaceCache::Reset() {
 
 DocumentTypefaceSet DocumentTypefaceCache::GetTypefaceSet() const {
     return DocumentTypefaceSet{
+        .fontMgr = fontMgr_.get(),
         .regular = regular_.get(),
         .bold = bold_.get(),
         .heading = heading_.get(),

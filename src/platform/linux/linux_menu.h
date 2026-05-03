@@ -15,6 +15,9 @@ enum class MenuCommand {
     SelectFont = 1003,
     UseDefaultFont = 1004,
     Find = 1005,
+    ToggleOutline = 1006,
+    OutlineLeft = 1007,
+    OutlineRight = 1008,
     ThemeLight = 1101,
     ThemeSepia = 1102,
     ThemeDark = 1103

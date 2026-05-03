@@ -71,6 +71,31 @@ long long ParseUnixSeconds(const std::string& value) {
 
 } // namespace
 
+const char* OutlineSideToString(OutlineSide side) {
+    switch (side) {
+        case OutlineSide::Right:
+            return "right";
+        case OutlineSide::Left:
+        default:
+            return "left";
+    }
+}
+
+OutlineSide OutlineSideFromString(const char* value) {
+    if (!value) {
+        return OutlineSide::Left;
+    }
+
+    std::string normalized = Trim(value);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (normalized == "right") {
+        return OutlineSide::Right;
+    }
+    return OutlineSide::Left;
+}
+
 std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
     std::ifstream input(path);
     if (!input.is_open()) {
@@ -106,6 +131,8 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
 
         if (key == "theme") {
             config.theme = ThemeModeFromString(value.c_str());
+        } else if (key == "outline_side") {
+            config.outlineSide = OutlineSideFromString(value.c_str());
         } else if (key == "font_family") {
             config.fontFamilyUtf8 = value;
         } else if (key == "base_font_size") {
@@ -139,6 +166,7 @@ bool SaveAppConfig(const std::filesystem::path& path, const AppConfig& config) {
 
     output << "[app]\n";
     output << "theme=" << ThemeModeToString(config.theme) << '\n';
+    output << "outline_side=" << OutlineSideToString(config.outlineSide) << '\n';
     output << "font_family=" << config.fontFamilyUtf8 << '\n';
     output << "base_font_size=" << ClampBaseFontSize(config.baseFontSize) << '\n';
     for (size_t index = 0; index < config.recentFiles.size(); ++index) {

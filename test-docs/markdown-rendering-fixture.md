@@ -26,6 +26,39 @@ Entities should decode, not display literally: &amp; &lt; &gt; &nbsp; &#x2713;.
 
 ###### Heading 6
 
+## Heading Anchor Compatibility
+
+Use these links to verify heading fragment navigation:
+[Unicode heading](#日本語),
+[Latin Unicode heading](#résumé-guide),
+[emoji-stripped heading](#emoji-heading),
+[punctuation heading](#c-c),
+[duplicate heading](#duplicate-heading-2).
+
+### 日本語
+
+This heading should appear in the outline and should be reachable with the `#日本語` fragment.
+
+### Résumé Guide
+
+This heading keeps Latin Unicode letters and should use the `#résumé-guide` fragment.
+
+### Emoji ✨ Heading
+
+The emoji should not be part of the generated anchor, so the fragment is `#emoji-heading`.
+
+### C++ & C#
+
+ASCII punctuation should be stripped, so the fragment is `#c-c`.
+
+### Duplicate Heading
+
+This is the first duplicate heading.
+
+### Duplicate Heading
+
+This is the second duplicate heading and should use the `#duplicate-heading-2` fragment.
+
 ## Lists
 
 - Unordered item one

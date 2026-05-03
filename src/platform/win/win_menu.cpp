@@ -307,6 +307,10 @@ bool CreateMenus(const ThemePalette& palette) {
     AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(g_viewMenu, MF_STRING, kCommandFind, L"&Find...\tCtrl+F");
     AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(g_viewMenu, MF_STRING, kCommandToggleOutline, L"Show &Outline\tCtrl+Shift+O");
+    AppendMenuW(g_viewMenu, MF_STRING, kCommandOutlineLeft, L"Outline on &Left");
+    AppendMenuW(g_viewMenu, MF_STRING, kCommandOutlineRight, L"Outline on &Right");
+    AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
 
     AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeLight, L"&Light");
     AppendMenuW(g_themeMenu, MF_STRING, kCommandThemeSepia, L"&Sepia");
@@ -346,6 +350,8 @@ void CleanupMenus() {
 void UpdateMenuState(
     HWND hwnd,
     ThemeMode currentTheme,
+    bool outlineCollapsed,
+    OutlineSide outlineSide,
     bool hasCustomFont,
     const ThemePalette& palette,
     const std::vector<RecentFileEntry>& recentFiles) {
@@ -384,6 +390,16 @@ void UpdateMenuState(
         g_viewMenu,
         kCommandUseDefaultFont,
         MF_BYCOMMAND | (hasCustomFont ? MF_ENABLED : MF_GRAYED));
+    CheckMenuItem(
+        g_viewMenu,
+        kCommandToggleOutline,
+        MF_BYCOMMAND | (outlineCollapsed ? MF_UNCHECKED : MF_CHECKED));
+    CheckMenuRadioItem(
+        g_viewMenu,
+        kCommandOutlineLeft,
+        kCommandOutlineRight,
+        outlineSide == OutlineSide::Right ? kCommandOutlineRight : kCommandOutlineLeft,
+        MF_BYCOMMAND);
     CheckMenuRadioItem(
         g_themeMenu,
         kCommandThemeLight,
