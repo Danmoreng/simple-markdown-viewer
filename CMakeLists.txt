@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
+enable_testing()
 
 # md4c - Lightweight Markdown parser
 FetchContent_Declare(
@@ -326,3 +327,84 @@ if(MSVC)
     set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+
+add_executable(mdviewer_tests
+    tests/unit_tests.cpp
+    src/app/app_config.cpp
+    src/app/document_loader.cpp
+    src/app/heading_anchor.cpp
+    src/app/link_resolver.cpp
+    src/app/viewer_controller.cpp
+    src/layout/layout_engine.cpp
+    src/markdown/markdown_parser.cpp
+    src/render/syntax/tree_sitter_highlighter.cpp
+    src/render/theme.cpp
+    src/render/typography.cpp
+    src/util/file_io.cpp
+    src/util/skia_font_utils.cpp
+    src/util/utf8.cpp
+    ${TREE_SITTER_CORE_SOURCE}
+    ${TREE_SITTER_LANGUAGE_SOURCES}
+    ${TREE_SITTER_QUERY_SOURCE}
+)
+
+target_include_directories(mdviewer_tests PRIVATE
+    src
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${tree_sitter_SOURCE_DIR}/lib/include
+    ${tree_sitter_SOURCE_DIR}/lib/src
+    ${tree_sitter_c_SOURCE_DIR}/src
+    ${tree_sitter_cpp_SOURCE_DIR}/src
+    ${tree_sitter_javascript_SOURCE_DIR}/src
+    ${tree_sitter_typescript_SOURCE_DIR}/typescript/src
+    ${tree_sitter_typescript_SOURCE_DIR}/tsx/src
+    ${tree_sitter_json_SOURCE_DIR}/src
+    ${tree_sitter_python_SOURCE_DIR}/src
+    ${tree_sitter_bash_SOURCE_DIR}/src
+    ${tree_sitter_rust_SOURCE_DIR}/src
+    ${tree_sitter_go_SOURCE_DIR}/src
+    ${tree_sitter_c_sharp_SOURCE_DIR}/src
+    ${SKIA_DIR}
+    ${SKIA_DIR}/include/core
+    ${SKIA_DIR}/include/config
+    ${SKIA_DIR}/include/ports
+    ${SKIA_DIR}/include/gpu
+    ${SKIA_DIR}/include/gpu/ganesh
+    ${SKIA_DIR}/include/gpu/ganesh/gl
+    ${md4c_SOURCE_DIR}/src
+)
+
+if(WIN32)
+    target_link_libraries(mdviewer_tests PRIVATE
+        md4c
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
+        windowscodecs.lib
+        dwrite.lib
+        usp10.lib
+        ole32.lib
+        user32.lib
+        gdi32.lib
+    )
+elseif(UNIX AND NOT APPLE)
+    target_link_libraries(mdviewer_tests PRIVATE
+        md4c
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
+        fontconfig
+        freetype
+        pthread
+        dl
+        GL
+        X11
+    )
+else()
+    target_link_libraries(mdviewer_tests PRIVATE md4c)
+endif()
+
+if(MSVC)
+    target_compile_options(mdviewer_tests PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
+    set_property(TARGET mdviewer_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+add_test(NAME mdviewer_unit_tests COMMAND mdviewer_tests)

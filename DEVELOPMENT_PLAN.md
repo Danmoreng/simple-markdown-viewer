@@ -43,13 +43,13 @@ The current implementation already includes:
 
 Goal: make the current behavior safer to change before adding larger user-facing features.
 
-- [ ] Keep `AGENTS.md` limited to repository orientation, setup, build commands, and architectural boundaries.
-- [ ] Keep development milestones, backlog, and product decisions in this document.
-- [ ] Add focused automated tests for config parsing and saving.
-- [ ] Add tests for recent files and navigation history behavior.
-- [ ] Add tests for link resolution, including fragments, percent-encoded paths, spaces, relative paths, extensionless text files, missing files, and unsafe schemes.
-- [ ] Add tests for heading anchor generation, including duplicate headings and Unicode/emoji fallback expectations.
-- [ ] Add tests for layout-sensitive behavior around tables, code blocks, images, and zoom relayout.
+- [x] Keep `AGENTS.md` limited to repository orientation, setup, build commands, and architectural boundaries.
+- [x] Keep development milestones, backlog, and product decisions in this document.
+- [x] Add focused automated tests for config parsing and saving.
+- [x] Add tests for recent files and navigation history behavior.
+- [x] Add tests for link resolution, including fragments, percent-encoded paths, spaces, relative paths, extensionless text files, missing files, and unsafe schemes.
+- [x] Add tests for heading anchor generation, including duplicate headings and Unicode/emoji fallback expectations.
+- [x] Add tests for layout-sensitive behavior around tables, code blocks, images, and zoom relayout.
 - [ ] Keep platform menu cleanup separate from product feature work unless a feature directly touches command routing.
 - [ ] Tighten menu/top-bar ownership so shared code owns platform-neutral menu layout, drawing, and hit-test behavior, while hosts own native popup/dropdown integration, command dispatch, and event translation.
 
