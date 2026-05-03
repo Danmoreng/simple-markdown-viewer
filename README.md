@@ -1,13 +1,13 @@
 # Simple Markdown Viewer
 
-Simple Markdown Viewer is a native, read-only Markdown viewer with a validated Windows build and a Linux host under active integration.
+Simple Markdown Viewer is a native, read-only Markdown viewer with Windows and Linux hosts built on shared viewer logic.
 
 Download the latest ready-to-run Windows build from the repository's `Releases` page.
 
 It is built with:
 
 - C++20
-- Win32 for the application shell and event loop
+- Win32 or GLFW/GTK for the platform shell and event loop
 - Skia for custom rendering
 - md4c for Markdown parsing
 - Tree-sitter for parser-based code syntax highlighting
@@ -33,7 +33,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Open Markdown and plain text files from:
   - drag and drop
   - `File -> Open...`
-  - `File` recent files list
+  - `File` recent files list on Windows
   - command-line file argument
   - clicking internal file links
 - Render:
@@ -51,7 +51,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Navigation:
   - **Full browsing history** (back/forward)
   - Toolbar navigation buttons
-  - Mouse side-button support
+  - Mouse side-button support on Windows
 - Link Handling:
   - Web links open in your default browser
   - Local Markdown and text files open in the same window
@@ -61,7 +61,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Smooth scrolling with:
   - mouse wheel
   - custom scrollbar
-  - middle-mouse auto-scroll
+  - middle-mouse auto-scroll on Windows
 - Mouse text selection and `Ctrl+C` copy
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
@@ -71,7 +71,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Custom client-drawn menu bar
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
-- Automatic document reload on external file changes while the file is open
+- Automatic document reload on external file changes while the file is open on Windows
 - Persistent settings in `mdviewer.ini` for theme, reading font, zoom level, and recent files
 - Embedded Windows app icon
 
@@ -79,7 +79,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 
 Current scope:
 
-- Windows-first
+- native Windows and Linux hosts
 - read-only
 - single-window
 - custom-rendered
@@ -111,15 +111,25 @@ Important Windows files:
 - `win_window.cpp`: main window message dispatch
 - `win_viewer_host.cpp`: document load, relayout, render, theme/font/zoom orchestration
 - `win_interaction.cpp`: pointer, keyboard, wheel, drag, and timer behavior
-- `win_menu.cpp`: custom top bar and menu handling
+- `win_menu.cpp`: Win32 `HMENU` resources, owner-draw popup menus, recent-file menu rebuilding, and command IDs
 
-Recent refactor work also moved top-bar layout and hit testing into shared rendering code, kept the menu UI typeface independent from the document font, and added Windows-native file watching for live reload.
+Linux host files:
+
+- `linux_main.cpp`: GLFW startup and event loop
+- `linux_app.cpp`: app-scoped controller/config wiring
+- `linux_viewer_host.cpp`: document load, relayout, render, theme/font/zoom orchestration
+- `linux_interaction.cpp`: GLFW input translation into shared interaction/controller actions
+- `linux_menu.cpp`: Linux dropdown command models
+- `linux_context_menu.cpp`, `linux_file_dialog.cpp`, `linux_font_dialog.cpp`: GTK-backed native helpers
+- `linux_clipboard.cpp`, `linux_shell.cpp`, `linux_surface.cpp`: platform services
+
+Recent refactor work moved top-bar layout, drawing, toolbar hit testing, and dropdown drawing into shared rendering code in `src/render/menu_renderer.*`. Platform hosts still own native popup/dropdown command plumbing and event translation. The menu UI typeface is independent from the document font. Windows also has native file watching for live reload.
 
 Code block syntax highlighting is implemented in the shared layout/rendering path. Fenced code block languages currently supported by Tree-sitter are `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, `bash`/`sh`, `rust`, `go`, and `csharp`; unknown languages fall back to plain code rendering.
 
-Windows remains the primary validated build target. The Linux host is in-tree, but final runtime validation is still pending.
+Windows has release packaging today. Linux is implemented in-tree and builds from the same CMake project on Linux.
 
-## Build Requirements
+## Windows Build Requirements
 
 - Windows
 - Visual Studio 2022 with C++ build tools
@@ -129,7 +139,7 @@ Windows remains the primary validated build target. The Linux host is in-tree, b
 
 The PowerShell build script imports the Visual Studio environment automatically with `vswhere` and `vcvars64.bat`.
 
-## Building
+## Building On Windows
 
 First build, including dependency setup:
 
@@ -181,13 +191,17 @@ Open a file immediately:
 
 The app stores `mdviewer.ini` next to the executable and uses it for theme, font, zoom, and recent-file persistence.
 
+## Linux Build Notes
+
+The Linux host is compiled from the same CMake target on Linux. It uses GLFW for the window/event loop and GTK3 for native dialogs/context menus, alongside the same Skia, md4c, and Tree-sitter dependencies.
+
 ## Controls
 
 - `File -> Open...`: open a file
-- `File`: reopen recently opened files
+- `File`: reopen recently opened files on Windows
 - drag and drop: open a file
 - mouse wheel: scroll
-- middle mouse button: auto-scroll mode
+- middle mouse button: auto-scroll mode on Windows
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
 - `Ctrl+F`: search within the current document
@@ -195,7 +209,7 @@ The app stores `mdviewer.ini` next to the executable and uses it for theme, font
 - `Escape`: close search
 - Search close button: click the `x` button in the search box
 - right click: open a native context menu with selection/link actions
-- external file save: reload the currently open document automatically
+- external file save: reload the currently open document automatically on Windows
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
 - `Ctrl` + `+` / `-`: zoom document text in and out
@@ -203,7 +217,7 @@ The app stores `mdviewer.ini` next to the executable and uses it for theme, font
   - `Alt + Left` or `Backspace`: Go Back
   - `Alt + Right`: Go Forward
   - `Left / Right Arrow`: Go Back/Forward (if no text is selected)
-  - Mouse side buttons: Go Back/Forward
+  - Mouse side buttons: Go Back/Forward on Windows
   - Toolbar buttons: Click the arrows in the top-right corner
 - **Zoom**:
   - Toolbar buttons: Click `+` or `-` in the top-right corner
@@ -237,6 +251,13 @@ Direct dependencies used by the current build:
   - role: language parsers and highlight queries
   - license: MIT
   - local license files: `build/_deps/tree_sitter_*-src/LICENSE`
+- `GLFW`
+  - role: Linux native window/event integration
+  - version: `3.3.8`
+  - license: Zlib
+- `GTK3`
+  - role: Linux native file, font, and context menu helpers
+  - license: LGPL-family GTK license
 
 Windows system libraries linked by the app:
 
@@ -247,6 +268,15 @@ Windows system libraries linked by the app:
 - `user32`
 - `gdi32`
 - `shell32`
+
+Linux system libraries linked by the app include:
+
+- `fontconfig`
+- `freetype`
+- `pthread`
+- `dl`
+- `GL`
+- `X11`
 
 ## Licensing
 
@@ -284,8 +314,8 @@ CMakeLists.txt    CMake project definition
 - The viewer copies rendered text content, not raw Markdown markup.
 - Search matches rendered document text, not raw Markdown source.
 - Syntax highlighting uses Tree-sitter for fenced code blocks with known language tags; unknown languages render as plain code.
-- The app currently targets Windows first, with Linux host integration in progress.
-- The menu bar is client-drawn so it can follow the selected theme.
+- The app has native Windows and Linux hosts sharing the same document/controller/render/view layers.
+- The menu bar is client-drawn so it can follow the selected theme; shared layout/drawing helpers live in `src/render/menu_renderer.*`.
 - The document zoom affects rendered document typography, not the top menu bar.
 - On Windows, live reload is event-driven via OS file-change notifications rather than polling.
 - Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.
