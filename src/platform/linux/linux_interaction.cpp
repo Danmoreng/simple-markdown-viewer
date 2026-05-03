@@ -1,11 +1,13 @@
 #include "platform/linux/linux_interaction.h"
 
 #include "platform/linux/linux_viewer_host.h"
+#include "platform/linux/linux_context_menu.h"
 #include "platform/linux/linux_menu.h"
 #include "platform/linux/linux_clipboard.h"
 #include "platform/linux/linux_file_dialog.h"
 #include "platform/linux/linux_font_dialog.h"
 #include "platform/linux/linux_shell.h"
+#include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 #include "util/skia_font_utils.h"
@@ -205,11 +207,42 @@ void OnMouseMove(GLFWwindow* window, double xpos, double ypos) {
 
 void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
-    if (!app || button != GLFW_MOUSE_BUTTON_LEFT) return;
+    if (!app) return;
 
     auto& appState = GetAppState(app->GetHostContext());
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
+
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+        if (ypos < GetContentTopInset()) {
+            return;
+        }
+
+        const auto hit = HitTest(window, *app, xpos, ypos);
+        const auto menu = BuildDocumentContextMenu(appState, hit);
+        const auto command = ShowDocumentContextMenu(menu);
+        if (!command) {
+            return;
+        }
+
+        switch (*command) {
+            case DocumentContextCommand::CopySelection:
+                if (CopySelection(window, *app)) {
+                    appState.needsRepaint = true;
+                }
+                break;
+            case DocumentContextCommand::OpenLink:
+                HandleLinkClick(window, app->GetHostContext(), menu.linkUrl, false);
+                break;
+            case DocumentContextCommand::CopyLink:
+                SetClipboardText(window, menu.linkUrl);
+                break;
+        }
+        appState.needsRepaint = true;
+        return;
+    }
+
+    if (button != GLFW_MOUSE_BUTTON_LEFT) return;
 
     if (action == GLFW_PRESS) {
         if (appState.menuBarState.activeIndex != -1) {

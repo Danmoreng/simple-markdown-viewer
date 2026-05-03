@@ -24,6 +24,7 @@ bool HandleDropFiles(HWND hwnd, ViewerInteractionContext& context, HDROP drop);
 bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x, int y);
 bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mouseButtons, int x, int y);
 bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, int y);
+bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX, int screenY);
 bool HandleMiddleButtonDown(HWND hwnd, ViewerInteractionContext& context, int x, int y);
 bool HandleXButtonDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wParam);
 bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta);

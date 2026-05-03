@@ -19,6 +19,7 @@ The project has a working Windows implementation with:
 - custom Skia document rendering
 - scrolling
 - text selection and copy
+- native context menus for selection and link actions
 - link rendering and activation
 - image rendering
 - navigation history
@@ -85,6 +86,7 @@ Supported interactions for v1:
 - scroll
 - select text
 - copy selection
+- use native context menus for copy/link actions
 - activate links
 - navigate history
 - zoom in/out

@@ -171,6 +171,11 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
         case WM_LBUTTONUP:
             HandlePrimaryButtonUp(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
+        case WM_CONTEXTMENU:
+            if (HandleContextMenu(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+                return 0;
+            }
+            return std::nullopt;
         case WM_MBUTTONDOWN:
             HandleMiddleButtonDown(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;

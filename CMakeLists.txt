@@ -164,6 +164,7 @@ set(SOURCES
     src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp
+    src/view/document_context_menu.cpp
     src/view/document_hit_test.cpp
     src/view/document_interaction.cpp
     ${TREE_SITTER_CORE_SOURCE}
@@ -181,6 +182,7 @@ if(WIN32)
         src/platform/win/win_interaction.cpp
         src/platform/win/win_main.cpp
         src/platform/win/win_menu.cpp
+        src/platform/win/win_context_menu.cpp
         src/platform/win/win_shell.cpp
         src/platform/win/win_surface.cpp
         src/platform/win/win_viewer_host.cpp
@@ -196,6 +198,7 @@ elseif(UNIX AND NOT APPLE)
         src/platform/linux/linux_interaction.cpp
         src/platform/linux/linux_main.cpp
         src/platform/linux/linux_menu.cpp
+        src/platform/linux/linux_context_menu.cpp
         src/platform/linux/linux_shell.cpp
         src/platform/linux/linux_surface.cpp
         src/platform/linux/linux_viewer_host.cpp

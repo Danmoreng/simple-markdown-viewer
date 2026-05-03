@@ -63,6 +63,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - custom scrollbar
   - middle-mouse auto-scroll
 - Mouse text selection and `Ctrl+C` copy
+- Native right-click context menu for copying selected text and link actions
 - Link text remains selectable while links stay clickable
 - Switchable `Light`, `Sepia`, and `Dark` themes
 - Custom client-drawn menu bar
@@ -187,6 +188,7 @@ The app stores `mdviewer.ini` next to the executable and uses it for theme, font
 - middle mouse button: auto-scroll mode
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
+- right click: open a native context menu with selection/link actions
 - external file save: reload the currently open document automatically
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
@@ -202,6 +204,7 @@ The app stores `mdviewer.ini` next to the executable and uses it for theme, font
 - **Links**:
   - `Click`: Open internally (MD/Text) or externally (Web/Other)
   - `Ctrl + Click`: Force open in default system application
+  - `Right Click`: open/copy link from the native context menu
   - `Hover`: Preview target path in bottom-left overlay
   - `Click and drag`: select link text without opening the link
 - **Code Blocks**:

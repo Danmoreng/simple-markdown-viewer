@@ -7,8 +7,10 @@
 #include <string>
 
 #include "platform/win/win_clipboard.h"
+#include "platform/win/win_context_menu.h"
 #include "platform/win/win_menu.h"
 #include "render/document_renderer.h"
+#include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 
@@ -401,6 +403,55 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
 
     if (activateLink) {
         HandleLinkClick(hwnd, context.host, linkUrl, forceExternal);
+    }
+
+    InvalidateRect(hwnd, nullptr, FALSE);
+    return true;
+}
+
+bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX, int screenY) {
+    if (!context.host.surface) {
+        return false;
+    }
+
+    POINT screenPoint{screenX, screenY};
+    if (screenPoint.x == -1 && screenPoint.y == -1) {
+        GetCursorPos(&screenPoint);
+    }
+
+    POINT clientPoint = screenPoint;
+    ScreenToClient(hwnd, &clientPoint);
+    if (clientPoint.y < GetContentTopInset()) {
+        return false;
+    }
+
+    StopAutoScroll(hwnd, context);
+    SetFocus(hwnd);
+
+    const auto hit = HitTestText(context, static_cast<float>(clientPoint.x), static_cast<float>(clientPoint.y));
+    DocumentContextMenu menu;
+    {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        menu = BuildDocumentContextMenu(GetAppState(context.host), ToInteractionHit(hit));
+    }
+
+    const auto command = ShowDocumentContextMenu(hwnd, menu, screenPoint);
+    if (!command) {
+        return true;
+    }
+
+    switch (*command) {
+        case DocumentContextCommand::CopySelection: {
+            std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+            CopySelection(hwnd, context);
+            break;
+        }
+        case DocumentContextCommand::OpenLink:
+            HandleLinkClick(hwnd, context.host, menu.linkUrl, false);
+            break;
+        case DocumentContextCommand::CopyLink:
+            CopyUtf8TextToClipboard(hwnd, menu.linkUrl);
+            break;
     }
 
     InvalidateRect(hwnd, nullptr, FALSE);
