@@ -18,6 +18,9 @@ const TSLanguage* tree_sitter_tsx();
 const TSLanguage* tree_sitter_json();
 const TSLanguage* tree_sitter_python();
 const TSLanguage* tree_sitter_bash();
+const TSLanguage* tree_sitter_rust();
+const TSLanguage* tree_sitter_go();
+const TSLanguage* tree_sitter_c_sharp();
 }
 
 namespace mdviewer::syntax {
@@ -98,6 +101,15 @@ LanguageDefinition ResolveLanguage(const std::string& language) {
     }
     if (normalized == "bash" || normalized == "sh" || normalized == "shell" || normalized == "zsh") {
         return {tree_sitter_bash(), GetTreeSitterBashQuery()};
+    }
+    if (normalized == "rust" || normalized == "rs") {
+        return {tree_sitter_rust(), GetTreeSitterRustQuery()};
+    }
+    if (normalized == "go" || normalized == "golang") {
+        return {tree_sitter_go(), GetTreeSitterGoQuery()};
+    }
+    if (normalized == "csharp" || normalized == "c#" || normalized == "cs") {
+        return {tree_sitter_c_sharp(), GetTreeSitterCSharpQuery()};
     }
     return {};
 }

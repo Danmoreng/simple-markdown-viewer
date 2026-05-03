@@ -1,7 +1,10 @@
 #include "layout_engine.h"
 
 #include <algorithm>
+#include <numeric>
+#include <unordered_map>
 
+#include "app/heading_anchor.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
 
@@ -30,9 +33,19 @@ constexpr float kCodeBlockPaddingX = 8.0f;
 constexpr float kCodeBlockPaddingY = 8.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableCellPaddingY = 8.0f;
+constexpr float kMinTableColumnWidth = 80.0f;
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
+}
+
+bool IsHeading(BlockType type) {
+    return type == BlockType::Heading1 ||
+           type == BlockType::Heading2 ||
+           type == BlockType::Heading3 ||
+           type == BlockType::Heading4 ||
+           type == BlockType::Heading5 ||
+           type == BlockType::Heading6;
 }
 
 } // namespace
@@ -45,6 +58,7 @@ public:
     float availableWidth;
     size_t currentTextOffset = 0;
     std::string plainText;
+    std::unordered_map<std::string, float> anchors;
     SkFont font;
     float baseFontSize;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
@@ -97,6 +111,10 @@ public:
                 currentY += kCodeBlockPaddingY;
                 contentLeft += kCodeBlockPaddingX;
                 contentWidth = std::max(contentWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
+            }
+
+            if (IsHeading(block.type)) {
+                AddHeadingAnchor(block, blockTop);
             }
 
             if (block.type == BlockType::ThematicBreak) {
@@ -355,6 +373,28 @@ private:
         font.setSize(GetBlockFontSize(fontBlockType, baseFontSize));
     }
 
+    void AddHeadingAnchor(const Block& block, float y) {
+        std::string text;
+        for (const auto& run : block.inlineRuns) {
+            if (run.style != InlineStyle::Image) {
+                text += run.text;
+            }
+        }
+
+        const std::string slug = MakeHeadingAnchor(text);
+        if (slug.empty()) {
+            return;
+        }
+
+        std::string uniqueSlug = slug;
+        int suffix = 1;
+        while (anchors.contains(uniqueSlug)) {
+            ++suffix;
+            uniqueSlug = slug + "-" + std::to_string(suffix);
+        }
+        anchors[uniqueSlug] = y;
+    }
+
     float GetLineHeight(BlockType blockType, InlineStyle inlineStyle = InlineStyle::Plain) {
         ConfigureInlineFont(blockType, inlineStyle);
         SkFontMetrics metrics;
@@ -374,6 +414,67 @@ private:
             ++cellIndex;
         }
         return nullptr;
+    }
+
+    float MeasureInlineRunsWidth(const std::vector<InlineRun>& runs, BlockType blockType) {
+        float width = 0.0f;
+        for (const auto& run : runs) {
+            if (run.style == InlineStyle::Image) {
+                if (imageSizeProvider) {
+                    const auto size = imageSizeProvider(run.url);
+                    width += std::max(size.first, 0.0f);
+                }
+                continue;
+            }
+
+            ConfigureInlineFont(blockType, run.style);
+            width += font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+        }
+        return width;
+    }
+
+    std::vector<float> ComputeTableColumnWidths(
+        const std::vector<const Block*>& rows,
+        size_t columnCount,
+        float tableWidth) {
+        std::vector<float> preferredWidths(columnCount, kMinTableColumnWidth);
+        for (const Block* row : rows) {
+            for (size_t columnIndex = 0; columnIndex < columnCount; ++columnIndex) {
+                const Block* cell = GetRowCell(*row, columnIndex);
+                if (cell == nullptr) {
+                    continue;
+                }
+                const float contentWidth = MeasureInlineRunsWidth(cell->inlineRuns, cell->type) + (kTableCellPaddingX * 2.0f);
+                preferredWidths[columnIndex] = std::max(preferredWidths[columnIndex], contentWidth);
+            }
+        }
+
+        const float preferredTotal = std::max(
+            std::accumulate(preferredWidths.begin(), preferredWidths.end(), 0.0f),
+            1.0f);
+        std::vector<float> widths(columnCount, tableWidth / static_cast<float>(columnCount));
+        if (preferredTotal <= tableWidth) {
+            widths = preferredWidths;
+            const float extra = (tableWidth - preferredTotal) / static_cast<float>(columnCount);
+            for (auto& width : widths) {
+                width += extra;
+            }
+        } else {
+            const float scale = tableWidth / preferredTotal;
+            for (size_t columnIndex = 0; columnIndex < columnCount; ++columnIndex) {
+                widths[columnIndex] = std::max(preferredWidths[columnIndex] * scale, kMinTableColumnWidth);
+            }
+
+            const float scaledTotal = std::accumulate(widths.begin(), widths.end(), 0.0f);
+            if (scaledTotal > tableWidth) {
+                const float shrink = tableWidth / scaledTotal;
+                for (auto& width : widths) {
+                    width *= shrink;
+                }
+            }
+        }
+
+        return widths;
     }
 
     void AppendPlainTextSeparator(char ch) {
@@ -419,7 +520,7 @@ private:
         }
         columnCount = std::max<size_t>(columnCount, 1);
 
-        const float baseColumnWidth = tableWidth / static_cast<float>(columnCount);
+        const std::vector<float> columnWidths = ComputeTableColumnWidths(rows, columnCount, tableWidth);
         float rowTop = currentY;
 
         for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
@@ -434,11 +535,14 @@ private:
                 const bool isHeaderCell = cell != nullptr && cell->type == BlockType::TableHeaderCell;
                 const BlockType cellType = isHeaderCell ? BlockType::TableHeaderCell : BlockType::TableCell;
                 const TextAlign cellAlign = cell != nullptr ? cell->align : TextAlign::Default;
-                const float cellLeft = tableLeft + (baseColumnWidth * static_cast<float>(columnIndex));
+                float cellLeft = tableLeft;
+                for (size_t previousColumn = 0; previousColumn < columnIndex; ++previousColumn) {
+                    cellLeft += columnWidths[previousColumn];
+                }
                 const float cellWidth =
                     (columnIndex + 1 == columnCount)
                         ? (tableLeft + tableWidth - cellLeft)
-                        : baseColumnWidth;
+                        : columnWidths[columnIndex];
                 const float cellInnerLeft = cellLeft + kTableCellPaddingX;
                 const float cellInnerTop = rowTop + kTableCellPaddingY;
                 const float cellInnerWidth = std::max(cellWidth - (kTableCellPaddingX * 2.0f), 1.0f);
@@ -510,6 +614,7 @@ DocumentLayout LayoutEngine::ComputeLayout(
     ctx.LayoutBlocks(doc.blocks, layout.blocks);
     layout.totalHeight = ctx.currentY + kDocumentBottomPadding;
     layout.plainText = std::move(ctx.plainText);
+    layout.anchors = std::move(ctx.anchors);
     return layout;
 }
 

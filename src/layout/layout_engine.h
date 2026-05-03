@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <unordered_map>
 #include <vector>
 #include "layout/document_model.h"
 #include "include/core/SkRect.h"
@@ -44,6 +45,7 @@ struct DocumentLayout {
     std::vector<BlockLayout> blocks;
     float totalHeight;
     std::string plainText;
+    std::unordered_map<std::string, float> anchors;
 };
 
 class LayoutEngine {

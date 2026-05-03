@@ -113,7 +113,7 @@ Important Windows files:
 
 Recent refactor work also moved top-bar layout and hit testing into shared rendering code, kept the menu UI typeface independent from the document font, and added Windows-native file watching for live reload.
 
-Code block syntax highlighting is implemented in the shared layout/rendering path. Fenced code block languages currently supported by Tree-sitter are `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, and `bash`/`sh`; unknown languages fall back to plain code rendering.
+Code block syntax highlighting is implemented in the shared layout/rendering path. Fenced code block languages currently supported by Tree-sitter are `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, `bash`/`sh`, `rust`, `go`, and `csharp`; unknown languages fall back to plain code rendering.
 
 Windows remains the primary validated build target. The Linux host is in-tree, but final runtime validation is still pending.
 
@@ -227,7 +227,7 @@ Direct dependencies used by the current build:
   - role: parser-based syntax highlighting for fenced code blocks
   - license: MIT
   - local license file: `build/_deps/tree_sitter-src/LICENSE`
-- Tree-sitter grammars for `c`, `cpp`, `javascript`, `typescript`/`tsx`, `json`, `python`, and `bash`
+- Tree-sitter grammars for `c`, `cpp`, `javascript`, `typescript`/`tsx`, `json`, `python`, `bash`, `rust`, `go`, and `c-sharp`
   - role: language parsers and highlight queries
   - license: MIT
   - local license files: `build/_deps/tree_sitter_*-src/LICENSE`

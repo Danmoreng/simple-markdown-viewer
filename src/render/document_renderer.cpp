@@ -320,6 +320,19 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 ctx.canvas->drawRect(rect, placeholderPaint);
                 ctx.canvas->drawLine(rect.left(), rect.top(), rect.right(), rect.bottom(), placeholderPaint);
                 ctx.canvas->drawLine(rect.right(), rect.top(), rect.left(), rect.bottom(), placeholderPaint);
+
+                if (!run.text.empty() && rect.width() > 24.0f && rect.height() > 16.0f) {
+                    ctx.canvas->save();
+                    ctx.canvas->clipRect(rect.makeInset(4.0f, 2.0f));
+                    ctx.paint.setColor(params.palette.emptyStateText);
+                    ctx.canvas->drawString(
+                        run.text.c_str(),
+                        rect.left() + 5.0f,
+                        rect.centerY() + (ctx.font.getSize() * 0.35f),
+                        ctx.font,
+                        ctx.paint);
+                    ctx.canvas->restore();
+                }
             }
 
             currentX += displayW + 4.0f;

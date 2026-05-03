@@ -51,8 +51,10 @@ LinkTarget ResolveLinkTarget(
     }
 
     std::string pathPart = url;
+    std::string fragment;
     const size_t hashPos = pathPart.find('#');
     if (hashPos != std::string::npos) {
+        fragment = UrlDecode(pathPart.substr(hashPos + 1));
         pathPart = pathPart.substr(0, hashPos);
     }
 
@@ -62,7 +64,7 @@ LinkTarget ResolveLinkTarget(
     }
 
     if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
-        return {LinkTargetKind::ExternalUrl, url, {}};
+        return {LinkTargetKind::ExternalUrl, url, {}, {}};
     }
 
     if (url.rfind("file://", 0) == 0) {
@@ -73,14 +75,19 @@ LinkTarget ResolveLinkTarget(
 
         const size_t fragmentPos = localPath.find('#');
         if (fragmentPos != std::string::npos) {
+            fragment = UrlDecode(localPath.substr(fragmentPos + 1));
             localPath = localPath.substr(0, fragmentPos);
         }
 
         std::filesystem::path targetPath(localPath);
         if (ShouldOpenInternally(targetPath, forceExternal)) {
-            return {LinkTargetKind::InternalDocument, {}, targetPath};
+            return {LinkTargetKind::InternalDocument, {}, targetPath, fragment};
         }
-        return {LinkTargetKind::ExternalPath, {}, targetPath};
+        return {LinkTargetKind::ExternalPath, {}, targetPath, {}};
+    }
+
+    if (pathPart.empty() && !fragment.empty() && !currentFilePath.empty() && !forceExternal) {
+        return {LinkTargetKind::InternalDocument, {}, currentFilePath, fragment};
     }
 
     std::filesystem::path targetPath = currentFilePath.parent_path() / UrlDecode(pathPart);
@@ -93,9 +100,9 @@ LinkTarget ResolveLinkTarget(
     }
 
     if (ShouldOpenInternally(targetPath, forceExternal)) {
-        return {LinkTargetKind::InternalDocument, {}, targetPath};
+        return {LinkTargetKind::InternalDocument, {}, targetPath, fragment};
     }
-    return {LinkTargetKind::ExternalPath, {}, targetPath};
+    return {LinkTargetKind::ExternalPath, {}, targetPath, {}};
 }
 
 } // namespace mdviewer

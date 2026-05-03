@@ -5,6 +5,7 @@
 #include <mutex>
 #include <utility>
 
+#include "app/heading_anchor.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_shell.h"
@@ -24,6 +25,38 @@ namespace {
 
 AppState& State(const ViewerHostContext& context) {
     return context.controller.GetMutableAppState();
+}
+
+std::filesystem::path NormalizePathForCompare(const std::filesystem::path& path) {
+    try {
+        return std::filesystem::absolute(path).lexically_normal();
+    } catch (...) {
+        return path.lexically_normal();
+    }
+}
+
+bool SamePath(const std::filesystem::path& left, const std::filesystem::path& right) {
+    return NormalizePathForCompare(left) == NormalizePathForCompare(right);
+}
+
+bool ScrollToFragment(HWND hwnd, ViewerHostContext& context, const std::string& fragment) {
+    if (fragment.empty()) {
+        return false;
+    }
+
+    AppState& appState = State(context);
+    const auto it = appState.docLayout.anchors.find(fragment);
+    const auto normalizedIt = it == appState.docLayout.anchors.end()
+        ? appState.docLayout.anchors.find(MakeHeadingAnchor(fragment))
+        : it;
+    if (normalizedIt == appState.docLayout.anchors.end()) {
+        return false;
+    }
+
+    appState.scrollOffset = normalizedIt->second;
+    ClampScrollOffset(hwnd, context);
+    InvalidateRect(hwnd, nullptr, FALSE);
+    return true;
 }
 
 } // namespace
@@ -245,7 +278,11 @@ void HandleLinkClick(HWND hwnd, ViewerHostContext& context, const std::string& u
     const auto target = context.controller.ResolveLinkTarget(url, forceExternal);
     switch (target.kind) {
         case LinkTargetKind::InternalDocument:
-            LoadFile(hwnd, context, target.path);
+            if (SamePath(target.path, State(context).currentFilePath)) {
+                ScrollToFragment(hwnd, context, target.fragment);
+            } else if (LoadFile(hwnd, context, target.path)) {
+                ScrollToFragment(hwnd, context, target.fragment);
+            }
             break;
         case LinkTargetKind::ExternalUrl:
             OpenExternalUrl(target.externalUrl);

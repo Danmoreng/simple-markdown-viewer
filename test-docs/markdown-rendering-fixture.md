@@ -6,7 +6,7 @@ Use this file to visually check Markdown rendering behavior while changing the p
 
 Plain text should wrap normally and preserve readable spacing. This sentence is intentionally long enough to wrap at narrower window widths so line breaking, selection, and link hit testing can be checked together.
 
-This paragraph contains *emphasis*, **strong text**, `inline code`, [a relative link](README.md), [an external link](https://example.com), and an inline image placeholder if the image cannot be loaded: ![Missing image](missing-image.png).
+This paragraph contains *emphasis*, **strong text**, `inline code`, [a relative link](README.md), [a heading fragment link](#task-lists), [an external link](https://example.com), and an inline image placeholder if the image cannot be loaded: ![Missing image alt text](missing-image.png).
 
 Strikethrough text should render with a strike line: ~~completed or removed text~~.
 
@@ -120,6 +120,33 @@ for file in *.md; do
 done
 ```
 
+```rust
+fn main() {
+    let values = vec![1, 2, 3];
+    println!("{:?}", values);
+}
+```
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("hello")
+}
+```
+
+```csharp
+public static class Program
+{
+    public static void Main()
+    {
+        Console.WriteLine("hello");
+    }
+}
+```
+
 ## Tables
 
 | Left aligned | Center aligned | Right aligned |
@@ -127,6 +154,7 @@ done
 | Alpha        | Beta           | Gamma         |
 | Longer cell content should wrap cleanly | Center | 12345 |
 | `code`       | **strong**     | [link](README.md) |
+| Short | A much wider content-driven column | Narrow |
 
 ## Thematic Break
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "app/heading_anchor.h"
 #include "app/document_loader.h"
 #include "platform/linux/linux_menu.h"
 #include "render/menu_renderer.h"
@@ -21,6 +22,38 @@ std::vector<MenuBarItem> GetMenuBarItems() {
         {"View", 2},
         {"Theme", 3},
     };
+}
+
+std::filesystem::path NormalizePathForCompare(const std::filesystem::path& path) {
+    try {
+        return std::filesystem::absolute(path).lexically_normal();
+    } catch (...) {
+        return path.lexically_normal();
+    }
+}
+
+bool SamePath(const std::filesystem::path& left, const std::filesystem::path& right) {
+    return NormalizePathForCompare(left) == NormalizePathForCompare(right);
+}
+
+bool ScrollToFragment(GLFWwindow* window, LinuxHostContext context, const std::string& fragment) {
+    if (fragment.empty()) {
+        return false;
+    }
+
+    auto& appState = GetAppState(context);
+    const auto it = appState.docLayout.anchors.find(fragment);
+    const auto normalizedIt = it == appState.docLayout.anchors.end()
+        ? appState.docLayout.anchors.find(MakeHeadingAnchor(fragment))
+        : it;
+    if (normalizedIt == appState.docLayout.anchors.end()) {
+        return false;
+    }
+
+    appState.scrollOffset = normalizedIt->second;
+    ClampScrollOffset(window, context);
+    appState.needsRepaint = true;
+    return true;
 }
 
 } // namespace
@@ -222,7 +255,11 @@ void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::st
     const auto target = context.controller.ResolveLinkTarget(url, forceExternal);
     switch (target.kind) {
         case LinkTargetKind::InternalDocument:
-            LoadFile(window, context, target.path);
+            if (SamePath(target.path, GetAppState(context).currentFilePath)) {
+                ScrollToFragment(window, context, target.fragment);
+            } else if (LoadFile(window, context, target.path)) {
+                ScrollToFragment(window, context, target.fragment);
+            }
             break;
         case LinkTargetKind::ExternalUrl:
             OpenExternalUrl(target.externalUrl);

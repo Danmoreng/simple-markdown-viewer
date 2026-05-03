@@ -10,5 +10,8 @@ const char* GetTreeSitterTsxQuery();
 const char* GetTreeSitterJsonQuery();
 const char* GetTreeSitterPythonQuery();
 const char* GetTreeSitterBashQuery();
+const char* GetTreeSitterRustQuery();
+const char* GetTreeSitterGoQuery();
+const char* GetTreeSitterCSharpQuery();
 
 } // namespace mdviewer::syntax

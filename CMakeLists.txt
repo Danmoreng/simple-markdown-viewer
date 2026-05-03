@@ -63,6 +63,24 @@ FetchContent_Declare(
     GIT_TAG        master
     SOURCE_SUBDIR  cmake-unused
 )
+FetchContent_Declare(
+    tree_sitter_rust
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-rust.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_go
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-go.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_c_sharp
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c-sharp.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
 FetchContent_MakeAvailable(
     tree_sitter
     tree_sitter_c
@@ -72,6 +90,9 @@ FetchContent_MakeAvailable(
     tree_sitter_json
     tree_sitter_python
     tree_sitter_bash
+    tree_sitter_rust
+    tree_sitter_go
+    tree_sitter_c_sharp
 )
 
 set(TREE_SITTER_CORE_SOURCE "${tree_sitter_SOURCE_DIR}/lib/src/lib.c")
@@ -89,10 +110,21 @@ set(TREE_SITTER_LANGUAGE_SOURCES
     "${tree_sitter_python_SOURCE_DIR}/src/scanner.c"
     "${tree_sitter_bash_SOURCE_DIR}/src/parser.c"
     "${tree_sitter_bash_SOURCE_DIR}/src/scanner.c"
+    "${tree_sitter_rust_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_go_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_c_sharp_SOURCE_DIR}/src/parser.c"
 )
 if(EXISTS "${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c")
     list(APPEND TREE_SITTER_LANGUAGE_SOURCES "${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c")
 endif()
+foreach(optional_scanner
+    "${tree_sitter_rust_SOURCE_DIR}/src/scanner.c"
+    "${tree_sitter_go_SOURCE_DIR}/src/scanner.c"
+    "${tree_sitter_c_sharp_SOURCE_DIR}/src/scanner.c")
+    if(EXISTS "${optional_scanner}")
+        list(APPEND TREE_SITTER_LANGUAGE_SOURCES "${optional_scanner}")
+    endif()
+endforeach()
 set(TREE_SITTER_QUERY_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated_tree_sitter_queries.cpp")
 file(WRITE "${TREE_SITTER_QUERY_SOURCE}"
     "#include \"render/syntax/tree_sitter_queries.h\"\n\n"
@@ -118,6 +150,9 @@ append_tree_sitter_query(GetTreeSitterTsxQuery "${tree_sitter_typescript_SOURCE_
 append_tree_sitter_query(GetTreeSitterJsonQuery "${tree_sitter_json_SOURCE_DIR}/queries/highlights.scm")
 append_tree_sitter_query(GetTreeSitterPythonQuery "${tree_sitter_python_SOURCE_DIR}/queries/highlights.scm")
 append_tree_sitter_query(GetTreeSitterBashQuery "${tree_sitter_bash_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterRustQuery "${tree_sitter_rust_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterGoQuery "${tree_sitter_go_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterCSharpQuery "${tree_sitter_c_sharp_SOURCE_DIR}/queries/highlights.scm")
 
 file(APPEND "${TREE_SITTER_QUERY_SOURCE}" "} // namespace mdviewer::syntax\n")
 
@@ -150,6 +185,7 @@ set(SOURCES
     src/main.cpp
     src/app/app_config.cpp
     src/app/document_loader.cpp
+    src/app/heading_anchor.cpp
     src/app/link_resolver.cpp
     src/app/viewer_controller.cpp
     src/util/file_io.cpp
@@ -229,6 +265,9 @@ target_include_directories(mdviewer PRIVATE
     ${tree_sitter_json_SOURCE_DIR}/src
     ${tree_sitter_python_SOURCE_DIR}/src
     ${tree_sitter_bash_SOURCE_DIR}/src
+    ${tree_sitter_rust_SOURCE_DIR}/src
+    ${tree_sitter_go_SOURCE_DIR}/src
+    ${tree_sitter_c_sharp_SOURCE_DIR}/src
     ${SKIA_DIR}
     ${SKIA_DIR}/include/core
     ${SKIA_DIR}/include/config

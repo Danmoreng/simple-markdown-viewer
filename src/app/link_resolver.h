@@ -16,6 +16,7 @@ struct LinkTarget {
     LinkTargetKind kind = LinkTargetKind::Invalid;
     std::string externalUrl;
     std::filesystem::path path;
+    std::string fragment;
 };
 
 LinkTarget ResolveLinkTarget(

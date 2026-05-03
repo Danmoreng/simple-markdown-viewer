@@ -104,6 +104,9 @@ SOFTWARE.
      - https://github.com/tree-sitter/tree-sitter-json
      - https://github.com/tree-sitter/tree-sitter-python
      - https://github.com/tree-sitter/tree-sitter-bash
+     - https://github.com/tree-sitter/tree-sitter-rust
+     - https://github.com/tree-sitter/tree-sitter-go
+     - https://github.com/tree-sitter/tree-sitter-c-sharp
    - Local source trees: `build/_deps/tree_sitter_*-src`
    - License files: `build/_deps/tree_sitter_*-src/LICENSE`
 
