@@ -14,6 +14,11 @@ class SkTypeface;
 
 namespace mdviewer {
 
+struct RecentFileEntry {
+    std::filesystem::path path;
+    long long openedAtUnixSeconds = 0;
+};
+
 enum class OpenDocumentStatus {
     Success,
     FileReadError,
@@ -40,7 +45,9 @@ public:
     const AppState& GetAppState() const { return appState_; }
 
     void SetConfigPath(std::filesystem::path path);
+    void SetLegacyConfigPath(std::filesystem::path path);
     const std::filesystem::path& GetConfigPath() const { return configPath_; }
+    const std::filesystem::path& GetLegacyConfigPath() const { return legacyConfigPath_; }
     bool LoadConfig();
     bool SaveConfig() const;
 
@@ -59,7 +66,7 @@ public:
     bool SetFontFamilyUtf8(std::string fontFamilyUtf8);
     bool ResetFontFamily();
 
-    const std::vector<std::filesystem::path>& GetRecentFiles() const { return recentFiles_; }
+    const std::vector<RecentFileEntry>& GetRecentFiles() const { return recentFiles_; }
 
     OpenDocumentStatus OpenFile(
         const std::filesystem::path& path,
@@ -67,7 +74,8 @@ public:
         SkTypeface* typeface,
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider,
-        bool pushHistory = true);
+        bool pushHistory = true,
+        bool updateRecentFiles = true);
     OpenDocumentStatus ReloadCurrentFile(
         float width,
         SkTypeface* typeface,
@@ -91,13 +99,16 @@ public:
 
 private:
     static std::optional<std::filesystem::file_time_type> TryGetFileWriteTime(const std::filesystem::path& path);
+    static long long GetCurrentUnixSeconds();
     static std::filesystem::path NormalizeRecentFilePath(const std::filesystem::path& path);
-    void AddRecentFile(const std::filesystem::path& path);
+    void AddRecentFile(const std::filesystem::path& path, long long openedAtUnixSeconds);
+    void AppendRecentFileFromConfig(const std::filesystem::path& path, long long openedAtUnixSeconds);
 
     AppState appState_;
     std::filesystem::path configPath_;
+    std::filesystem::path legacyConfigPath_;
     std::string fontFamilyUtf8_;
-    std::vector<std::filesystem::path> recentFiles_;
+    std::vector<RecentFileEntry> recentFiles_;
 };
 
 } // namespace mdviewer

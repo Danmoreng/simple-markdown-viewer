@@ -43,9 +43,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    mdviewer::win::InstallCrashHandler(mdviewer::win::WinApp::GetExecutableConfigPath().parent_path());
+    mdviewer::win::InstallCrashHandler(mdviewer::win::WinApp::GetUserConfigPath().parent_path());
 
-    g_app.Controller().SetConfigPath(mdviewer::win::WinApp::GetExecutableConfigPath());
+    g_app.Controller().SetConfigPath(mdviewer::win::WinApp::GetUserConfigPath());
+    g_app.Controller().SetLegacyConfigPath(mdviewer::win::WinApp::GetLegacyExecutableConfigPath());
     g_app.Controller().LoadConfig();
 
     const WCHAR CLASS_NAME[] = L"MDViewerWindowClass";

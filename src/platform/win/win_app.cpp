@@ -97,7 +97,19 @@ std::wstring WinApp::Utf8ToWide(const std::string& text) {
     return wide;
 }
 
-std::filesystem::path WinApp::GetExecutableConfigPath() {
+std::filesystem::path WinApp::GetUserConfigPath() {
+    std::array<wchar_t, MAX_PATH> buffer = {};
+    const DWORD length = GetEnvironmentVariableW(L"APPDATA", buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length > 0 && length < buffer.size()) {
+        return std::filesystem::path(std::wstring(buffer.data(), length)) /
+               L"Simple Markdown Viewer" /
+               L"mdviewer.ini";
+    }
+
+    return std::filesystem::path(L"mdviewer.ini");
+}
+
+std::filesystem::path WinApp::GetLegacyExecutableConfigPath() {
     std::array<wchar_t, MAX_PATH> buffer = {};
     const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
     if (length == 0 || length >= buffer.size()) {

@@ -4,8 +4,11 @@
 #include <array>
 #include <cmath>
 #include <cwchar>
+#include <ctime>
+#include <iomanip>
 #include <list>
 #include <map>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -47,7 +50,7 @@ struct TopMenuItem {
 HMENU g_fileMenu = nullptr;
 HMENU g_viewMenu = nullptr;
 HMENU g_themeMenu = nullptr;
-std::vector<std::filesystem::path> g_recentFiles;
+std::vector<RecentFileEntry> g_recentFiles;
 HBRUSH g_menuBackgroundBrush = nullptr;
 HFONT g_menuFont = nullptr;
 bool g_ownsMenuFont = false;
@@ -149,6 +152,22 @@ std::wstring EscapeMenuText(const std::wstring& text) {
         escaped.push_back(ch);
     }
     return escaped;
+}
+
+std::wstring FormatOpenedAtLocal(long long unixSeconds) {
+    if (unixSeconds <= 0) {
+        return {};
+    }
+
+    const std::time_t openedAt = static_cast<std::time_t>(unixSeconds);
+    std::tm localTime = {};
+    if (localtime_s(&localTime, &openedAt) != 0) {
+        return {};
+    }
+
+    std::wostringstream stream;
+    stream << std::put_time(&localTime, L"%Y-%m-%d %H:%M");
+    return stream.str();
 }
 
 SIZE MeasureMenuSegment(HDC hdc, const std::wstring& text) {
@@ -329,7 +348,7 @@ void UpdateMenuState(
     ThemeMode currentTheme,
     bool hasCustomFont,
     const ThemePalette& palette,
-    const std::vector<std::filesystem::path>& recentFiles) {
+    const std::vector<RecentFileEntry>& recentFiles) {
     if (!g_viewMenu || !g_themeMenu) {
         return;
     }
@@ -345,8 +364,12 @@ void UpdateMenuState(
             AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
             const size_t recentCount = std::min(g_recentFiles.size(), kMaxRecentFiles);
             for (size_t index = 0; index < recentCount; ++index) {
-                const std::wstring path = EscapeMenuText(g_recentFiles[index].wstring());
-                const std::wstring label = L"&" + std::to_wstring(index + 1) + L" " + path;
+                const std::wstring path = EscapeMenuText(g_recentFiles[index].path.wstring());
+                const std::wstring openedAt = FormatOpenedAtLocal(g_recentFiles[index].openedAtUnixSeconds);
+                std::wstring label = L"&" + std::to_wstring(index + 1) + L" " + path;
+                if (!openedAt.empty()) {
+                    label += L"\t" + openedAt;
+                }
                 AppendMenuW(g_fileMenu, MF_STRING, kCommandRecentFileBase + index, label.c_str());
             }
         }
@@ -381,7 +404,7 @@ std::optional<std::filesystem::path> GetRecentFileForCommand(UINT_PTR commandId)
         return std::nullopt;
     }
 
-    return g_recentFiles[index];
+    return g_recentFiles[index].path;
 }
 
 bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo) {

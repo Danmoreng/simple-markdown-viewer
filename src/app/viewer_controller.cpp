@@ -1,6 +1,7 @@
 #include "app/viewer_controller.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 #include <utility>
@@ -20,6 +21,10 @@ void ViewerController::SetConfigPath(std::filesystem::path path) {
     configPath_ = std::move(path);
 }
 
+void ViewerController::SetLegacyConfigPath(std::filesystem::path path) {
+    legacyConfigPath_ = std::move(path);
+}
+
 bool ViewerController::LoadConfig() {
     appState_.theme = ThemeMode::Light;
     appState_.baseFontSize = kDefaultBaseFontSize;
@@ -30,7 +35,16 @@ bool ViewerController::LoadConfig() {
         return false;
     }
 
-    const auto config = LoadAppConfig(configPath_);
+    std::filesystem::path loadPath = configPath_;
+    if (!legacyConfigPath_.empty()) {
+        std::error_code existsError;
+        const bool canonicalExists = std::filesystem::exists(configPath_, existsError);
+        if (!canonicalExists) {
+            loadPath = legacyConfigPath_;
+        }
+    }
+
+    const auto config = LoadAppConfig(loadPath);
     if (!config) {
         return false;
     }
@@ -38,10 +52,12 @@ bool ViewerController::LoadConfig() {
     appState_.theme = config->theme;
     appState_.baseFontSize = ClampBaseFontSize(config->baseFontSize);
     fontFamilyUtf8_ = config->fontFamilyUtf8;
-    for (const auto& recentFileUtf8 : config->recentFilesUtf8) {
-        if (!recentFileUtf8.empty()) {
-            const std::u8string recentPathUtf8(recentFileUtf8.begin(), recentFileUtf8.end());
-            AddRecentFile(std::filesystem::path(recentPathUtf8));
+    for (const auto& recentFile : config->recentFiles) {
+        if (!recentFile.pathUtf8.empty()) {
+            const std::u8string recentPathUtf8(recentFile.pathUtf8.begin(), recentFile.pathUtf8.end());
+            AppendRecentFileFromConfig(
+                std::filesystem::path(recentPathUtf8),
+                recentFile.openedAtUnixSeconds);
         }
     }
     return true;
@@ -52,14 +68,26 @@ bool ViewerController::SaveConfig() const {
         return false;
     }
 
+    const std::filesystem::path parentPath = configPath_.parent_path();
+    if (!parentPath.empty()) {
+        std::error_code createError;
+        std::filesystem::create_directories(parentPath, createError);
+        if (createError) {
+            return false;
+        }
+    }
+
     AppConfig config;
     config.theme = appState_.theme;
     config.fontFamilyUtf8 = fontFamilyUtf8_;
     config.baseFontSize = appState_.baseFontSize;
-    config.recentFilesUtf8.reserve(recentFiles_.size());
+    config.recentFiles.reserve(recentFiles_.size());
     for (const auto& recentFile : recentFiles_) {
-        const auto recentFileUtf8 = recentFile.u8string();
-        config.recentFilesUtf8.emplace_back(recentFileUtf8.begin(), recentFileUtf8.end());
+        const auto recentFileUtf8 = recentFile.path.u8string();
+        RecentFileConfigEntry entry;
+        entry.pathUtf8.assign(recentFileUtf8.begin(), recentFileUtf8.end());
+        entry.openedAtUnixSeconds = recentFile.openedAtUnixSeconds;
+        config.recentFiles.push_back(std::move(entry));
     }
 
     return SaveAppConfig(configPath_, config);
@@ -142,7 +170,8 @@ OpenDocumentStatus ViewerController::OpenFile(
     SkTypeface* typeface,
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider,
-    bool pushHistory) {
+    bool pushHistory,
+    bool updateRecentFiles) {
     auto result = LoadDocumentFromPath(path);
     if (result.status == DocumentLoadStatus::BinaryFile) {
         return OpenDocumentStatus::BinaryFile;
@@ -164,7 +193,9 @@ OpenDocumentStatus ViewerController::OpenFile(
 
     appState_.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
     appState_.currentFileLastWriteTime = TryGetFileWriteTime(path);
-    AddRecentFile(path);
+    if (updateRecentFiles) {
+        AddRecentFile(path, GetCurrentUnixSeconds());
+    }
     return OpenDocumentStatus::Success;
 }
 
@@ -178,7 +209,7 @@ OpenDocumentStatus ViewerController::ReloadCurrentFile(
         return OpenDocumentStatus::FileReadError;
     }
 
-    return OpenFile(currentPath, width, typeface, preloadDocument, imageSizeProvider, false);
+    return OpenFile(currentPath, width, typeface, preloadDocument, imageSizeProvider, false, false);
 }
 
 bool ViewerController::Relayout(
@@ -281,12 +312,40 @@ std::filesystem::path ViewerController::NormalizeRecentFilePath(const std::files
     }
 }
 
-void ViewerController::AddRecentFile(const std::filesystem::path& path) {
+long long ViewerController::GetCurrentUnixSeconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+void ViewerController::AddRecentFile(const std::filesystem::path& path, long long openedAtUnixSeconds) {
     const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
     recentFiles_.erase(
-        std::remove(recentFiles_.begin(), recentFiles_.end(), normalizedPath),
+        std::remove_if(
+            recentFiles_.begin(),
+            recentFiles_.end(),
+            [&](const RecentFileEntry& entry) {
+                return entry.path == normalizedPath;
+            }),
         recentFiles_.end());
-    recentFiles_.insert(recentFiles_.begin(), normalizedPath);
+    recentFiles_.insert(recentFiles_.begin(), RecentFileEntry{normalizedPath, openedAtUnixSeconds});
+    if (recentFiles_.size() > kMaxRecentFiles) {
+        recentFiles_.resize(kMaxRecentFiles);
+    }
+}
+
+void ViewerController::AppendRecentFileFromConfig(const std::filesystem::path& path, long long openedAtUnixSeconds) {
+    const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
+    const auto existing = std::find_if(
+        recentFiles_.begin(),
+        recentFiles_.end(),
+        [&](const RecentFileEntry& entry) {
+            return entry.path == normalizedPath;
+        });
+    if (existing != recentFiles_.end()) {
+        return;
+    }
+
+    recentFiles_.push_back(RecentFileEntry{normalizedPath, openedAtUnixSeconds});
     if (recentFiles_.size() > kMaxRecentFiles) {
         recentFiles_.resize(kMaxRecentFiles);
     }

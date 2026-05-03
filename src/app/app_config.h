@@ -9,11 +9,16 @@
 
 namespace mdviewer {
 
+struct RecentFileConfigEntry {
+    std::string pathUtf8;
+    long long openedAtUnixSeconds = 0;
+};
+
 struct AppConfig {
     ThemeMode theme = ThemeMode::Light;
     std::string fontFamilyUtf8;
     float baseFontSize = 17.0f;
-    std::vector<std::string> recentFilesUtf8;
+    std::vector<RecentFileConfigEntry> recentFiles;
 };
 
 std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path);

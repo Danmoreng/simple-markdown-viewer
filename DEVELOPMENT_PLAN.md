@@ -57,8 +57,8 @@ Goal: make the current behavior safer to change before adding larger user-facing
 
 Goal: finish the remaining small persistence and reader-control details without expanding the settings surface.
 
-- [ ] Add a per-user config fallback when `mdviewer.ini` cannot be written next to the executable.
-- [ ] Keep config saving explicit and robust, with invalid or missing values falling back to safe defaults.
+- [x] Use a canonical per-user `mdviewer.ini` path, with one-time-compatible loading from legacy executable-adjacent config when the per-user file does not exist.
+- [x] Keep config saving explicit and robust, with invalid or missing values falling back to safe defaults.
 - [ ] Decide whether theme palette overrides in config remain supported long-term, and document the supported keys if they do.
 - [ ] Consider `Ctrl` + mouse wheel zoom if it fits the interaction model.
 - [ ] Preserve reading position as well as practical after zoom, relayout, manual reload, and automatic reload.

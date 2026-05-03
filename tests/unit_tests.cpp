@@ -104,6 +104,7 @@ void ConfigParsingAndSaving() {
         "font_family= Example Font \n"
         "base_font_size=999\n"
         "recent_file_0=C:/docs/one.md\n"
+        "recent_file_0_opened_at=1700000000\n"
         "recent_file_1=\n"
         "recent_file_2=C:/docs/two.md\n");
 
@@ -112,8 +113,10 @@ void ConfigParsingAndSaving() {
     Require(loaded->theme == mdviewer::ThemeMode::Dark, "theme should parse");
     RequireEqual(loaded->fontFamilyUtf8, std::string("Example Font"), "font family should trim");
     RequireNear(loaded->baseFontSize, mdviewer::ClampBaseFontSize(999.0f), 0.001f, "font size should clamp");
-    RequireEqual(loaded->recentFilesUtf8.size(), static_cast<size_t>(2), "empty recent entries should be skipped");
-    RequireEqual(loaded->recentFilesUtf8[1], std::string("C:/docs/two.md"), "recent files should preserve order");
+    RequireEqual(loaded->recentFiles.size(), static_cast<size_t>(2), "empty recent entries should be skipped");
+    RequireEqual(loaded->recentFiles[0].pathUtf8, std::string("C:/docs/one.md"), "recent files should preserve order");
+    RequireEqual(loaded->recentFiles[0].openedAtUnixSeconds, 1700000000LL, "recent opened timestamp should parse");
+    RequireEqual(loaded->recentFiles[1].pathUtf8, std::string("C:/docs/two.md"), "recent files should preserve sparse index order");
 
     WriteText(configPath, "[app]\nbase_font_size=not-a-number\ntheme=missing\n");
     const auto invalid = mdviewer::LoadAppConfig(configPath);
@@ -125,13 +128,18 @@ void ConfigParsingAndSaving() {
     saved.theme = mdviewer::ThemeMode::Sepia;
     saved.fontFamilyUtf8 = "Saved Font";
     saved.baseFontSize = 21.0f;
-    saved.recentFilesUtf8 = {"C:/docs/a.md", "C:/docs/b.md"};
+    saved.recentFiles = {
+        {"C:/docs/a.md", 1700000100},
+        {"C:/docs/b.md", 1700000200},
+    };
     Require(mdviewer::SaveAppConfig(configPath, saved), "config should save");
     const auto roundTrip = mdviewer::LoadAppConfig(configPath);
     Require(roundTrip.has_value(), "saved config should reload");
     Require(roundTrip->theme == mdviewer::ThemeMode::Sepia, "saved theme should round-trip");
     RequireEqual(roundTrip->fontFamilyUtf8, saved.fontFamilyUtf8, "saved font should round-trip");
-    Require(roundTrip->recentFilesUtf8 == saved.recentFilesUtf8, "saved recent files should round-trip");
+    RequireEqual(roundTrip->recentFiles.size(), saved.recentFiles.size(), "saved recent files should round-trip");
+    RequireEqual(roundTrip->recentFiles[0].pathUtf8, saved.recentFiles[0].pathUtf8, "saved recent path should round-trip");
+    RequireEqual(roundTrip->recentFiles[0].openedAtUnixSeconds, saved.recentFiles[0].openedAtUnixSeconds, "saved recent timestamp should round-trip");
 }
 
 void RecentFilesAndHistory() {
@@ -141,6 +149,7 @@ void RecentFilesAndHistory() {
     config << "[app]\n";
     for (int index = 0; index < 10; ++index) {
         config << "recent_file_" << index << '=' << (temp.Path() / ("file" + std::to_string(index) + ".md")).string() << '\n';
+        config << "recent_file_" << index << "_opened_at=" << (1700000000 + index) << '\n';
     }
     config << "recent_file_10=" << (temp.Path() / "file5.md").string() << '\n';
     WriteText(configPath, config.str());
@@ -150,7 +159,19 @@ void RecentFilesAndHistory() {
     Require(controller.LoadConfig(), "controller config should load");
     const auto& recent = controller.GetRecentFiles();
     RequireEqual(recent.size(), static_cast<size_t>(8), "recent files should be capped");
-    Require(recent.front().filename() == "file5.md", "duplicate recent file should move to front");
+    Require(recent.front().path.filename() == "file0.md", "loaded recent files should keep most-recent-first order");
+    RequireEqual(recent.front().openedAtUnixSeconds, 1700000000LL, "loaded recent timestamp should be preserved");
+    Require(std::any_of(recent.begin(), recent.end(), [](const mdviewer::RecentFileEntry& entry) {
+        return entry.path.filename() == "file5.md";
+    }), "duplicate recent file later in config should not create another entry");
+
+    const fs::path openedPath = temp.Path() / "fresh.md";
+    WriteText(openedPath, "# Fresh\n");
+    Require(
+        controller.OpenFile(openedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
+        "opening a file should succeed");
+    Require(controller.GetRecentFiles().front().path.filename() == "fresh.md", "newly opened file should be first in recent files");
+    Require(controller.GetRecentFiles().front().openedAtUnixSeconds > 0, "newly opened file should record an opened timestamp");
 
     mdviewer::AppState state;
     const fs::path first = temp.Path() / "first.md";
@@ -166,6 +187,48 @@ void RecentFilesAndHistory() {
     state.PushHistory(third);
     RequireEqual(state.history.size(), static_cast<size_t>(2), "pushing after back should discard forward history");
     RequireEqual(state.history.back(), third, "new history target should be appended");
+}
+
+void ConfigPathMigration() {
+    TempDir temp;
+    const fs::path canonicalPath = temp.Path() / "user" / "config" / "mdviewer.ini";
+    const fs::path legacyPath = temp.Path() / "exe" / "mdviewer.ini";
+
+    WriteText(legacyPath,
+        "[app]\n"
+        "theme=dark\n"
+        "font_family=Legacy Font\n"
+        "base_font_size=18\n");
+
+    mdviewer::ViewerController controller;
+    controller.SetConfigPath(canonicalPath);
+    controller.SetLegacyConfigPath(legacyPath);
+    Require(controller.LoadConfig(), "controller should load legacy config when canonical config is absent");
+    Require(controller.GetTheme() == mdviewer::ThemeMode::Dark, "legacy theme should load");
+    RequireEqual(controller.GetFontFamilyUtf8(), std::string("Legacy Font"), "legacy font should load");
+
+    WriteText(canonicalPath,
+        "[app]\n"
+        "theme=sepia\n"
+        "font_family=Canonical Font\n"
+        "base_font_size=20\n");
+
+    Require(controller.LoadConfig(), "controller should load canonical config when present");
+    Require(controller.GetTheme() == mdviewer::ThemeMode::Sepia, "canonical theme should win over legacy");
+    RequireEqual(controller.GetFontFamilyUtf8(), std::string("Canonical Font"), "canonical font should win over legacy");
+
+    const fs::path nestedCanonicalPath = temp.Path() / "new-user-dir" / "nested" / "mdviewer.ini";
+    mdviewer::ViewerController saveController;
+    saveController.SetConfigPath(nestedCanonicalPath);
+    saveController.SetTheme(mdviewer::ThemeMode::Dark);
+    saveController.SetFontFamilyUtf8("Saved User Font");
+    Require(saveController.SaveConfig(), "saving should create missing canonical config directories");
+    Require(fs::exists(nestedCanonicalPath), "canonical config file should be created");
+
+    const auto saved = mdviewer::LoadAppConfig(nestedCanonicalPath);
+    Require(saved.has_value(), "saved canonical config should be readable");
+    Require(saved->theme == mdviewer::ThemeMode::Dark, "saved canonical config should preserve theme");
+    RequireEqual(saved->fontFamilyUtf8, std::string("Saved User Font"), "saved canonical config should preserve font");
 }
 
 void LinkResolution() {
@@ -319,6 +382,7 @@ int main() {
     const std::vector<std::pair<const char*, void (*)()>> tests = {
         {"ConfigParsingAndSaving", ConfigParsingAndSaving},
         {"RecentFilesAndHistory", RecentFilesAndHistory},
+        {"ConfigPathMigration", ConfigPathMigration},
         {"LinkResolution", LinkResolution},
         {"HeadingAnchors", HeadingAnchors},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},

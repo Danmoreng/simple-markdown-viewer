@@ -124,13 +124,20 @@ depend on the local Skia setup.
 
 ## Configuration
 
-The app stores settings in `mdviewer.ini` next to the executable. Persisted
-settings include:
+The app stores settings in a per-user `mdviewer.ini`:
+
+- Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
+- Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or
+  `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set
+
+If the per-user file does not exist, the app may load a legacy `mdviewer.ini`
+next to the executable for compatibility. Future saves go to the per-user path.
+Persisted settings include:
 
 - selected theme
 - selected document font family
 - base font size / reader zoom
-- recent files
+- recent files and their last-opened timestamps
 
 Config parsing should be tolerant. Invalid or missing values must fall back to
 safe defaults.

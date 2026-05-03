@@ -38,7 +38,8 @@ public:
     std::wstring GetSelectedFontFamily() const;
     static std::string WideToUtf8(const std::wstring& text);
     static std::wstring Utf8ToWide(const std::string& text);
-    static std::filesystem::path GetExecutableConfigPath();
+    static std::filesystem::path GetUserConfigPath();
+    static std::filesystem::path GetLegacyExecutableConfigPath();
 
 private:
     ViewerController controller_;

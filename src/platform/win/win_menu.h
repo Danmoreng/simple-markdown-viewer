@@ -10,6 +10,7 @@
 #include <optional>
 #include <vector>
 
+#include "app/viewer_controller.h"
 #include "render/theme.h"
 #include "render/menu_renderer.h"
 
@@ -40,7 +41,7 @@ void UpdateMenuState(
     ThemeMode currentTheme,
     bool hasCustomFont,
     const ThemePalette& palette,
-    const std::vector<std::filesystem::path>& recentFiles);
+    const std::vector<RecentFileEntry>& recentFiles);
 std::optional<std::filesystem::path> GetRecentFileForCommand(UINT_PTR commandId);
 
 bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo);

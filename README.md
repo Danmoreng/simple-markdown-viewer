@@ -72,7 +72,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
 - Automatic document reload on external file changes while the file is open on Windows
-- Persistent settings in `mdviewer.ini` for theme, reading font, zoom level, and recent files
+- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, and recent files with opened timestamps
 - Embedded Windows app icon
 
 ## Scope
@@ -189,7 +189,12 @@ Open a file immediately:
 .\build\Release\mdviewer.exe .\README.md
 ```
 
-The app stores `mdviewer.ini` next to the executable and uses it for theme, font, zoom, and recent-file persistence.
+The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, and recent-file persistence:
+
+- Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
+- Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set
+
+For compatibility, if the per-user file does not exist, the app can still load a legacy `mdviewer.ini` next to the executable. Future saves go to the per-user path.
 
 ## Linux Build Notes
 
@@ -198,7 +203,7 @@ The Linux host is compiled from the same CMake target on Linux. It uses GLFW for
 ## Controls
 
 - `File -> Open...`: open a file
-- `File`: reopen recently opened files on Windows
+- `File`: reopen recently opened files on Windows; the newest file appears first with its last-opened date and time
 - drag and drop: open a file
 - mouse wheel: scroll
 - middle mouse button: auto-scroll mode on Windows

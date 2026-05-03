@@ -34,7 +34,8 @@ int RunLinuxApp(int argc, char* argv[]) {
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     LinuxApp app;
-    app.Controller().SetConfigPath(LinuxApp::GetExecutableConfigPath());
+    app.Controller().SetConfigPath(LinuxApp::GetUserConfigPath());
+    app.Controller().SetLegacyConfigPath(LinuxApp::GetLegacyExecutableConfigPath());
     app.Controller().LoadConfig();
 
     std::cerr << "Creating window..." << std::endl;

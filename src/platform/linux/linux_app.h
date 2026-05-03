@@ -30,7 +30,8 @@ public:
 
     LinuxSurfaceContext& SurfaceContext() { return surfaceContext_; }
 
-    static std::filesystem::path GetExecutableConfigPath();
+    static std::filesystem::path GetUserConfigPath();
+    static std::filesystem::path GetLegacyExecutableConfigPath();
 
 private:
     ViewerController controller_;

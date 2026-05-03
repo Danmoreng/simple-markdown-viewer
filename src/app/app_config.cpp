@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <map>
+#include <optional>
 #include <sstream>
+#include <string_view>
 
 #include "render/typography.h"
 
@@ -18,6 +21,54 @@ std::string Trim(std::string value) {
     return value;
 }
 
+std::optional<size_t> ParseRecentFileIndex(const std::string& key) {
+    constexpr std::string_view prefix = "recent_file_";
+    if (key.rfind(prefix, 0) != 0) {
+        return std::nullopt;
+    }
+
+    const std::string suffix = key.substr(prefix.size());
+    if (suffix.empty() || suffix.find_first_not_of("0123456789") != std::string::npos) {
+        return std::nullopt;
+    }
+
+    try {
+        return static_cast<size_t>(std::stoull(suffix));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<size_t> ParseRecentOpenedAtIndex(const std::string& key) {
+    constexpr std::string_view prefix = "recent_file_";
+    constexpr std::string_view suffix = "_opened_at";
+    if (key.rfind(prefix, 0) != 0 || key.size() <= prefix.size() + suffix.size()) {
+        return std::nullopt;
+    }
+    if (key.compare(key.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return std::nullopt;
+    }
+
+    const std::string indexText = key.substr(prefix.size(), key.size() - prefix.size() - suffix.size());
+    if (indexText.empty() || indexText.find_first_not_of("0123456789") != std::string::npos) {
+        return std::nullopt;
+    }
+
+    try {
+        return static_cast<size_t>(std::stoull(indexText));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+long long ParseUnixSeconds(const std::string& value) {
+    try {
+        return std::max(0LL, std::stoll(value));
+    } catch (...) {
+        return 0;
+    }
+}
+
 } // namespace
 
 std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
@@ -27,6 +78,7 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
     }
 
     AppConfig config;
+    std::map<size_t, RecentFileConfigEntry> recentFilesByIndex;
     std::string section;
     std::string line;
     while (std::getline(input, line)) {
@@ -62,8 +114,17 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
             } catch (...) {
                 config.baseFontSize = kDefaultBaseFontSize;
             }
-        } else if (key.rfind("recent_file_", 0) == 0 && !value.empty()) {
-            config.recentFilesUtf8.push_back(value);
+        } else if (const auto fileIndex = ParseRecentFileIndex(key); fileIndex && !value.empty()) {
+            recentFilesByIndex[*fileIndex].pathUtf8 = value;
+        } else if (const auto openedAtIndex = ParseRecentOpenedAtIndex(key); openedAtIndex) {
+            recentFilesByIndex[*openedAtIndex].openedAtUnixSeconds = ParseUnixSeconds(value);
+        }
+    }
+
+    for (auto& [recentIndex, recentFile] : recentFilesByIndex) {
+        (void)recentIndex;
+        if (!recentFile.pathUtf8.empty()) {
+            config.recentFiles.push_back(std::move(recentFile));
         }
     }
 
@@ -80,8 +141,11 @@ bool SaveAppConfig(const std::filesystem::path& path, const AppConfig& config) {
     output << "theme=" << ThemeModeToString(config.theme) << '\n';
     output << "font_family=" << config.fontFamilyUtf8 << '\n';
     output << "base_font_size=" << ClampBaseFontSize(config.baseFontSize) << '\n';
-    for (size_t index = 0; index < config.recentFilesUtf8.size(); ++index) {
-        output << "recent_file_" << index << '=' << config.recentFilesUtf8[index] << '\n';
+    for (size_t index = 0; index < config.recentFiles.size(); ++index) {
+        output << "recent_file_" << index << '=' << config.recentFiles[index].pathUtf8 << '\n';
+        if (config.recentFiles[index].openedAtUnixSeconds > 0) {
+            output << "recent_file_" << index << "_opened_at=" << config.recentFiles[index].openedAtUnixSeconds << '\n';
+        }
     }
     return output.good();
 }
