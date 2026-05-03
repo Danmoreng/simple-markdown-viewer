@@ -67,6 +67,7 @@ public:
             BlockLayout bl;
             bl.type = block.type;
             bl.align = block.align;
+            bl.taskListState = block.taskListState;
             bl.textStart = currentTextOffset;
 
             float fontSize = GetBlockFontSize(block.type, baseFontSize);

@@ -41,6 +41,12 @@ enum class InlineStyle {
     Image
 };
 
+enum class TaskListState {
+    None,
+    Unchecked,
+    Checked
+};
+
 struct InlineRun {
     InlineStyle style;
     std::string text;
@@ -50,6 +56,7 @@ struct InlineRun {
 struct Block {
     BlockType type;
     TextAlign align = TextAlign::Default;
+    TaskListState taskListState = TaskListState::None;
     std::vector<InlineRun> inlineRuns;
     std::vector<Block> children; // For nested blocks like lists
 };

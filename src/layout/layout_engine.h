@@ -29,6 +29,7 @@ struct LineLayout {
 struct BlockLayout {
     BlockType type;
     TextAlign align = TextAlign::Default;
+    TaskListState taskListState = TaskListState::None;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;

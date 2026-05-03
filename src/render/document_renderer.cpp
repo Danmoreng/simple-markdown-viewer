@@ -72,6 +72,28 @@ void DrawCopyIcon(SkCanvas* canvas, float x, float y, float size, SkColor color)
     canvas->drawRoundRect(clip, 1.0f, 1.0f, paint);
 }
 
+void DrawTaskCheckbox(SkCanvas* canvas, float centerX, float centerY, float size, bool checked, SkColor color) {
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(color);
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(std::max(size * 0.12f, 1.4f));
+    paint.setStrokeCap(SkPaint::kRound_Cap);
+    paint.setStrokeJoin(SkPaint::kRound_Join);
+
+    const SkRect box = SkRect::MakeXYWH(centerX - (size * 0.5f), centerY - (size * 0.5f), size, size);
+    canvas->drawRoundRect(box, 2.0f, 2.0f, paint);
+
+    if (!checked) {
+        return;
+    }
+
+    canvas->drawLine(box.left() + size * 0.24f, box.top() + size * 0.53f,
+                     box.left() + size * 0.43f, box.top() + size * 0.72f, paint);
+    canvas->drawLine(box.left() + size * 0.43f, box.top() + size * 0.72f,
+                     box.left() + size * 0.78f, box.top() + size * 0.30f, paint);
+}
+
 const LineLayout* FindFirstLine(const BlockLayout& block) {
     if (!block.lines.empty()) {
         return &block.lines.front();
@@ -184,12 +206,22 @@ void DrawBlockDecoration(
         ctx.paint.setColor(params.palette.listMarker);
         const float markerBaseline = firstLine->y + firstLine->height - kTextBaselineOffset;
         const float markerX = block.bounds.left() - kListMarkerGap;
+        const float markerCenterY = markerBaseline - (firstLine->height * 0.35f);
 
-        if (parentType == BlockType::OrderedList) {
+        if (block.taskListState != TaskListState::None) {
+            const float boxSize = std::clamp(params.baseFontSize * 0.72f, 10.0f, 16.0f);
+            DrawTaskCheckbox(
+                ctx.canvas,
+                markerX,
+                markerCenterY,
+                boxSize,
+                block.taskListState == TaskListState::Checked,
+                params.palette.listMarker);
+        } else if (parentType == BlockType::OrderedList) {
             const std::string marker = std::to_string(siblingIndex + 1) + ".";
             ctx.canvas->drawString(marker.c_str(), markerX - 6.0f, markerBaseline, ctx.font, ctx.paint);
         } else {
-            ctx.canvas->drawCircle(markerX, markerBaseline - (firstLine->height * 0.35f), 3.0f, ctx.paint);
+            ctx.canvas->drawCircle(markerX, markerCenterY, 3.0f, ctx.paint);
         }
         return;
     }

@@ -223,6 +223,15 @@ static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
     
     Block block;
     block.type = MapBlockType(type, detail);
+    if (type == MD_BLOCK_LI) {
+        const auto* liDetail = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
+        if (liDetail != nullptr && liDetail->is_task) {
+            block.taskListState =
+                (liDetail->task_mark == 'x' || liDetail->task_mark == 'X')
+                    ? TaskListState::Checked
+                    : TaskListState::Unchecked;
+        }
+    }
     if (type == MD_BLOCK_TH || type == MD_BLOCK_TD) {
         const auto* cellDetail = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
         block.align = MapTextAlign(cellDetail->align);
