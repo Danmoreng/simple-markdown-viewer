@@ -30,6 +30,9 @@ struct BlockLayout {
     BlockType type;
     TextAlign align = TextAlign::Default;
     TaskListState taskListState = TaskListState::None;
+    unsigned orderedListStart = 1;
+    char orderedListDelimiter = '.';
+    std::string codeLanguage;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;

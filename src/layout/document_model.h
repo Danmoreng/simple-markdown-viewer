@@ -38,7 +38,8 @@ enum class InlineStyle {
     Strong,
     Code,
     Link,
-    Image
+    Image,
+    Strikethrough
 };
 
 enum class TaskListState {
@@ -57,6 +58,9 @@ struct Block {
     BlockType type;
     TextAlign align = TextAlign::Default;
     TaskListState taskListState = TaskListState::None;
+    unsigned orderedListStart = 1;
+    char orderedListDelimiter = '.';
+    std::string codeLanguage;
     std::vector<InlineRun> inlineRuns;
     std::vector<Block> children; // For nested blocks like lists
 };

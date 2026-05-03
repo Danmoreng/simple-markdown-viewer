@@ -26,6 +26,7 @@ constexpr float kCodeBlockPaddingY = 8.0f;
 constexpr float kBlockquoteAccentWidth = 4.0f;
 constexpr float kBlockquoteTextInset = 18.0f;
 constexpr float kListMarkerGap = 16.0f;
+constexpr float kOrderedListMarkerTextGap = 10.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableBorderWidth = 1.0f;
 
@@ -149,6 +150,8 @@ void DrawBlockDecoration(
     const DocumentSceneParams& params,
     const BlockLayout& block,
     BlockType parentType,
+    unsigned parentOrderedListStart,
+    char parentOrderedListDelimiter,
     size_t siblingIndex) {
     if (block.type == BlockType::CodeBlock) {
         SkPaint backgroundPaint;
@@ -176,6 +179,36 @@ void DrawBlockDecoration(
         }
 
         DrawCopyIcon(ctx.canvas, btnRect.left(), btnRect.top(), btnSize, params.palette.listMarker);
+
+        if (!block.codeLanguage.empty()) {
+            ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::CodeBlock, InlineStyle::Plain, params.baseFontSize);
+            ctx.font.setSize(std::max(params.baseFontSize * 0.7f, 10.0f));
+
+            SkRect labelBounds;
+            ctx.font.measureText(block.codeLanguage.c_str(), block.codeLanguage.size(), SkTextEncoding::kUTF8, &labelBounds);
+            const float labelPaddingX = 6.0f;
+            const float labelHeight = 20.0f;
+            const float labelWidth = labelBounds.width() + (labelPaddingX * 2.0f);
+            const float labelRight = btnRect.left() - 6.0f;
+            const SkRect labelRect = SkRect::MakeXYWH(
+                std::max(bgRect.left() + 6.0f, labelRight - labelWidth),
+                bgRect.top() + 6.0f,
+                labelWidth,
+                labelHeight);
+
+            SkPaint labelPaint;
+            labelPaint.setAntiAlias(true);
+            labelPaint.setColor(params.palette.codeInlineBackground);
+            ctx.canvas->drawRoundRect(labelRect, 4.0f, 4.0f, labelPaint);
+
+            ctx.paint.setColor(params.palette.codeText);
+            ctx.canvas->drawString(
+                block.codeLanguage.c_str(),
+                labelRect.left() + labelPaddingX,
+                labelRect.top() + labelHeight - 6.0f,
+                ctx.font,
+                ctx.paint);
+        }
         return;
     }
 
@@ -218,8 +251,16 @@ void DrawBlockDecoration(
                 block.taskListState == TaskListState::Checked,
                 params.palette.listMarker);
         } else if (parentType == BlockType::OrderedList) {
-            const std::string marker = std::to_string(siblingIndex + 1) + ".";
-            ctx.canvas->drawString(marker.c_str(), markerX - 6.0f, markerBaseline, ctx.font, ctx.paint);
+            const std::string marker =
+                std::to_string(parentOrderedListStart + static_cast<unsigned>(siblingIndex)) +
+                parentOrderedListDelimiter;
+            const float markerWidth = ctx.font.measureText(marker.c_str(), marker.size(), SkTextEncoding::kUTF8);
+            ctx.canvas->drawString(
+                marker.c_str(),
+                block.bounds.left() - kOrderedListMarkerTextGap - markerWidth,
+                markerBaseline,
+                ctx.font,
+                ctx.paint);
         } else {
             ctx.canvas->drawCircle(markerX, markerCenterY, 3.0f, ctx.paint);
         }
@@ -311,6 +352,15 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             ctx.canvas->drawLine(currentX, baselineY + 2.0f, currentX + advance, baselineY + 2.0f, underlinePaint);
         }
 
+        if (run.style == InlineStyle::Strikethrough && advance > 0.0f) {
+            SkPaint strikePaint;
+            strikePaint.setAntiAlias(true);
+            strikePaint.setStrokeWidth(std::max(params.baseFontSize * 0.07f, 1.0f));
+            strikePaint.setColor(GetDocumentTextColor(params.palette, block.type, run.style));
+            const float strikeY = baselineY - (ctx.font.getSize() * 0.32f);
+            ctx.canvas->drawLine(currentX, strikeY, currentX + advance, strikeY, strikePaint);
+        }
+
         currentX += advance;
     }
 }
@@ -319,7 +369,9 @@ void DrawBlocks(
     RenderContext& ctx,
     const DocumentSceneParams& params,
     const std::vector<BlockLayout>& blocks,
-    BlockType parentType = BlockType::Paragraph) {
+    BlockType parentType = BlockType::Paragraph,
+    unsigned parentOrderedListStart = 1,
+    char parentOrderedListDelimiter = '.') {
     for (size_t index = 0; index < blocks.size(); ++index) {
         const auto& block = blocks[index];
         if (block.bounds.bottom() < params.visibleDocumentTop || block.bounds.top() > params.visibleDocumentBottom) {
@@ -333,7 +385,7 @@ void DrawBlocks(
             continue;
         }
 
-        DrawBlockDecoration(ctx, params, block, parentType, index);
+        DrawBlockDecoration(ctx, params, block, parentType, parentOrderedListStart, parentOrderedListDelimiter, index);
 
         for (const auto& line : block.lines) {
             DrawSelectionForLine(ctx, params, block, line);
@@ -341,7 +393,7 @@ void DrawBlocks(
         }
 
         if (!block.children.empty()) {
-            DrawBlocks(ctx, params, block.children, block.type);
+            DrawBlocks(ctx, params, block.children, block.type, block.orderedListStart, block.orderedListDelimiter);
         }
     }
 }

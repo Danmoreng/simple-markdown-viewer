@@ -68,6 +68,9 @@ public:
             bl.type = block.type;
             bl.align = block.align;
             bl.taskListState = block.taskListState;
+            bl.orderedListStart = block.orderedListStart;
+            bl.orderedListDelimiter = block.orderedListDelimiter;
+            bl.codeLanguage = block.codeLanguage;
             bl.textStart = currentTextOffset;
 
             float fontSize = GetBlockFontSize(block.type, baseFontSize);
