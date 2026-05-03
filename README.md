@@ -156,7 +156,7 @@ Useful variants:
 - GitHub Actions builds the Windows release on pushes to `main` and on pull requests.
 - CI prefers a prebuilt Windows Skia bundle so normal app builds do not rebuild Skia from source.
 - Each workflow run uploads `mdviewer-windows-x64.zip` as a build artifact.
-- Pushing a tag like `v0.1.3` also creates or updates a GitHub release and attaches the packaged Windows build.
+- Pushing a tag like `v0.1.4` also creates or updates a GitHub release and attaches the packaged Windows build.
 - Release archives contain `mdviewer.exe`, `LICENSE`, and `THIRD_PARTY_NOTICES`.
 
 Default output:
