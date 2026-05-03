@@ -39,7 +39,17 @@ enum class InlineStyle {
     Code,
     Link,
     Image,
-    Strikethrough
+    Strikethrough,
+    SyntaxComment,
+    SyntaxKeyword,
+    SyntaxString,
+    SyntaxNumber,
+    SyntaxFunction,
+    SyntaxType,
+    SyntaxVariable,
+    SyntaxConstant,
+    SyntaxOperator,
+    SyntaxPunctuation
 };
 
 enum class TaskListState {

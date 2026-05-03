@@ -66,8 +66,11 @@ A separate ordered list with a custom start value:
 
 ```cpp
 // The fenced code block language tag should be visible in the code block chrome.
+#include <vector>
+
 int main() {
-    return 0;
+    std::vector<int> values = {1, 2, 3};
+    return values.empty() ? 0 : values[0];
 }
 ```
 
@@ -76,6 +79,46 @@ Indented code block:
     function example() {
         return "indented code";
     }
+
+```javascript
+export function greet(name) {
+    const message = `Hello, ${name}`;
+    return message.toUpperCase();
+}
+```
+
+```typescript
+type User = {
+    id: number;
+    name: string;
+};
+
+const user: User = { id: 1, name: "Ada" };
+```
+
+```json
+{
+  "name": "markdown-viewer",
+  "features": ["syntax", "tables", "links"],
+  "enabled": true
+}
+```
+
+```python
+def fib(count: int) -> list[int]:
+    values = [0, 1]
+    while len(values) < count:
+        values.append(values[-1] + values[-2])
+    return values
+```
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+for file in *.md; do
+    echo "checking ${file}"
+done
+```
 
 ## Tables
 

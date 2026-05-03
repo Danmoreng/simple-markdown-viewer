@@ -530,6 +530,19 @@ SkColor GetDocumentTextColor(const ThemePalette& palette, BlockType blockType, I
     if (blockType == BlockType::Blockquote) {
         return palette.blockquoteText;
     }
+    switch (inlineStyle) {
+        case InlineStyle::SyntaxComment: return palette.syntaxComment;
+        case InlineStyle::SyntaxKeyword: return palette.syntaxKeyword;
+        case InlineStyle::SyntaxString: return palette.syntaxString;
+        case InlineStyle::SyntaxNumber: return palette.syntaxNumber;
+        case InlineStyle::SyntaxFunction: return palette.syntaxFunction;
+        case InlineStyle::SyntaxType: return palette.syntaxType;
+        case InlineStyle::SyntaxVariable: return palette.syntaxVariable;
+        case InlineStyle::SyntaxConstant: return palette.syntaxConstant;
+        case InlineStyle::SyntaxOperator: return palette.syntaxOperator;
+        case InlineStyle::SyntaxPunctuation: return palette.syntaxPunctuation;
+        default: break;
+    }
     if (inlineStyle == InlineStyle::Code) {
         return palette.codeText;
     }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mdviewer VERSION 0.1.2 LANGUAGES CXX)
+project(mdviewer VERSION 0.1.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +13,113 @@ FetchContent_Declare(
     GIT_TAG        release-0.5.2
 )
 FetchContent_MakeAvailable(md4c)
+
+# Tree-sitter - mature parser-based syntax highlighting for fenced code blocks.
+FetchContent_Declare(
+    tree_sitter
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_c
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_cpp
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_javascript
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-javascript.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_typescript
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-typescript.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_json
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-json.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_python
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-python.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_Declare(
+    tree_sitter_bash
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-bash.git
+    GIT_TAG        master
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_MakeAvailable(
+    tree_sitter
+    tree_sitter_c
+    tree_sitter_cpp
+    tree_sitter_javascript
+    tree_sitter_typescript
+    tree_sitter_json
+    tree_sitter_python
+    tree_sitter_bash
+)
+
+set(TREE_SITTER_CORE_SOURCE "${tree_sitter_SOURCE_DIR}/lib/src/lib.c")
+set(TREE_SITTER_LANGUAGE_SOURCES
+    "${tree_sitter_c_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_cpp_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_javascript_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_javascript_SOURCE_DIR}/src/scanner.c"
+    "${tree_sitter_typescript_SOURCE_DIR}/typescript/src/parser.c"
+    "${tree_sitter_typescript_SOURCE_DIR}/typescript/src/scanner.c"
+    "${tree_sitter_typescript_SOURCE_DIR}/tsx/src/parser.c"
+    "${tree_sitter_typescript_SOURCE_DIR}/tsx/src/scanner.c"
+    "${tree_sitter_json_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_python_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_python_SOURCE_DIR}/src/scanner.c"
+    "${tree_sitter_bash_SOURCE_DIR}/src/parser.c"
+    "${tree_sitter_bash_SOURCE_DIR}/src/scanner.c"
+)
+if(EXISTS "${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c")
+    list(APPEND TREE_SITTER_LANGUAGE_SOURCES "${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c")
+endif()
+set(TREE_SITTER_QUERY_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated_tree_sitter_queries.cpp")
+file(WRITE "${TREE_SITTER_QUERY_SOURCE}"
+    "#include \"render/syntax/tree_sitter_queries.h\"\n\n"
+    "namespace mdviewer::syntax {\n\n")
+
+function(append_tree_sitter_query function_name query_path)
+    if(EXISTS "${query_path}")
+        file(READ "${query_path}" query_text)
+    else()
+        set(query_text "")
+    endif()
+    file(APPEND "${TREE_SITTER_QUERY_SOURCE}"
+        "const char* ${function_name}() {\n"
+        "    return R\"mdvquery(${query_text})mdvquery\";\n"
+        "}\n\n")
+endfunction()
+
+append_tree_sitter_query(GetTreeSitterCQuery "${tree_sitter_c_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterCppQuery "${tree_sitter_cpp_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterJavaScriptQuery "${tree_sitter_javascript_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterTypeScriptQuery "${tree_sitter_typescript_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterTsxQuery "${tree_sitter_typescript_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterJsonQuery "${tree_sitter_json_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterPythonQuery "${tree_sitter_python_SOURCE_DIR}/queries/highlights.scm")
+append_tree_sitter_query(GetTreeSitterBashQuery "${tree_sitter_bash_SOURCE_DIR}/queries/highlights.scm")
+
+file(APPEND "${TREE_SITTER_QUERY_SOURCE}" "} // namespace mdviewer::syntax\n")
 
 # GLFW for Linux windowing
 if(UNIX AND NOT APPLE)
@@ -54,10 +161,14 @@ set(SOURCES
     src/render/document_typefaces.cpp
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
+    src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp
     src/view/document_hit_test.cpp
     src/view/document_interaction.cpp
+    ${TREE_SITTER_CORE_SOURCE}
+    ${TREE_SITTER_LANGUAGE_SOURCES}
+    ${TREE_SITTER_QUERY_SOURCE}
 )
 
 if(WIN32)
@@ -104,6 +215,17 @@ endif()
 
 target_include_directories(mdviewer PRIVATE 
     src
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${tree_sitter_SOURCE_DIR}/lib/include
+    ${tree_sitter_SOURCE_DIR}/lib/src
+    ${tree_sitter_c_SOURCE_DIR}/src
+    ${tree_sitter_cpp_SOURCE_DIR}/src
+    ${tree_sitter_javascript_SOURCE_DIR}/src
+    ${tree_sitter_typescript_SOURCE_DIR}/typescript/src
+    ${tree_sitter_typescript_SOURCE_DIR}/tsx/src
+    ${tree_sitter_json_SOURCE_DIR}/src
+    ${tree_sitter_python_SOURCE_DIR}/src
+    ${tree_sitter_bash_SOURCE_DIR}/src
     ${SKIA_DIR}
     ${SKIA_DIR}/include/core
     ${SKIA_DIR}/include/config
@@ -152,6 +274,11 @@ endif()
 # Basic Windows flags
 if(MSVC)
     target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
+    set_source_files_properties(
+        ${TREE_SITTER_CORE_SOURCE}
+        ${TREE_SITTER_LANGUAGE_SOURCES}
+        ${TREE_SITTER_QUERY_SOURCE}
+        PROPERTIES COMPILE_OPTIONS /w)
     target_compile_definitions(mdviewer PRIVATE UNICODE _UNICODE)
     # Match Skia's static runtime
     set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

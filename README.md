@@ -10,6 +10,7 @@ It is built with:
 - Win32 for the application shell and event loop
 - Skia for custom rendering
 - md4c for Markdown parsing
+- Tree-sitter for parser-based code syntax highlighting
 
 ## Screenshot
 
@@ -39,10 +40,13 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - paragraphs
   - headings
   - unordered and ordered lists
+  - GitHub-style task lists
   - blockquotes
-  - fenced code blocks with **one-click copy**
+  - fenced code blocks with **one-click copy** and Tree-sitter syntax highlighting
   - thematic breaks
-  - emphasis, strong text, inline code, and links
+  - tables
+  - emphasis, strong text, strikethrough, inline code, and links
+  - decoded Markdown entities
   - **Images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size
 - Navigation:
   - **Full browsing history** (back/forward)
@@ -92,6 +96,7 @@ Current structure:
 
 - `src/app/`: shared application state, config, document loading, link resolution, and controller logic
 - `src/render/`: shared themes, typography, document rendering, typeface management, and image caching
+- `src/render/syntax/`: Tree-sitter code-block highlighting and language/query mapping
 - `src/view/`: shared hit testing and document interaction helpers
 - `src/platform/win/`: Win32 host code split into bootstrap, window dispatch, menus, dialogs, clipboard, shell, surface, host orchestration, and input translation
 - `src/platform/linux/`: Linux host code built on the same shared controller, rendering, and interaction layers
@@ -107,6 +112,8 @@ Important Windows files:
 
 Recent refactor work also moved top-bar layout and hit testing into shared rendering code, kept the menu UI typeface independent from the document font, and added Windows-native file watching for live reload.
 
+Code block syntax highlighting is implemented in the shared layout/rendering path. Fenced code block languages currently supported by Tree-sitter are `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, and `bash`/`sh`; unknown languages fall back to plain code rendering.
+
 Windows remains the primary validated build target. The Linux host is in-tree, but final runtime validation is still pending.
 
 ## Build Requirements
@@ -115,6 +122,7 @@ Windows remains the primary validated build target. The Linux host is in-tree, b
 - Visual Studio 2022 with C++ build tools
 - Python
 - Git
+- Network access for the first dependency fetch, unless `build/_deps` is already populated
 
 The PowerShell build script imports the Visual Studio environment automatically with `vswhere` and `vcvars64.bat`.
 
@@ -212,6 +220,14 @@ Direct dependencies used by the current build:
   - version: `release-0.5.2`
   - license: MIT
   - local license file: `build/_deps/md4c-src/LICENSE.md`
+- `Tree-sitter`
+  - role: parser-based syntax highlighting for fenced code blocks
+  - license: MIT
+  - local license file: `build/_deps/tree_sitter-src/LICENSE`
+- Tree-sitter grammars for `c`, `cpp`, `javascript`, `typescript`/`tsx`, `json`, `python`, and `bash`
+  - role: language parsers and highlight queries
+  - license: MIT
+  - local license files: `build/_deps/tree_sitter_*-src/LICENSE`
 
 Windows system libraries linked by the app:
 
@@ -237,6 +253,7 @@ src/
   layout/         Document layout and text flow
   markdown/       Markdown parsing into the internal model
   render/         Shared themes, typography, renderer, typefaces, image cache
+  render/syntax/  Tree-sitter code-block syntax highlighting
   view/           Shared hit testing and interaction logic
   platform/linux/ Linux host integration
   platform/win/   Win32 bootstrap, window dispatch, menus, input, and host code
@@ -256,6 +273,7 @@ CMakeLists.txt    CMake project definition
 ## Notes
 
 - The viewer copies rendered text content, not raw Markdown markup.
+- Syntax highlighting uses Tree-sitter for fenced code blocks with known language tags; unknown languages render as plain code.
 - The app currently targets Windows first, with Linux host integration in progress.
 - The menu bar is client-drawn so it can follow the selected theme.
 - The document zoom affects rendered document typography, not the top menu bar.

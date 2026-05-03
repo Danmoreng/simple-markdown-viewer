@@ -24,6 +24,7 @@ The project has a working Windows implementation with:
 - navigation history
 - theme switching
 - code block copy buttons
+- Tree-sitter syntax highlighting for fenced code blocks
 
 The large early architectural bottleneck in `win_main.cpp` has now been substantially reduced.
 
@@ -34,6 +35,7 @@ Completed refactor work so far:
 - shared controller logic in `src/app/viewer_controller.*`
 - shared hit testing and interaction helpers in `src/view/`
 - shared document typeface and image cache helpers in `src/render/`
+- shared Tree-sitter code block highlighting in `src/render/syntax/`
 - extracted Windows helpers for clipboard, file dialog, shell, surface, interaction, host orchestration, window dispatch, and app bootstrap
 
 The Windows host is now split across:
@@ -150,6 +152,7 @@ This layer should handle:
 - selection highlights
 - block decorations
 - code block chrome
+- syntax-highlighted code tokens for supported fenced languages
 - scrollbar visuals if kept custom
 - hover/copy overlays if they remain part of the custom document UI
 - theme palettes
@@ -187,6 +190,9 @@ Target structure:
   typography.cpp
   document_renderer.h
   document_renderer.cpp
+  syntax/
+    tree_sitter_highlighter.h
+    tree_sitter_highlighter.cpp
 
 /src/view/
   document_interaction.h
@@ -315,6 +321,7 @@ The Linux implementation should reuse:
 - Markdown parsing
 - document model
 - layout engine
+- Tree-sitter syntax highlighting
 - controller/state
 - rendering logic
 - interaction logic

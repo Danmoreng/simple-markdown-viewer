@@ -26,6 +26,16 @@ struct ThemePalette {
     SkColor selectionFill;
     SkColor codeBlockBackground;
     SkColor codeInlineBackground;
+    SkColor syntaxComment;
+    SkColor syntaxKeyword;
+    SkColor syntaxString;
+    SkColor syntaxNumber;
+    SkColor syntaxFunction;
+    SkColor syntaxType;
+    SkColor syntaxVariable;
+    SkColor syntaxConstant;
+    SkColor syntaxOperator;
+    SkColor syntaxPunctuation;
     SkColor blockquoteAccent;
     SkColor listMarker;
     SkColor thematicBreak;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
 
 // Suppress warnings from Skia headers
@@ -102,8 +103,14 @@ public:
                 currentY += 20.0f;
             } else {
                 const float inlineTop = currentY;
+                const std::vector<InlineRun> highlightedCodeRuns =
+                    block.type == BlockType::CodeBlock
+                        ? syntax::HighlightCodeBlock(block.codeLanguage, block.inlineRuns)
+                        : std::vector<InlineRun>{};
+                const std::vector<InlineRun>& layoutRuns =
+                    block.type == BlockType::CodeBlock ? highlightedCodeRuns : block.inlineRuns;
                 const float inlineHeight = LayoutRuns(
-                    block.inlineRuns,
+                    layoutRuns,
                     bl.lines,
                     inlineTop,
                     contentLeft,
