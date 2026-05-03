@@ -499,9 +499,9 @@ bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& pale
     return true;
 }
 
-int HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth) {
+MenuBarHitTestResult HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth) {
     if (y < 0 || y >= kMenuBarHeight) {
-        return -1;
+        return {};
     }
 
     return HitTestMenuBarLayout(GetTopMenuBarLayout(hwnd, surfaceWidth), static_cast<float>(x), static_cast<float>(y));
@@ -510,7 +510,7 @@ int HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth) {
 bool UpdateTopMenuHover(HWND hwnd, int x, int y, int surfaceWidth) {
     int hoveredIndex = -1;
     if (y < kMenuBarHeight) {
-        hoveredIndex = HitTestTopMenu(hwnd, x, y, surfaceWidth);
+        hoveredIndex = MenuBarStateIndexFromHit(HitTestTopMenu(hwnd, x, y, surfaceWidth));
     } else if (g_menuBarState.activeIndex != -1) {
         return false;
     }
@@ -523,20 +523,24 @@ bool UpdateTopMenuHover(HWND hwnd, int x, int y, int surfaceWidth) {
     return true;
 }
 
-UINT OpenTopMenu(HWND hwnd, int menuIndex) {
-    switch (menuIndex) {
-        case -2:
+UINT OpenTopMenu(HWND hwnd, const MenuBarHitTestResult& hit) {
+    switch (hit.target) {
+        case MenuBarHitTarget::GoBack:
             return kCommandGoBack;
-        case -3:
+        case MenuBarHitTarget::GoForward:
             return kCommandGoForward;
-        case -4:
+        case MenuBarHitTarget::ZoomOut:
             return kCommandZoomOut;
-        case -5:
+        case MenuBarHitTarget::ZoomIn:
             return kCommandZoomIn;
-        default:
+        case MenuBarHitTarget::MenuItem:
             break;
+        case MenuBarHitTarget::None:
+        default:
+            return 0;
     }
 
+    const int menuIndex = hit.menuIndex;
     const auto items = GetTopMenuItems();
     RECT clientRect = {};
     GetClientRect(hwnd, &clientRect);

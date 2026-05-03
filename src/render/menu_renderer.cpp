@@ -11,6 +11,7 @@ constexpr float kMenuBarHorizontalPadding = 12.0f;
 constexpr float kMenuBarItemGap = 8.0f;
 constexpr float kMenuTextPadding = 10.0f;
 constexpr float kTopMenuFontSize = 17.5f;
+constexpr float kDropdownItemHeight = 30.0f;
 
 std::vector<float> MeasureMenuBarItemWidths(const std::vector<MenuBarItem>& items, SkTypeface* typeface) {
     std::vector<float> widths;
@@ -61,22 +62,40 @@ MenuBarLayout ComputeMenuBarLayout(float width, float height, const std::vector<
     return layout;
 }
 
-int HitTestMenuBarLayout(const MenuBarLayout& layout, float x, float y) {
+MenuBarHitTestResult HitTestMenuBarLayout(const MenuBarLayout& layout, float x, float y) {
     if (!layout.bounds.contains(x, y)) {
-        return -1;
+        return {};
     }
 
     for (size_t index = 0; index < layout.itemRects.size(); ++index) {
         if (layout.itemRects[index].contains(x, y)) {
-            return static_cast<int>(index);
+            return {MenuBarHitTarget::MenuItem, static_cast<int>(index)};
         }
     }
 
-    if (layout.zoomOutRect.contains(x, y)) return -4;
-    if (layout.zoomInRect.contains(x, y)) return -5;
-    if (layout.backRect.contains(x, y)) return -2;
-    if (layout.forwardRect.contains(x, y)) return -3;
-    return -1;
+    if (layout.zoomOutRect.contains(x, y)) return {MenuBarHitTarget::ZoomOut, -1};
+    if (layout.zoomInRect.contains(x, y)) return {MenuBarHitTarget::ZoomIn, -1};
+    if (layout.backRect.contains(x, y)) return {MenuBarHitTarget::GoBack, -1};
+    if (layout.forwardRect.contains(x, y)) return {MenuBarHitTarget::GoForward, -1};
+    return {};
+}
+
+int MenuBarStateIndexFromHit(const MenuBarHitTestResult& hit) {
+    switch (hit.target) {
+        case MenuBarHitTarget::MenuItem:
+            return hit.menuIndex;
+        case MenuBarHitTarget::GoBack:
+            return -2;
+        case MenuBarHitTarget::GoForward:
+            return -3;
+        case MenuBarHitTarget::ZoomOut:
+            return -4;
+        case MenuBarHitTarget::ZoomIn:
+            return -5;
+        case MenuBarHitTarget::None:
+        default:
+            return -1;
+    }
 }
 
 float MeasureDropdownWidth(const std::vector<DropdownItem>& items, SkTypeface* typeface) {
@@ -99,6 +118,31 @@ float MeasureDropdownWidth(const std::vector<DropdownItem>& items, SkTypeface* t
     }
 
     return maxWidth;
+}
+
+SkRect ComputeDropdownLayout(float x, float y, const std::vector<DropdownItem>& items, SkTypeface* typeface) {
+    if (items.empty()) {
+        return SkRect::MakeEmpty();
+    }
+
+    return SkRect::MakeXYWH(
+        x,
+        y,
+        MeasureDropdownWidth(items, typeface),
+        static_cast<float>(items.size()) * kDropdownItemHeight);
+}
+
+int HitTestDropdownLayout(const SkRect& dropdownRect, float itemHeight, float x, float y) {
+    if (itemHeight <= 0.0f || !dropdownRect.contains(x, y)) {
+        return -1;
+    }
+
+    const int itemIndex = static_cast<int>((y - dropdownRect.top()) / itemHeight);
+    const int itemCount = static_cast<int>(dropdownRect.height() / itemHeight);
+    if (itemIndex < 0 || itemIndex >= itemCount) {
+        return -1;
+    }
+    return itemIndex;
 }
 
 void DrawMenuBar(
@@ -187,7 +231,7 @@ void DrawDropdown(
     menuFont.setEdging(SkFont::Edging::kSubpixelAntiAlias);
     menuFont.setSubpixel(true);
 
-    const float itemHeight = 30.0f;
+    const float itemHeight = kDropdownItemHeight;
     const float maxWidth = MeasureDropdownWidth(items, typeface);
     const float dropdownHeight = items.size() * itemHeight;
 

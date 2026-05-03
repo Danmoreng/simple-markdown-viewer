@@ -337,6 +337,7 @@ add_executable(mdviewer_tests
     src/app/viewer_controller.cpp
     src/layout/layout_engine.cpp
     src/markdown/markdown_parser.cpp
+    src/render/menu_renderer.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp

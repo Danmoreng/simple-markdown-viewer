@@ -16,14 +16,6 @@ namespace mdviewer::linux_platform {
 
 namespace {
 
-std::vector<MenuBarItem> GetMenuBarItems() {
-    return {
-        {"File", 1},
-        {"View", 2},
-        {"Theme", 3},
-    };
-}
-
 std::filesystem::path NormalizePathForCompare(const std::filesystem::path& path) {
     try {
         return std::filesystem::absolute(path).lexically_normal();
@@ -161,7 +153,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
         *canvas,
         static_cast<float>(width),
         GetContentTopInset(),
-        GetMenuBarItems(),
+        GetLinuxMenuBarItems(),
         appState.menuBarState,
         GetMenuTypeface(context),
         palette);
@@ -171,15 +163,12 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
         auto menus = GetLinuxMenus();
         if (appState.menuBarState.activeIndex < static_cast<int>(menus.size())) {
             const auto& menu = menus[appState.menuBarState.activeIndex];
-            std::vector<DropdownItem> dropItems;
-            for (const auto& item : menu.items) {
-                dropItems.push_back({item.label, item.isSeparator});
-            }
+            const std::vector<DropdownItem> dropItems = GetLinuxDropdownItems(menu);
 
             const auto menuLayout = ComputeMenuBarLayout(
                 static_cast<float>(width),
                 GetContentTopInset(),
-                MeasureMenuBarItemWidths(GetMenuBarItems(), GetMenuTypeface(context)));
+                MeasureMenuBarItemWidths(GetLinuxMenuBarItems(), GetMenuTypeface(context)));
             const float currentX = menuLayout.itemRects[appState.menuBarState.activeIndex].left();
 
             DrawDropdown(

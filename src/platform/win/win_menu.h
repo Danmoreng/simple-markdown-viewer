@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "render/theme.h"
+#include "render/menu_renderer.h"
 
 class SkCanvas;
 class SkTypeface;
@@ -45,9 +46,9 @@ std::optional<std::filesystem::path> GetRecentFileForCommand(UINT_PTR commandId)
 bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo);
 bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& palette);
 
-int HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth);
+MenuBarHitTestResult HitTestTopMenu(HWND hwnd, int x, int y, int surfaceWidth);
 bool UpdateTopMenuHover(HWND hwnd, int x, int y, int surfaceWidth);
-UINT OpenTopMenu(HWND hwnd, int menuIndex);
+UINT OpenTopMenu(HWND hwnd, const MenuBarHitTestResult& hit);
 
 void DrawTopMenuBar(
     SkCanvas* canvas,

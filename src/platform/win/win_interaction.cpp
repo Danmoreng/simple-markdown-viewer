@@ -308,13 +308,16 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         return false;
     }
 
-    const int topMenuIndex = HitTestTopMenu(hwnd, x, y, context.host.surface->width());
-    if (topMenuIndex != -1) {
+    const MenuBarHitTestResult topMenuHit = HitTestTopMenu(hwnd, x, y, context.host.surface->width());
+    if (topMenuHit.HasHit()) {
         StopAutoScroll(hwnd, context);
         SetFocus(hwnd);
-        if (const UINT command = OpenTopMenu(hwnd, topMenuIndex); command != 0) {
+        if (const UINT command = OpenTopMenu(hwnd, topMenuHit); command != 0) {
             SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(command, 0), 0);
         }
+        return true;
+    }
+    if (y < kMenuBarHeight) {
         return true;
     }
 

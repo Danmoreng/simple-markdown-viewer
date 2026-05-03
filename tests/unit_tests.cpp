@@ -15,6 +15,7 @@
 #include "app/viewer_controller.h"
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
+#include "render/menu_renderer.h"
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
 
@@ -271,6 +272,47 @@ void LayoutSensitiveBehavior() {
     Require(narrowTable.bounds.width() < normalTable.bounds.width(), "table width should relayout with viewport width");
 }
 
+void MenuLayoutHitTesting() {
+    const std::vector<float> itemWidths = {30.0f, 40.0f};
+    const auto layout = mdviewer::ComputeMenuBarLayout(500.0f, 42.0f, itemWidths);
+    RequireEqual(layout.itemRects.size(), static_cast<size_t>(2), "menu item rects should match item widths");
+
+    auto hit = mdviewer::HitTestMenuBarLayout(layout, layout.itemRects[0].centerX(), layout.itemRects[0].centerY());
+    Require(hit.target == mdviewer::MenuBarHitTarget::MenuItem, "first menu item should hit as menu item");
+    RequireEqual(hit.menuIndex, 0, "first menu item should report index 0");
+    RequireEqual(mdviewer::MenuBarStateIndexFromHit(hit), 0, "menu item hit should map to hover index");
+
+    hit = mdviewer::HitTestMenuBarLayout(layout, layout.backRect.centerX(), layout.backRect.centerY());
+    Require(hit.target == mdviewer::MenuBarHitTarget::GoBack, "back toolbar button should be typed");
+    RequireEqual(mdviewer::MenuBarStateIndexFromHit(hit), -2, "back hit should map to render hover id");
+
+    hit = mdviewer::HitTestMenuBarLayout(layout, layout.forwardRect.centerX(), layout.forwardRect.centerY());
+    Require(hit.target == mdviewer::MenuBarHitTarget::GoForward, "forward toolbar button should be typed");
+
+    hit = mdviewer::HitTestMenuBarLayout(layout, layout.zoomOutRect.centerX(), layout.zoomOutRect.centerY());
+    Require(hit.target == mdviewer::MenuBarHitTarget::ZoomOut, "zoom out toolbar button should be typed");
+
+    hit = mdviewer::HitTestMenuBarLayout(layout, layout.zoomInRect.centerX(), layout.zoomInRect.centerY());
+    Require(hit.target == mdviewer::MenuBarHitTarget::ZoomIn, "zoom in toolbar button should be typed");
+
+    hit = mdviewer::HitTestMenuBarLayout(layout, 250.0f, 100.0f);
+    Require(!hit.HasHit(), "point outside menu bar should not hit");
+    RequireEqual(mdviewer::MenuBarStateIndexFromHit(hit), -1, "miss should map to no hover");
+
+    const std::vector<mdviewer::DropdownItem> items = {
+        {"Open", false},
+        {"", true},
+        {"Exit", false},
+    };
+    const SkRect dropdown = mdviewer::ComputeDropdownLayout(12.0f, 42.0f, items, nullptr);
+    RequireNear(dropdown.left(), 12.0f, 0.001f, "dropdown x should be preserved");
+    RequireNear(dropdown.top(), 42.0f, 0.001f, "dropdown y should be preserved");
+    RequireNear(dropdown.height(), 90.0f, 0.001f, "dropdown height should be item count times item height");
+    RequireEqual(mdviewer::HitTestDropdownLayout(dropdown, 30.0f, 20.0f, 45.0f), 0, "first dropdown row should hit");
+    RequireEqual(mdviewer::HitTestDropdownLayout(dropdown, 30.0f, 20.0f, 75.0f), 1, "separator row should still report its index");
+    RequireEqual(mdviewer::HitTestDropdownLayout(dropdown, 30.0f, 20.0f, 140.0f), -1, "point outside dropdown should miss");
+}
+
 } // namespace
 
 int main() {
@@ -280,6 +322,7 @@ int main() {
         {"LinkResolution", LinkResolution},
         {"HeadingAnchors", HeadingAnchors},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
+        {"MenuLayoutHitTesting", MenuLayoutHitTesting},
     };
 
     int failed = 0;

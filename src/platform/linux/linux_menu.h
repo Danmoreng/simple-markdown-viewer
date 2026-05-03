@@ -4,6 +4,8 @@
 #include <vector>
 #include <functional>
 
+#include "render/menu_renderer.h"
+
 namespace mdviewer::linux_platform {
 
 enum class MenuCommand {
@@ -30,5 +32,7 @@ struct MenuDropdown {
 };
 
 std::vector<MenuDropdown> GetLinuxMenus();
+const std::vector<MenuBarItem>& GetLinuxMenuBarItems();
+std::vector<DropdownItem> GetLinuxDropdownItems(const MenuDropdown& menu);
 
 } // namespace mdviewer::linux_platform

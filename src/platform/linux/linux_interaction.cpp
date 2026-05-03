@@ -25,6 +25,8 @@ namespace mdviewer::linux_platform {
 
 namespace {
 
+constexpr float kDropdownItemHeight = 30.0f;
+
 bool CopySelection(GLFWwindow* window, LinuxApp& app) {
     auto& appState = GetAppState(app.GetHostContext());
     if (!appState.HasSelection()) {
@@ -39,15 +41,6 @@ bool CopySelection(GLFWwindow* window, LinuxApp& app) {
 
     SetClipboardText(window, appState.docLayout.plainText.substr(selectionStart, selectionEnd - selectionStart));
     return true;
-}
-
-const std::vector<MenuBarItem>& GetLinuxMenuBarItems() {
-    static const std::vector<MenuBarItem> items = {
-        {"File", 0},
-        {"View", 1},
-        {"Theme", 2},
-    };
-    return items;
 }
 
 MenuBarLayout GetMenuBarLayout(GLFWwindow* window, LinuxApp& app) {
@@ -74,21 +67,15 @@ SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
     auto* tf = GetMenuTypeface(app.GetHostContext());
     if (!tf) return SkRect::MakeEmpty();
 
-    std::vector<DropdownItem> dropItems;
-    dropItems.reserve(menus[menuIndex].items.size());
-    for (const auto& item : menus[menuIndex].items) {
-        dropItems.push_back({item.label, item.isSeparator});
-    }
-
-    return SkRect::MakeXYWH(
+    return ComputeDropdownLayout(
         x,
         y,
-        MeasureDropdownWidth(dropItems, tf),
-        static_cast<float>(menus[menuIndex].items.size()) * 30.0f);
+        GetLinuxDropdownItems(menus[menuIndex]),
+        tf);
 }
 
-int HitTestMenuBar(GLFWwindow* window, LinuxApp& app, double x, double y) {
-    if (y > GetContentTopInset()) return -100; 
+MenuBarHitTestResult HitTestMenuBar(GLFWwindow* window, LinuxApp& app, double x, double y) {
+    if (y > GetContentTopInset()) return {};
 
     return HitTestMenuBarLayout(GetMenuBarLayout(window, app), static_cast<float>(x), static_cast<float>(y));
 }
@@ -97,11 +84,11 @@ int HitTestDropdown(GLFWwindow* window, LinuxApp& app, double x, double y) {
     auto& appState = GetAppState(app.GetHostContext());
     if (appState.menuBarState.activeIndex == -1) return -1;
 
-    SkRect dr = GetDropdownRect(window, app, appState.menuBarState.activeIndex);
-    if (dr.contains(static_cast<float>(x), static_cast<float>(y))) {
-        return static_cast<int>((y - dr.fTop) / 30.0f);
-    }
-    return -1;
+    return HitTestDropdownLayout(
+        GetDropdownRect(window, app, appState.menuBarState.activeIndex),
+        kDropdownItemHeight,
+        static_cast<float>(x),
+        static_cast<float>(y));
 }
 
 InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y) {
@@ -210,16 +197,20 @@ void OnMouseMove(GLFWwindow* window, double xpos, double ypos) {
         return;
     }
 
-    int menuIdx = HitTestMenuBar(window, *app, xpos, ypos);
-    if (menuIdx != -100) {
-        if (appState.menuBarState.hoveredIndex != menuIdx) {
-            appState.menuBarState.hoveredIndex = menuIdx;
+    const MenuBarHitTestResult menuHit = HitTestMenuBar(window, *app, xpos, ypos);
+    if (menuHit.HasHit()) {
+        const int hoveredIndex = MenuBarStateIndexFromHit(menuHit);
+        if (appState.menuBarState.hoveredIndex != hoveredIndex) {
+            appState.menuBarState.hoveredIndex = hoveredIndex;
             appState.needsRepaint = true;
         }
         return;
     } else if (appState.menuBarState.hoveredIndex != -1) {
         appState.menuBarState.hoveredIndex = -1;
         appState.needsRepaint = true;
+    }
+    if (ypos < GetContentTopInset()) {
+        return;
     }
 
     const auto hit = HitTest(window, *app, xpos, ypos);
@@ -300,17 +291,36 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
             return;
         }
 
-        int menuIdx = HitTestMenuBar(window, *app, xpos, ypos);
-        if (menuIdx != -100) {
-            if (menuIdx == -2) GoBack(window, app->GetHostContext());
-            else if (menuIdx == -3) GoForward(window, app->GetHostContext());
-            else if (menuIdx == -4) AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
-            else if (menuIdx == -5) AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
-            else if (menuIdx >= 0) {
-                appState.menuBarState.activeIndex = menuIdx;
+        const MenuBarHitTestResult menuHit = HitTestMenuBar(window, *app, xpos, ypos);
+        if (menuHit.HasHit()) {
+            switch (menuHit.target) {
+                case MenuBarHitTarget::GoBack:
+                    GoBack(window, app->GetHostContext());
+                    break;
+                case MenuBarHitTarget::GoForward:
+                    GoForward(window, app->GetHostContext());
+                    break;
+                case MenuBarHitTarget::ZoomOut:
+                    AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
+                    break;
+                case MenuBarHitTarget::ZoomIn:
+                    AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
+                    break;
+                case MenuBarHitTarget::MenuItem:
+                    appState.menuBarState.activeIndex = menuHit.menuIndex;
+                    appState.menuBarState.hoveredItemIndex = -1;
+                    appState.needsRepaint = true;
+                    break;
+                case MenuBarHitTarget::None:
+                    break;
+            }
+            if (menuHit.target != MenuBarHitTarget::MenuItem) {
                 appState.menuBarState.hoveredItemIndex = -1;
                 appState.needsRepaint = true;
             }
+            return;
+        }
+        if (ypos < GetContentTopInset()) {
             return;
         }
 

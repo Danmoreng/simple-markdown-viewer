@@ -32,6 +32,22 @@ struct DropdownItem {
     bool isSeparator = false;
 };
 
+enum class MenuBarHitTarget {
+    None,
+    MenuItem,
+    GoBack,
+    GoForward,
+    ZoomOut,
+    ZoomIn
+};
+
+struct MenuBarHitTestResult {
+    MenuBarHitTarget target = MenuBarHitTarget::None;
+    int menuIndex = -1;
+
+    [[nodiscard]] bool HasHit() const { return target != MenuBarHitTarget::None; }
+};
+
 struct MenuBarLayout {
     SkRect bounds = SkRect::MakeEmpty();
     std::vector<SkRect> itemRects;
@@ -43,8 +59,11 @@ struct MenuBarLayout {
 
 std::vector<float> MeasureMenuBarItemWidths(const std::vector<MenuBarItem>& items, SkTypeface* typeface);
 MenuBarLayout ComputeMenuBarLayout(float width, float height, const std::vector<float>& itemWidths);
-int HitTestMenuBarLayout(const MenuBarLayout& layout, float x, float y);
+MenuBarHitTestResult HitTestMenuBarLayout(const MenuBarLayout& layout, float x, float y);
+int MenuBarStateIndexFromHit(const MenuBarHitTestResult& hit);
 float MeasureDropdownWidth(const std::vector<DropdownItem>& items, SkTypeface* typeface);
+SkRect ComputeDropdownLayout(float x, float y, const std::vector<DropdownItem>& items, SkTypeface* typeface);
+int HitTestDropdownLayout(const SkRect& dropdownRect, float itemHeight, float x, float y);
 
 void DrawMenuBar(
     SkCanvas& canvas,

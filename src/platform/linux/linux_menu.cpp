@@ -2,6 +2,24 @@
 
 namespace mdviewer::linux_platform {
 
+const std::vector<MenuBarItem>& GetLinuxMenuBarItems() {
+    static const std::vector<MenuBarItem> items = {
+        {"File", 0},
+        {"View", 1},
+        {"Theme", 2},
+    };
+    return items;
+}
+
+std::vector<DropdownItem> GetLinuxDropdownItems(const MenuDropdown& menu) {
+    std::vector<DropdownItem> items;
+    items.reserve(menu.items.size());
+    for (const auto& item : menu.items) {
+        items.push_back({item.label, item.isSeparator});
+    }
+    return items;
+}
+
 std::vector<MenuDropdown> GetLinuxMenus() {
     return {
         {
