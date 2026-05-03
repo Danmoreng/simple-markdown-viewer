@@ -219,9 +219,15 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
     }
     if (command.zoomIn) {
         AdjustBaseFontSize(hwnd, context.host, 1.0f);
+        if (GetAppState(context.host).zoomFeedbackTimeout > 0) {
+            SetTimer(hwnd, context.zoomFeedbackTimerId, 1200, nullptr);
+        }
     }
     if (command.zoomOut) {
         AdjustBaseFontSize(hwnd, context.host, -1.0f);
+        if (GetAppState(context.host).zoomFeedbackTimeout > 0) {
+            SetTimer(hwnd, context.zoomFeedbackTimerId, 1200, nullptr);
+        }
     }
     if (command.goBack) {
         GoBack(hwnd, context.host);
@@ -539,7 +545,19 @@ bool HandleXButtonDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wPar
     return true;
 }
 
-bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta) {
+bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, bool ctrlDown) {
+    if (ctrlDown) {
+        if (delta > 0) {
+            AdjustBaseFontSize(hwnd, context.host, 1.0f);
+        } else if (delta < 0) {
+            AdjustBaseFontSize(hwnd, context.host, -1.0f);
+        }
+        if (GetAppState(context.host).zoomFeedbackTimeout > 0) {
+            SetTimer(hwnd, context.zoomFeedbackTimerId, 1200, nullptr);
+        }
+        return true;
+    }
+
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         ApplyWheelScroll(GetAppState(context.host), static_cast<float>(delta), GetMaxScroll(hwnd, context.host));
@@ -593,6 +611,16 @@ bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId) {
             GetAppState(context.host).copiedFeedbackTimeout = 0;
         }
         KillTimer(hwnd, context.copiedFeedbackTimerId);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    }
+
+    if (timerId == context.zoomFeedbackTimerId) {
+        {
+            std::lock_guard<std::mutex> timerLock(GetAppState(context.host).mtx);
+            GetAppState(context.host).zoomFeedbackTimeout = 0;
+        }
+        KillTimer(hwnd, context.zoomFeedbackTimerId);
         InvalidateRect(hwnd, nullptr, FALSE);
         return true;
     }

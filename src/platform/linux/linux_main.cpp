@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <vector>
 #include <string>
@@ -78,6 +79,10 @@ int RunLinuxApp(int argc, char* argv[]) {
             appState.copiedFeedbackTimeout = 0;
             appState.needsRepaint = true;
         }
+        if (appState.zoomFeedbackTimeout > 0 && appState.zoomFeedbackTimeout <= nowMs) {
+            appState.zoomFeedbackTimeout = 0;
+            appState.needsRepaint = true;
+        }
 
         if (appState.needsRepaint) {
             appState.needsRepaint = false;
@@ -87,8 +92,11 @@ int RunLinuxApp(int argc, char* argv[]) {
             }
         }
 
-        if (appState.copiedFeedbackTimeout > nowMs) {
-            const double timeoutSeconds = static_cast<double>(appState.copiedFeedbackTimeout - nowMs) / 1000.0;
+        const uint64_t nextFeedbackTimeout = std::min(
+            appState.copiedFeedbackTimeout > nowMs ? appState.copiedFeedbackTimeout : UINT64_MAX,
+            appState.zoomFeedbackTimeout > nowMs ? appState.zoomFeedbackTimeout : UINT64_MAX);
+        if (nextFeedbackTimeout != UINT64_MAX) {
+            const double timeoutSeconds = static_cast<double>(nextFeedbackTimeout - nowMs) / 1000.0;
             glfwWaitEventsTimeout(timeoutSeconds);
         } else {
             glfwWaitEvents();

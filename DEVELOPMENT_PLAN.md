@@ -59,9 +59,9 @@ Goal: finish the remaining small persistence and reader-control details without 
 
 - [x] Use a canonical per-user `mdviewer.ini` path, with one-time-compatible loading from legacy executable-adjacent config when the per-user file does not exist.
 - [x] Keep config saving explicit and robust, with invalid or missing values falling back to safe defaults.
-- [ ] Decide whether theme palette overrides in config remain supported long-term, and document the supported keys if they do.
-- [ ] Consider `Ctrl` + mouse wheel zoom if it fits the interaction model.
-- [ ] Preserve reading position as well as practical after zoom, relayout, manual reload, and automatic reload.
+- [x] Decide whether theme palette overrides in config remain supported long-term: palette overrides are not supported; config supports named `theme` values only.
+- [x] Consider `Ctrl` + mouse wheel zoom if it fits the interaction model.
+- [x] Preserve reading position as well as practical after zoom, relayout, manual reload, and automatic reload.
 
 ## Milestone 2: Document Navigation Upgrade
 

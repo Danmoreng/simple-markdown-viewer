@@ -9,12 +9,15 @@
 #include "render/typography.h"
 #include "platform/linux/linux_shell.h"
 #include "util/skia_font_utils.h"
+#include "view/document_interaction.h"
 
 #include "include/core/SkCanvas.h"
 
 namespace mdviewer::linux_platform {
 
 namespace {
+
+constexpr uint64_t kZoomFeedbackDurationMs = 1200;
 
 std::filesystem::path NormalizePathForCompare(const std::filesystem::path& path) {
     try {
@@ -43,6 +46,7 @@ bool ScrollToFragment(GLFWwindow* window, LinuxHostContext context, const std::s
     }
 
     appState.scrollOffset = normalizedIt->second;
+    ClearRelayoutScrollAnchor(appState);
     ClampScrollOffset(window, context);
     appState.needsRepaint = true;
     return true;
@@ -268,6 +272,7 @@ void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
 
     auto& appState = GetAppState(context);
     const auto currentPath = appState.currentFilePath;
+    const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(appState, GetViewportHeight(window, context));
 
     context.controller.Relayout(
         contentWidth,
@@ -279,17 +284,25 @@ void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
             return context.imageCache.GetImageSize(url, currentPath.parent_path());
         });
     
-    ClampScrollOffset(window, context);
+    RestoreScrollAnchor(appState, scrollAnchor, GetViewportHeight(window, context), GetMaxScroll(window, context));
+    RememberRelayoutScrollAnchor(appState, scrollAnchor);
 }
 
 void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta) {
+    const uint64_t nowMs = static_cast<uint64_t>(glfwGetTime() * 1000.0);
     if (delta > 0) {
         if (context.controller.ZoomIn(delta)) {
+            auto& appState = GetAppState(context);
+            appState.zoomFeedbackFontSize = context.controller.GetBaseFontSize();
+            appState.zoomFeedbackTimeout = nowMs + kZoomFeedbackDurationMs;
             RelayoutCurrentDocument(window, context);
             context.controller.SaveConfig();
         }
     } else {
         if (context.controller.ZoomOut(-delta)) {
+            auto& appState = GetAppState(context);
+            appState.zoomFeedbackFontSize = context.controller.GetBaseFontSize();
+            appState.zoomFeedbackTimeout = nowMs + kZoomFeedbackDurationMs;
             RelayoutCurrentDocument(window, context);
             context.controller.SaveConfig();
         }

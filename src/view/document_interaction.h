@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "app/app_state.h"
+#include "view/scroll_anchor.h"
 
 namespace mdviewer {
 
@@ -59,6 +60,11 @@ struct PointerUpResult {
 size_t GetSelectionStart(const AppState& appState);
 size_t GetSelectionEnd(const AppState& appState);
 std::optional<std::pair<size_t, size_t>> GetCurrentSearchMatch(const AppState& appState);
+ScrollAnchor CaptureScrollAnchor(const DocumentLayout& layout, float scrollOffset, float viewportHeight);
+ScrollAnchor GetRelayoutScrollAnchor(AppState& appState, float viewportHeight);
+void RememberRelayoutScrollAnchor(AppState& appState, const ScrollAnchor& anchor);
+void ClearRelayoutScrollAnchor(AppState& appState);
+void RestoreScrollAnchor(AppState& appState, const ScrollAnchor& anchor, float viewportHeight, float maxScroll);
 
 void ClearPendingLinkState(AppState& appState);
 void OpenSearch(AppState& appState);

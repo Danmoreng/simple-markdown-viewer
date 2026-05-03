@@ -139,6 +139,9 @@ Persisted settings include:
 - base font size / reader zoom
 - recent files and their last-opened timestamps
 
+Theme palette overrides are not supported config keys. Config should persist the
+selected named theme only.
+
 Config parsing should be tolerant. Invalid or missing values must fall back to
 safe defaults.
 

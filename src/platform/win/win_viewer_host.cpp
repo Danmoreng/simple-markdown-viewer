@@ -10,6 +10,7 @@
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
+#include "view/document_interaction.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -22,6 +23,8 @@
 namespace mdviewer::win {
 
 namespace {
+
+constexpr uint64_t kZoomFeedbackDurationMs = 1200;
 
 AppState& State(const ViewerHostContext& context) {
     return context.controller.GetMutableAppState();
@@ -54,6 +57,7 @@ bool ScrollToFragment(HWND hwnd, ViewerHostContext& context, const std::string& 
     }
 
     appState.scrollOffset = normalizedIt->second;
+    ClearRelayoutScrollAnchor(appState);
     ClampScrollOffset(hwnd, context);
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
@@ -301,10 +305,14 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
         return;
     }
 
+    AppState& appState = State(context);
+    const float viewportHeight = GetViewportHeight(hwnd, context);
+    const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(appState, viewportHeight);
+
     RECT rect = {};
     GetClientRect(hwnd, &rect);
     const float width = static_cast<float>(rect.right - rect.left);
-    const std::filesystem::path baseDir = State(context).currentFilePath.parent_path();
+    const std::filesystem::path baseDir = appState.currentFilePath.parent_path();
 
     auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
         return context.imageCache.GetImageSize(url, baseDir);
@@ -320,7 +328,8 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
         return;
     }
 
-    ClampScrollOffset(hwnd, context);
+    RestoreScrollAnchor(appState, scrollAnchor, GetViewportHeight(hwnd, context), GetMaxScroll(hwnd, context));
+    RememberRelayoutScrollAnchor(appState, scrollAnchor);
 }
 
 bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrollOffset) {
@@ -333,7 +342,8 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
     const float width = static_cast<float>(rect.right - rect.left);
     const std::filesystem::path currentPath = State(context).currentFilePath;
     const std::filesystem::path baseDir = currentPath.parent_path();
-    const float previousScrollOffset = State(context).scrollOffset;
+    const float viewportHeight = GetViewportHeight(hwnd, context);
+    const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(State(context), viewportHeight);
 
     const auto status = context.controller.ReloadCurrentFile(
         width,
@@ -349,8 +359,10 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
     }
 
     if (preserveScrollOffset) {
-        State(context).scrollOffset = previousScrollOffset;
-        ClampScrollOffset(hwnd, context);
+        RestoreScrollAnchor(State(context), scrollAnchor, GetViewportHeight(hwnd, context), GetMaxScroll(hwnd, context));
+        RememberRelayoutScrollAnchor(State(context), scrollAnchor);
+    } else {
+        ClearRelayoutScrollAnchor(State(context));
     }
 
     context.fileWatcher.SetWatchedFile(currentPath);
@@ -373,6 +385,8 @@ void SetBaseFontSize(HWND hwnd, ViewerHostContext& context, float baseFontSize) 
         return;
     }
 
+    State(context).zoomFeedbackFontSize = context.controller.GetBaseFontSize();
+    State(context).zoomFeedbackTimeout = GetTickCount64() + kZoomFeedbackDurationMs;
     RelayoutCurrentDocument(hwnd, context);
     context.controller.SaveConfig();
     SyncMenuState(hwnd, context);

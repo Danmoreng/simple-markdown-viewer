@@ -363,6 +363,19 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
 void OnScroll(GLFWwindow* window, double xoffset, double yoffset) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
+
+    const bool ctrlDown =
+        glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+    if (ctrlDown) {
+        if (yoffset > 0.0) {
+            AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
+        } else if (yoffset < 0.0) {
+            AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
+        }
+        return;
+    }
+
     ApplyWheelScroll(GetAppState(app->GetHostContext()), static_cast<float>(yoffset) * 40.0f, GetMaxScroll(window, app->GetHostContext()));
     GetAppState(app->GetHostContext()).needsRepaint = true;
 }

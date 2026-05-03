@@ -18,6 +18,7 @@
 #include "render/menu_renderer.h"
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
+#include "view/document_interaction.h"
 
 namespace {
 
@@ -376,6 +377,73 @@ void MenuLayoutHitTesting() {
     RequireEqual(mdviewer::HitTestDropdownLayout(dropdown, 30.0f, 20.0f, 140.0f), -1, "point outside dropdown should miss");
 }
 
+void ScrollAnchorPreservesReadingPosition() {
+    std::ostringstream source;
+    for (int index = 0; index < 30; ++index) {
+        source << "## Section " << index << "\n\n";
+        source << "This paragraph gives the layout enough text to wrap and move when the font size changes. ";
+        source << "The anchor should keep this area visible after relayout.\n\n";
+    }
+
+    const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(source.str());
+    const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    SkTypeface* typefacePtr = typeface.get();
+
+    const auto normal = mdviewer::LayoutEngine::ComputeLayout(doc, 760.0f, typefacePtr, 17.0f);
+    const auto zoomed = mdviewer::LayoutEngine::ComputeLayout(doc, 760.0f, typefacePtr, 24.0f);
+    const auto wide = mdviewer::LayoutEngine::ComputeLayout(doc, 920.0f, typefacePtr, 17.0f);
+    const auto narrow = mdviewer::LayoutEngine::ComputeLayout(doc, 420.0f, typefacePtr, 17.0f);
+    Require(normal.blocks.size() > 20, "fixture should produce enough blocks");
+
+    const float viewportHeight = 420.0f;
+    const float oldScrollOffset = normal.blocks[18].bounds.top();
+    const mdviewer::ScrollAnchor anchor = mdviewer::CaptureScrollAnchor(normal, oldScrollOffset, viewportHeight);
+    Require(anchor.valid, "scroll anchor should capture a visible line");
+
+    mdviewer::AppState appState;
+    appState.docLayout = zoomed;
+    mdviewer::RestoreScrollAnchor(
+        appState,
+        anchor,
+        viewportHeight,
+        std::max(0.0f, zoomed.totalHeight - viewportHeight));
+
+    const mdviewer::ScrollAnchor restoredAnchor = mdviewer::CaptureScrollAnchor(zoomed, appState.scrollOffset, viewportHeight);
+    Require(restoredAnchor.valid, "restored scroll offset should capture a visible line");
+    Require(restoredAnchor.textPosition <= anchor.textPosition, "relayout should keep the original text at or after the top visible line");
+    Require(anchor.textPosition - restoredAnchor.textPosition < 160, "relayout should keep the original text near the viewport top");
+
+    mdviewer::AppState repeatedResizeState;
+    repeatedResizeState.docLayout = normal;
+    repeatedResizeState.scrollOffset = oldScrollOffset;
+    const mdviewer::ScrollAnchor stableAnchor = mdviewer::GetRelayoutScrollAnchor(repeatedResizeState, viewportHeight);
+    Require(stableAnchor.valid, "stable resize anchor should capture a visible line");
+
+    for (int cycle = 0; cycle < 8; ++cycle) {
+        const mdviewer::ScrollAnchor relayoutAnchor = mdviewer::GetRelayoutScrollAnchor(repeatedResizeState, viewportHeight);
+        repeatedResizeState.docLayout = (cycle % 2 == 0) ? narrow : wide;
+        mdviewer::RestoreScrollAnchor(
+            repeatedResizeState,
+            relayoutAnchor,
+            viewportHeight,
+            std::max(0.0f, repeatedResizeState.docLayout.totalHeight - viewportHeight));
+        mdviewer::RememberRelayoutScrollAnchor(repeatedResizeState, relayoutAnchor);
+    }
+
+    Require(repeatedResizeState.relayoutScrollAnchor.has_value(), "repeated resize should keep a stable relayout anchor");
+    RequireEqual(
+        repeatedResizeState.relayoutScrollAnchor->textPosition,
+        stableAnchor.textPosition,
+        "repeated resize should not recapture an earlier wrapped line start");
+
+    mdviewer::ApplyWheelScroll(
+        repeatedResizeState,
+        -40.0f,
+        std::max(0.0f, repeatedResizeState.docLayout.totalHeight - viewportHeight));
+    Require(!repeatedResizeState.relayoutScrollAnchor.has_value(), "manual scroll should clear the stable relayout anchor");
+}
+
 } // namespace
 
 int main() {
@@ -387,6 +455,7 @@ int main() {
         {"HeadingAnchors", HeadingAnchors},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},
+        {"ScrollAnchorPreservesReadingPosition", ScrollAnchorPreservesReadingPosition},
     };
 
     int failed = 0;

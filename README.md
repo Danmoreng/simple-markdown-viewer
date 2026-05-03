@@ -206,6 +206,7 @@ The Linux host is compiled from the same CMake target on Linux. It uses GLFW for
 - `File`: reopen recently opened files on Windows; the newest file appears first with its last-opened date and time
 - drag and drop: open a file
 - mouse wheel: scroll
+- `Ctrl` + mouse wheel: zoom document text in and out
 - middle mouse button: auto-scroll mode on Windows
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text

@@ -1,6 +1,7 @@
 #include "render/document_renderer.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 #include <cstring>
 
@@ -701,6 +702,32 @@ void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
         ctx.canvas->drawString(params.appState->hoveredUrl.c_str(), overlayX + padding, overlayY + overlayH - 7.0f, ctx.font, ctx.paint);
     }
 
+    const bool showZoomFeedback = params.appState->zoomFeedbackTimeout > params.currentTickCount;
+    if (showZoomFeedback) {
+        char message[32] = {};
+        std::snprintf(message, sizeof(message), "%.0f pt", params.appState->zoomFeedbackFontSize);
+        const float padding = 10.0f;
+        ctx.font.setSize(GetCopiedOverlayFontSize(params.baseFontSize));
+        ctx.font.setTypeface(sk_ref_sp(params.typefaces.bold));
+
+        SkRect textBounds;
+        ctx.font.measureText(message, std::strlen(message), SkTextEncoding::kUTF8, &textBounds);
+
+        const float overlayW = textBounds.width() + (padding * 2.0f);
+        const float overlayH = 30.0f;
+        const float overlayX = params.surfaceWidth - overlayW - 10.0f;
+        const float overlayY = params.surfaceHeight - overlayH - 10.0f;
+
+        SkPaint backgroundPaint;
+        backgroundPaint.setAntiAlias(true);
+        backgroundPaint.setColor(params.palette.menuSelectedBackground);
+        backgroundPaint.setAlphaf(0.95f);
+        ctx.canvas->drawRoundRect(SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH), 6.0f, 6.0f, backgroundPaint);
+
+        ctx.paint.setColor(params.palette.menuSelectedText);
+        ctx.canvas->drawString(message, overlayX + padding, overlayY + overlayH - 9.0f, ctx.font, ctx.paint);
+    }
+
     if (params.appState->copiedFeedbackTimeout > params.currentTickCount) {
         const char* message = "Copied!";
         const float padding = 8.0f;
@@ -713,7 +740,7 @@ void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
         const float overlayW = textBounds.width() + (padding * 2.0f);
         const float overlayH = 28.0f;
         const float overlayX = params.surfaceWidth - overlayW - 10.0f;
-        const float overlayY = params.surfaceHeight - overlayH - 10.0f;
+        const float overlayY = params.surfaceHeight - overlayH - (showZoomFeedback ? 48.0f : 10.0f);
 
         SkPaint backgroundPaint;
         backgroundPaint.setAntiAlias(true);

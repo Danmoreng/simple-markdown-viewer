@@ -56,9 +56,15 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
         },
         .zoomOut = [hwnd, appPtr]() {
             AdjustBaseFontSize(hwnd, appPtr->Host(), -1.0f);
+            if (GetAppState(appPtr->Host()).zoomFeedbackTimeout > 0) {
+                SetTimer(hwnd, appPtr->Interaction().zoomFeedbackTimerId, 1200, nullptr);
+            }
         },
         .zoomIn = [hwnd, appPtr]() {
             AdjustBaseFontSize(hwnd, appPtr->Host(), 1.0f);
+            if (GetAppState(appPtr->Host()).zoomFeedbackTimeout > 0) {
+                SetTimer(hwnd, appPtr->Interaction().zoomFeedbackTimerId, 1200, nullptr);
+            }
         },
         .find = [hwnd, appPtr]() {
             auto& appState = GetAppState(appPtr->Host());
@@ -191,7 +197,11 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
         case WM_MBUTTONUP:
             return 0;
         case WM_MOUSEWHEEL:
-            HandleMouseWheel(hwnd, app.Interaction(), GET_WHEEL_DELTA_WPARAM(wParam));
+            HandleMouseWheel(
+                hwnd,
+                app.Interaction(),
+                GET_WHEEL_DELTA_WPARAM(wParam),
+                (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0);
             return 0;
         case WM_KEYDOWN:
             if (HandleKeyDown(hwnd, app.Interaction(), wParam)) {

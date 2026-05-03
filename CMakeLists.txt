@@ -344,6 +344,7 @@ add_executable(mdviewer_tests
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
     src/util/utf8.cpp
+    src/view/document_interaction.cpp
     ${TREE_SITTER_CORE_SOURCE}
     ${TREE_SITTER_LANGUAGE_SOURCES}
     ${TREE_SITTER_QUERY_SOURCE}

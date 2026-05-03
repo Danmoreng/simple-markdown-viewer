@@ -8,6 +8,7 @@ namespace {
 
 constexpr UINT_PTR kAutoScrollTimerId = 2001;
 constexpr UINT_PTR kCopiedFeedbackTimerId = 2002;
+constexpr UINT_PTR kZoomFeedbackTimerId = 2003;
 constexpr UINT kAutoScrollTimerMs = 16;
 constexpr float kAutoScrollDeadZone = 2.0f;
 constexpr int kLinkClickSlop = 4;
@@ -26,6 +27,7 @@ WinApp::WinApp()
           .host = hostContext_,
           .autoScrollTimerId = kAutoScrollTimerId,
           .copiedFeedbackTimerId = kCopiedFeedbackTimerId,
+          .zoomFeedbackTimerId = kZoomFeedbackTimerId,
           .autoScrollTimerMs = kAutoScrollTimerMs,
           .autoScrollDeadZone = kAutoScrollDeadZone,
           .linkClickSlop = kLinkClickSlop,

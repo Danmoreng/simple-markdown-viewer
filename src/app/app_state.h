@@ -10,6 +10,7 @@
 #include "layout/layout_engine.h"
 #include "render/theme.h"
 #include "render/menu_renderer.h"
+#include "view/scroll_anchor.h"
 
 namespace mdviewer {
 
@@ -23,6 +24,7 @@ struct AppState {
     ThemeMode theme = ThemeMode::Light;
     float baseFontSize = 17.0f;
     float scrollOffset = 0.0f;
+    std::optional<ScrollAnchor> relayoutScrollAnchor;
     bool isSelecting = false;
     bool isDraggingScrollbar = false;
     bool isAutoScrolling = false;
@@ -36,6 +38,8 @@ struct AppState {
     bool needsRepaint = true;
     std::string hoveredUrl;
     uint64_t copiedFeedbackTimeout = 0; // Tick count when feedback should expire
+    uint64_t zoomFeedbackTimeout = 0;
+    float zoomFeedbackFontSize = 17.0f;
     bool searchActive = false;
     std::string searchQuery;
     std::vector<std::pair<size_t, size_t>> searchMatches;
@@ -92,6 +96,7 @@ struct AppState {
         docModel = std::move(doc);
         docLayout = std::move(layout);
         scrollOffset = 0.0f;
+        relayoutScrollAnchor.reset();
         isSelecting = false;
         isDraggingScrollbar = false;
         isAutoScrolling = false;
@@ -105,6 +110,8 @@ struct AppState {
         needsRepaint = true;
         hoveredUrl.clear();
         copiedFeedbackTimeout = 0;
+        zoomFeedbackTimeout = 0;
+        zoomFeedbackFontSize = baseFontSize;
         searchActive = false;
         searchQuery.clear();
         searchMatches.clear();

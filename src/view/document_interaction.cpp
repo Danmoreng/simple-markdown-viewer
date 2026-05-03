@@ -46,6 +46,82 @@ std::optional<float> FindTextPositionY(const std::vector<BlockLayout>& blocks, s
     return std::nullopt;
 }
 
+struct LineAnchorCandidate {
+    size_t textPosition = 0;
+    float y = 0.0f;
+    float height = 0.0f;
+    float distance = 0.0f;
+    bool valid = false;
+};
+
+void FindAnchorLineNearY(
+    const std::vector<BlockLayout>& blocks,
+    float documentY,
+    LineAnchorCandidate& bestCandidate) {
+    for (const auto& block : blocks) {
+        for (const auto& line : block.lines) {
+            const float lineBottom = line.y + std::max(line.height, 1.0f);
+            float distance = 0.0f;
+            if (documentY < line.y) {
+                distance = line.y - documentY;
+            } else if (documentY >= lineBottom) {
+                distance = documentY - lineBottom;
+            }
+
+            const bool betterTie =
+                bestCandidate.valid &&
+                std::abs(distance - bestCandidate.distance) < 0.001f &&
+                bestCandidate.y < documentY &&
+                line.y >= documentY;
+            if (!bestCandidate.valid || distance < bestCandidate.distance || betterTie) {
+                bestCandidate = LineAnchorCandidate{
+                    line.textStart,
+                    line.y,
+                    line.height,
+                    distance,
+                    true,
+                };
+            }
+        }
+
+        FindAnchorLineNearY(block.children, documentY, bestCandidate);
+    }
+}
+
+void FindLineForTextPosition(
+    const std::vector<BlockLayout>& blocks,
+    size_t textPosition,
+    LineAnchorCandidate& bestCandidate) {
+    for (const auto& block : blocks) {
+        for (const auto& line : block.lines) {
+            const size_t lineEnd = line.textStart + line.textLength;
+            const bool contains = textPosition >= line.textStart && textPosition <= lineEnd;
+            const size_t distance =
+                textPosition < line.textStart
+                    ? line.textStart - textPosition
+                    : (textPosition > lineEnd ? textPosition - lineEnd : 0);
+
+            if (contains || !bestCandidate.valid || static_cast<float>(distance) < bestCandidate.distance) {
+                bestCandidate = LineAnchorCandidate{
+                    line.textStart,
+                    line.y,
+                    line.height,
+                    static_cast<float>(distance),
+                    true,
+                };
+                if (contains) {
+                    return;
+                }
+            }
+        }
+
+        FindLineForTextPosition(block.children, textPosition, bestCandidate);
+        if (bestCandidate.valid && bestCandidate.distance == 0.0f) {
+            return;
+        }
+    }
+}
+
 } // namespace
 
 size_t GetSelectionStart(const AppState& appState) {
@@ -61,6 +137,60 @@ std::optional<std::pair<size_t, size_t>> GetCurrentSearchMatch(const AppState& a
         return std::nullopt;
     }
     return appState.searchMatches[appState.currentSearchMatch];
+}
+
+ScrollAnchor CaptureScrollAnchor(const DocumentLayout& layout, float scrollOffset, float viewportHeight) {
+    ScrollAnchor anchor;
+    const float maxScroll = std::max(layout.totalHeight - viewportHeight, 0.0f);
+    anchor.scrollRatio = maxScroll > 0.0f ? std::clamp(scrollOffset / maxScroll, 0.0f, 1.0f) : 0.0f;
+
+    LineAnchorCandidate candidate;
+    FindAnchorLineNearY(layout.blocks, scrollOffset, candidate);
+    if (!candidate.valid) {
+        return anchor;
+    }
+
+    anchor.textPosition = candidate.textPosition;
+    anchor.lineOffsetRatio = candidate.height > 0.0f
+        ? std::clamp((scrollOffset - candidate.y) / candidate.height, 0.0f, 1.0f)
+        : 0.0f;
+    anchor.valid = true;
+    return anchor;
+}
+
+ScrollAnchor GetRelayoutScrollAnchor(AppState& appState, float viewportHeight) {
+    if (appState.relayoutScrollAnchor.has_value()) {
+        return *appState.relayoutScrollAnchor;
+    }
+
+    return CaptureScrollAnchor(appState.docLayout, appState.scrollOffset, viewportHeight);
+}
+
+void RememberRelayoutScrollAnchor(AppState& appState, const ScrollAnchor& anchor) {
+    appState.relayoutScrollAnchor = anchor;
+}
+
+void ClearRelayoutScrollAnchor(AppState& appState) {
+    appState.relayoutScrollAnchor.reset();
+}
+
+void RestoreScrollAnchor(AppState& appState, const ScrollAnchor& anchor, float viewportHeight, float maxScroll) {
+    (void)viewportHeight;
+    if (!anchor.valid) {
+        appState.scrollOffset = std::clamp(anchor.scrollRatio * maxScroll, 0.0f, maxScroll);
+        appState.needsRepaint = true;
+        return;
+    }
+
+    LineAnchorCandidate candidate;
+    FindLineForTextPosition(appState.docLayout.blocks, anchor.textPosition, candidate);
+    if (candidate.valid) {
+        const float lineOffset = std::clamp(anchor.lineOffsetRatio, 0.0f, 1.0f) * std::max(candidate.height, 1.0f);
+        appState.scrollOffset = std::clamp(candidate.y + lineOffset, 0.0f, maxScroll);
+    } else {
+        appState.scrollOffset = std::clamp(anchor.scrollRatio * maxScroll, 0.0f, maxScroll);
+    }
+    appState.needsRepaint = true;
 }
 
 void RebuildSearchMatches(AppState& appState) {
@@ -152,7 +282,11 @@ bool ScrollToCurrentSearchMatch(AppState& appState, float viewportHeight, float 
     }
 
     appState.scrollOffset = std::clamp(appState.scrollOffset, 0.0f, maxScroll);
-    return std::abs(previousOffset - appState.scrollOffset) > 0.01f;
+    const bool moved = std::abs(previousOffset - appState.scrollOffset) > 0.01f;
+    if (moved) {
+        ClearRelayoutScrollAnchor(appState);
+    }
+    return moved;
 }
 
 void ClearPendingLinkState(AppState& appState) {
@@ -213,6 +347,7 @@ void UpdateSelectionFromHit(
     } else if (contentY > viewportHeight) {
         appState.scrollOffset = std::min(appState.scrollOffset + (contentY - viewportHeight), maxScroll);
     }
+    ClearRelayoutScrollAnchor(appState);
 }
 
 void UpdateScrollOffsetFromThumb(
@@ -231,11 +366,13 @@ void UpdateScrollOffsetFromThumb(
 
     if (maxScroll <= 0.0f) {
         appState.scrollOffset = 0.0f;
+        ClearRelayoutScrollAnchor(appState);
         return;
     }
 
     const float normalized = trackHeight > 0.0f ? (thumbTop - scrollbarMargin) / trackHeight : 0.0f;
     appState.scrollOffset = normalized * maxScroll;
+    ClearRelayoutScrollAnchor(appState);
 }
 
 bool CancelPendingLinkIfDragged(AppState& appState, int x, int y, int clickSlop) {
@@ -301,11 +438,19 @@ bool TickAutoScroll(AppState& appState, float maxScroll, float deadZone) {
 
     const float previousOffset = appState.scrollOffset;
     appState.scrollOffset = std::clamp(appState.scrollOffset + scrollDelta, 0.0f, maxScroll);
-    return std::abs(appState.scrollOffset - previousOffset) > 0.01f;
+    const bool moved = std::abs(appState.scrollOffset - previousOffset) > 0.01f;
+    if (moved) {
+        ClearRelayoutScrollAnchor(appState);
+    }
+    return moved;
 }
 
 void ApplyWheelScroll(AppState& appState, float delta, float maxScroll) {
+    const float previousOffset = appState.scrollOffset;
     appState.scrollOffset = std::clamp(appState.scrollOffset - delta, 0.0f, maxScroll);
+    if (std::abs(appState.scrollOffset - previousOffset) > 0.01f) {
+        ClearRelayoutScrollAnchor(appState);
+    }
 }
 
 PointerUpResult FinishPrimaryPointerInteraction(AppState& appState, const InteractionTextHit& releaseHit) {
