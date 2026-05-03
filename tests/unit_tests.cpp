@@ -19,6 +19,7 @@
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
 #include "view/document_interaction.h"
+#include "view/document_outline.h"
 
 namespace {
 
@@ -296,6 +297,26 @@ void HeadingAnchors() {
     Require(layout.anchors.contains("hello-2"), "second duplicate heading should get numeric suffix");
     Require(layout.anchors.contains("launch"), "emoji plus ASCII heading should anchor on ASCII text");
     Require(!layout.anchors.contains(""), "empty Unicode fallback should not be inserted as an anchor");
+    RequireEqual(layout.outline.size(), static_cast<size_t>(4), "all headings should appear in the document outline");
+    RequireEqual(layout.outline[0].level, 1, "outline should preserve heading level");
+    RequireEqual(layout.outline[1].slug, std::string("hello-2"), "outline should preserve unique duplicate slug");
+    RequireEqual(layout.outline[3].text, std::string("日本語"), "outline should include Unicode-only headings");
+
+    mdviewer::AppState appState;
+    appState.docLayout = layout;
+    RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineSidebarWidth, 0.001f, "headings should enable outline sidebar");
+    Require(mdviewer::HitTestOutlineToggle(appState, mdviewer::kOutlineSidebarWidth - 18.0f, 42.0f, 30.0f), "outline toggle should hit the fixed top-right button");
+    const auto firstOutlineHit = mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 30.0f);
+    Require(firstOutlineHit.has_value() && *firstOutlineHit == 0, "outline hit test should identify the first row");
+    const auto outsideOutlineHit = mdviewer::HitTestOutlineSidebar(appState, mdviewer::kOutlineSidebarWidth + 1.0f, 74.0f, 30.0f);
+    Require(!outsideOutlineHit.has_value(), "outline hit test should ignore points outside the sidebar");
+    Require(mdviewer::FocusOutlineItem(appState, 1, 10000.0f), "outline item should be focusable");
+    RequireEqual(appState.focusedOutlineIndex, static_cast<size_t>(1), "focused outline index should update");
+    Require(mdviewer::MoveOutlineFocus(appState, 1, 10000.0f), "outline focus should move down");
+    RequireEqual(appState.focusedOutlineIndex, static_cast<size_t>(2), "outline focus should move to the next item");
+    appState.outlineCollapsed = true;
+    RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineCollapsedWidth, 0.001f, "collapsed outline should keep a narrow rail");
+    Require(!mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 30.0f).has_value(), "collapsed outline should not hit rows");
 }
 
 void LayoutSensitiveBehavior() {

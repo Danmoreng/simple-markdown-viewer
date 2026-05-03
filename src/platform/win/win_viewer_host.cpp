@@ -11,6 +11,7 @@
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
 #include "view/document_interaction.h"
+#include "view/document_outline.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -101,6 +102,16 @@ float GetContentTopInset() {
     return static_cast<float>(kMenuBarHeight);
 }
 
+float GetDocumentLeftInset(const ViewerHostContext& context) {
+    return GetOutlineSidebarWidth(State(context));
+}
+
+float GetDocumentLayoutWidth(HWND hwnd, const ViewerHostContext& context) {
+    RECT rect = {};
+    GetClientRect(hwnd, &rect);
+    return std::max(static_cast<float>(rect.right - rect.left) - GetDocumentLeftInset(context), 1.0f);
+}
+
 float GetViewportHeight(HWND hwnd, const ViewerHostContext& context) {
     (void)context;
     RECT rect = {};
@@ -181,6 +192,7 @@ void Render(HWND hwnd, ViewerHostContext& context) {
                 .viewportHeight = GetViewportHeight(hwnd, context),
                 .surfaceWidth = static_cast<float>(context.surface->width()),
                 .surfaceHeight = static_cast<float>(context.surface->height()),
+                .documentLeftInset = GetDocumentLeftInset(context),
                 .scrollbarWidth = kScrollbarWidth,
                 .scrollbarMargin = kScrollbarMargin,
                 .currentTickCount = GetTickCount64(),
@@ -222,7 +234,7 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
 
     RECT rect = {};
     GetClientRect(hwnd, &rect);
-    const float width = static_cast<float>(rect.right - rect.left);
+    const float width = std::max(static_cast<float>(rect.right - rect.left), 1.0f);
     const std::filesystem::path baseDir = path.parent_path();
 
     auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
@@ -253,6 +265,10 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
     context.fileWatcher.SetWatchedFile(path);
     context.controller.SaveConfig();
     SyncMenuState(hwnd, context);
+
+    if (!State(context).docLayout.outline.empty()) {
+        RelayoutCurrentDocument(hwnd, context);
+    }
 
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
@@ -311,7 +327,7 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
 
     RECT rect = {};
     GetClientRect(hwnd, &rect);
-    const float width = static_cast<float>(rect.right - rect.left);
+    const float width = GetDocumentLayoutWidth(hwnd, context);
     const std::filesystem::path baseDir = appState.currentFilePath.parent_path();
 
     auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
@@ -339,7 +355,7 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
 
     RECT rect = {};
     GetClientRect(hwnd, &rect);
-    const float width = static_cast<float>(rect.right - rect.left);
+    const float width = GetDocumentLayoutWidth(hwnd, context);
     const std::filesystem::path currentPath = State(context).currentFilePath;
     const std::filesystem::path baseDir = currentPath.parent_path();
     const float viewportHeight = GetViewportHeight(hwnd, context);

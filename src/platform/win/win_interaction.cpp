@@ -14,6 +14,7 @@
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
+#include "view/document_outline.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -49,7 +50,7 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
         appState.docLayout,
         appState.scrollOffset,
         GetContentTopInset(),
-        x,
+        x - GetDocumentLeftInset(context.host),
         viewportY,
         HitTestCallbacks{
             .get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
@@ -179,6 +180,10 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
             return InteractionKey::Left;
         case VK_RIGHT:
             return InteractionKey::Right;
+        case VK_UP:
+            return InteractionKey::Up;
+        case VK_DOWN:
+            return InteractionKey::Down;
         case VK_BACK:
             return InteractionKey::Back;
         case 'C':
@@ -263,6 +268,18 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
         }
         InvalidateRect(hwnd, nullptr, FALSE);
     }
+    if (command.outlinePrevious || command.outlineNext) {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        if (command.outlinePrevious) {
+            MoveOutlineFocus(appState, -1, GetMaxScroll(hwnd, context.host));
+        }
+        if (command.outlineNext) {
+            MoveOutlineFocus(appState, 1, GetMaxScroll(hwnd, context.host));
+        }
+        ClampScrollOffset(hwnd, context.host);
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
     return command.handled;
 }
 
@@ -327,6 +344,35 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         return true;
     }
 
+    bool toggledOutline = false;
+    {
+        std::lock_guard<std::mutex> outlineLock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        if (HitTestOutlineToggle(
+                appState,
+                static_cast<float>(x),
+                static_cast<float>(y),
+                GetContentTopInset())) {
+            appState.outlineCollapsed = !appState.outlineCollapsed;
+            appState.outlineFocused = true;
+            toggledOutline = true;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        } else if (const auto outlineHit = HitTestOutlineSidebar(
+                       appState,
+                       static_cast<float>(x),
+                       static_cast<float>(y),
+                       GetContentTopInset())) {
+            FocusOutlineItem(appState, *outlineHit, GetMaxScroll(hwnd, context.host));
+            ClampScrollOffset(hwnd, context.host);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+    }
+    if (toggledOutline) {
+        RelayoutCurrentDocument(hwnd, context.host);
+        return true;
+    }
+
     const auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
 
     {
@@ -338,7 +384,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
             return true;
         }
 
-        const float docX = static_cast<float>(x);
+        const float docX = static_cast<float>(x) - GetDocumentLeftInset(context.host);
         const float docY = static_cast<float>(y) - GetContentTopInset() + appState.scrollOffset;
         for (const auto& btn : appState.codeBlockButtons) {
             if (!btn.first.contains(docX, docY)) {

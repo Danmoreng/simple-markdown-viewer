@@ -40,6 +40,9 @@ struct AppState {
     uint64_t copiedFeedbackTimeout = 0; // Tick count when feedback should expire
     uint64_t zoomFeedbackTimeout = 0;
     float zoomFeedbackFontSize = 17.0f;
+    bool outlineCollapsed = false;
+    bool outlineFocused = false;
+    size_t focusedOutlineIndex = 0;
     bool searchActive = false;
     std::string searchQuery;
     std::vector<std::pair<size_t, size_t>> searchMatches;
@@ -112,6 +115,8 @@ struct AppState {
         copiedFeedbackTimeout = 0;
         zoomFeedbackTimeout = 0;
         zoomFeedbackFontSize = baseFontSize;
+        outlineFocused = false;
+        focusedOutlineIndex = 0;
         searchActive = false;
         searchQuery.clear();
         searchMatches.clear();

@@ -23,6 +23,7 @@ SkTypeface* GetRegularTypeface(LinuxHostContext context);
 SkTypeface* GetMenuTypeface(LinuxHostContext context);
 
 float GetContentTopInset();
+float GetDocumentLeftInset(const LinuxHostContext context);
 float GetViewportHeight(GLFWwindow* window, const LinuxHostContext context);
 float GetMaxScroll(GLFWwindow* window, const LinuxHostContext context);
 void ClampScrollOffset(GLFWwindow* window, const LinuxHostContext context);

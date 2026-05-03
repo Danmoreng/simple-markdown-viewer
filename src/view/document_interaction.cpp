@@ -517,6 +517,19 @@ KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) 
         }
     }
 
+    if (appState.outlineFocused && !appState.outlineCollapsed && !appState.docLayout.outline.empty()) {
+        if (event.key == InteractionKey::Up) {
+            result.handled = true;
+            result.outlinePrevious = true;
+            return result;
+        }
+        if (event.key == InteractionKey::Down) {
+            result.handled = true;
+            result.outlineNext = true;
+            return result;
+        }
+    }
+
     if (event.key == InteractionKey::Escape) {
         result.handled = true;
         result.stopAutoScroll = true;

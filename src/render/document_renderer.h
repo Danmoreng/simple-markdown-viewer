@@ -32,6 +32,7 @@ struct DocumentSceneParams {
     float viewportHeight = 0.0f;
     float surfaceWidth = 0.0f;
     float surfaceHeight = 0.0f;
+    float documentLeftInset = 0.0f;
     float scrollbarWidth = 0.0f;
     float scrollbarMargin = 0.0f;
     uint64_t currentTickCount = 0;

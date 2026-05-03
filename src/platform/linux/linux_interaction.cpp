@@ -10,6 +10,7 @@
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
+#include "view/document_outline.h"
 #include "util/skia_font_utils.h"
 #include "render/typography.h"
 
@@ -121,7 +122,13 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
         return run.textStart + len;
     };
 
-    auto docHit = HitTestDocument(appState.docLayout, appState.scrollOffset, contentTop, static_cast<float>(x), static_cast<float>(y), callbacks);
+    auto docHit = HitTestDocument(
+        appState.docLayout,
+        appState.scrollOffset,
+        contentTop,
+        static_cast<float>(x) - GetDocumentLeftInset(app.GetHostContext()),
+        static_cast<float>(y),
+        callbacks);
     return InteractionTextHit{docHit.position, docHit.valid, docHit.url};
 }
 
@@ -324,10 +331,33 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
             return;
         }
 
+        if (HitTestOutlineToggle(
+                appState,
+                static_cast<float>(xpos),
+                static_cast<float>(ypos),
+                GetContentTopInset())) {
+            appState.outlineCollapsed = !appState.outlineCollapsed;
+            appState.outlineFocused = true;
+            RelayoutCurrentDocument(window, app->GetHostContext());
+            appState.needsRepaint = true;
+            return;
+        }
+
+        if (const auto outlineHit = HitTestOutlineSidebar(
+                appState,
+                static_cast<float>(xpos),
+                static_cast<float>(ypos),
+                GetContentTopInset())) {
+            FocusOutlineItem(appState, *outlineHit, GetMaxScroll(window, app->GetHostContext()));
+            ClampScrollOffset(window, app->GetHostContext());
+            appState.needsRepaint = true;
+            return;
+        }
+
         const auto hit = HitTest(window, *app, xpos, ypos);
         {
             auto& lockedState = GetAppState(app->GetHostContext());
-            const float docX = static_cast<float>(xpos);
+            const float docX = static_cast<float>(xpos) - GetDocumentLeftInset(app->GetHostContext());
             const float docY = static_cast<float>(ypos) - GetContentTopInset() + lockedState.scrollOffset;
             for (const auto& buttonRegion : lockedState.codeBlockButtons) {
                 if (!buttonRegion.first.contains(docX, docY)) {
@@ -409,6 +439,8 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
         case GLFW_KEY_KP_SUBTRACT: if (ev.ctrl) ev.key = InteractionKey::ZoomOut; break;
         case GLFW_KEY_LEFT: ev.key = InteractionKey::Left; break;
         case GLFW_KEY_RIGHT: ev.key = InteractionKey::Right; break;
+        case GLFW_KEY_UP: ev.key = InteractionKey::Up; break;
+        case GLFW_KEY_DOWN: ev.key = InteractionKey::Down; break;
         case GLFW_KEY_BACKSPACE: ev.key = InteractionKey::Back; break;
         case GLFW_KEY_O: if (ev.ctrl) ExecuteMenuCommand(window, *app, MenuCommand::OpenFile); break;
     }
@@ -421,6 +453,14 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
     }
     if (result.zoomIn) AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
     if (result.zoomOut) AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
+    if (result.outlinePrevious) {
+        MoveOutlineFocus(GetAppState(app->GetHostContext()), -1, GetMaxScroll(window, app->GetHostContext()));
+        ClampScrollOffset(window, app->GetHostContext());
+    }
+    if (result.outlineNext) {
+        MoveOutlineFocus(GetAppState(app->GetHostContext()), 1, GetMaxScroll(window, app->GetHostContext()));
+        ClampScrollOffset(window, app->GetHostContext());
+    }
     if (result.openSearch) {
         OpenSearch(GetAppState(app->GetHostContext()));
         ScrollSearchMatchIntoView(window, *app);

@@ -10,6 +10,7 @@
 #include "platform/linux/linux_shell.h"
 #include "util/skia_font_utils.h"
 #include "view/document_interaction.h"
+#include "view/document_outline.h"
 
 #include "include/core/SkCanvas.h"
 
@@ -85,6 +86,16 @@ float GetContentTopInset() {
     return 30.0f; 
 }
 
+float GetDocumentLeftInset(const LinuxHostContext context) {
+    return GetOutlineSidebarWidth(GetAppState(context));
+}
+
+float GetDocumentLayoutWidth(GLFWwindow* window, const LinuxHostContext context) {
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    return std::max(static_cast<float>(width) - GetDocumentLeftInset(context) - kScrollbarWidth - (kScrollbarMargin * 2.0f), 1.0f);
+}
+
 float GetViewportHeight(GLFWwindow* window, const LinuxHostContext context) {
     int width, height;
     glfwGetWindowSize(window, &width, &height);
@@ -130,6 +141,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
     params.viewportHeight = GetViewportHeight(window, context);
     params.surfaceWidth = static_cast<float>(width);
     params.surfaceHeight = static_cast<float>(height);
+    params.documentLeftInset = GetDocumentLeftInset(context);
     params.scrollbarWidth = kScrollbarWidth;
     params.scrollbarMargin = kScrollbarMargin;
     params.currentTickCount = static_cast<uint64_t>(glfwGetTime() * 1000.0);
@@ -194,8 +206,7 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
 
     int width, height;
     glfwGetWindowSize(window, &width, &height);
-    
-    const float contentWidth = static_cast<float>(width) - kScrollbarWidth - kScrollbarMargin * 2.0f;
+    const float contentWidth = std::max(static_cast<float>(width) - kScrollbarWidth - (kScrollbarMargin * 2.0f), 1.0f);
 
     auto* regularTypeface = GetRegularTypeface(context);
     if (!regularTypeface) {
@@ -219,6 +230,9 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
         appState.scrollOffset = 0;
         appState.needsRepaint = true;
         context.controller.SaveConfig();
+        if (!appState.docLayout.outline.empty()) {
+            RelayoutCurrentDocument(window, context);
+        }
         return true;
     }
     return false;
@@ -266,9 +280,7 @@ void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::st
 }
 
 void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
-    int width, height;
-    glfwGetWindowSize(window, &width, &height);
-    const float contentWidth = static_cast<float>(width) - kScrollbarWidth - kScrollbarMargin * 2.0f;
+    const float contentWidth = GetDocumentLayoutWidth(window, context);
 
     auto& appState = GetAppState(context);
     const auto currentPath = appState.currentFilePath;

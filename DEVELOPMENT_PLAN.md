@@ -67,11 +67,11 @@ Goal: finish the remaining small persistence and reader-control details without 
 
 Goal: make long documents substantially easier to navigate.
 
-- [ ] Add a sidebar table of contents generated from headings.
-- [ ] Support nested heading hierarchy and skipped heading levels.
-- [ ] Highlight the current section while scrolling.
-- [ ] Click outline items to jump to headings.
-- [ ] Add keyboard navigation for the outline.
+- [x] Add a sidebar table of contents generated from headings.
+- [x] Support nested heading hierarchy and skipped heading levels.
+- [x] Highlight the current section while scrolling.
+- [x] Click outline items to jump to headings.
+- [x] Add keyboard navigation for the outline.
 - [ ] Add a command and shortcut to show/hide the outline.
 - [ ] Preserve back/forward behavior for internal heading jumps.
 - [ ] Improve heading anchor compatibility with common GitHub-style expectations, including duplicate headings, Unicode headings, emoji, punctuation, and percent-decoded fragments.

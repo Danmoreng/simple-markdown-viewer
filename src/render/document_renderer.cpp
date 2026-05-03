@@ -7,6 +7,7 @@
 
 #include "render/typography.h"
 #include "view/document_interaction.h"
+#include "view/document_outline.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -56,6 +57,35 @@ float MeasureRunWidth(
 
     ConfigureDocumentFont(ctx.font, typefaces, blockType, run.style, baseFontSize);
     return ctx.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+}
+
+size_t NextUtf8Offset(const std::string& text, size_t offset) {
+    if (offset >= text.size()) {
+        return text.size();
+    }
+
+    ++offset;
+    while (offset < text.size() && (static_cast<unsigned char>(text[offset]) & 0xC0) == 0x80) {
+        ++offset;
+    }
+    return offset;
+}
+
+size_t FitUtf8TextBytes(const SkFont& font, const std::string& text, float maxWidth) {
+    size_t bestOffset = 0;
+    for (size_t offset = 0; offset <= text.size();) {
+        const float width = font.measureText(text.c_str(), offset, SkTextEncoding::kUTF8);
+        if (width > maxWidth) {
+            break;
+        }
+
+        bestOffset = offset;
+        if (offset == text.size()) {
+            break;
+        }
+        offset = NextUtf8Offset(text, offset);
+    }
+    return bestOffset;
 }
 
 void DrawCopyIcon(SkCanvas* canvas, float x, float y, float size, SkColor color) {
@@ -753,6 +783,123 @@ void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
     }
 }
 
+void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
+    if (params.appState->docLayout.outline.empty() || params.documentLeftInset <= 0.0f) {
+        return;
+    }
+
+    const SkRect sidebarRect = SkRect::MakeXYWH(
+        0.0f,
+        params.contentTopInset,
+        params.documentLeftInset,
+        params.surfaceHeight - params.contentTopInset);
+
+    SkPaint backgroundPaint;
+    backgroundPaint.setAntiAlias(false);
+    backgroundPaint.setColor(params.palette.menuBackground);
+    ctx.canvas->drawRect(sidebarRect, backgroundPaint);
+
+    SkPaint borderPaint;
+    borderPaint.setAntiAlias(false);
+    borderPaint.setColor(params.palette.menuSeparator);
+    ctx.canvas->drawRect(
+        SkRect::MakeXYWH(params.documentLeftInset - 1.0f, params.contentTopInset, 1.0f, sidebarRect.height()),
+        borderPaint);
+
+    ctx.canvas->save();
+    ctx.canvas->clipRect(sidebarRect);
+
+    const size_t currentIndex = GetCurrentOutlineIndex(params.appState->docLayout, params.visibleDocumentTop);
+    const size_t focusedIndex = std::min(
+        params.appState->focusedOutlineIndex,
+        params.appState->docLayout.outline.empty() ? 0 : params.appState->docLayout.outline.size() - 1);
+    ctx.font.setTypeface(sk_ref_sp(params.typefaces.regular));
+    ctx.font.setSize(15.0f);
+    ctx.font.setSubpixel(true);
+
+    auto drawSidebarToggleIcon = [&](const SkRect& rect, bool collapsed) {
+        SkPaint iconPaint;
+        iconPaint.setAntiAlias(true);
+        iconPaint.setColor(params.palette.menuText);
+        iconPaint.setStyle(SkPaint::kStroke_Style);
+        iconPaint.setStrokeWidth(2.0f);
+        iconPaint.setStrokeCap(SkPaint::kRound_Cap);
+        iconPaint.setStrokeJoin(SkPaint::kRound_Join);
+
+        const float iconSize = 21.0f;
+        const float iconX = rect.left() + std::max((rect.width() - iconSize) * 0.5f, 0.0f);
+        const float iconY = rect.top() + std::max((rect.height() - iconSize) * 0.5f, 0.0f);
+        const SkRect outer = SkRect::MakeXYWH(iconX, iconY, iconSize, iconSize);
+        ctx.canvas->drawRoundRect(outer, 3.5f, 3.5f, iconPaint);
+
+        iconPaint.setStrokeWidth(2.4f);
+        const float caretCenterX = outer.centerX();
+        const float caretCenterY = outer.centerY();
+        if (collapsed) {
+            ctx.canvas->drawLine(caretCenterX - 2.5f, caretCenterY - 5.0f, caretCenterX + 2.5f, caretCenterY, iconPaint);
+            ctx.canvas->drawLine(caretCenterX + 2.5f, caretCenterY, caretCenterX - 2.5f, caretCenterY + 5.0f, iconPaint);
+        } else {
+            ctx.canvas->drawLine(caretCenterX + 2.5f, caretCenterY - 5.0f, caretCenterX - 2.5f, caretCenterY, iconPaint);
+            ctx.canvas->drawLine(caretCenterX - 2.5f, caretCenterY, caretCenterX + 2.5f, caretCenterY + 5.0f, iconPaint);
+        }
+    };
+
+    const float toggleSize = 24.0f;
+    const float toggleX = params.appState->outlineCollapsed
+        ? 5.0f
+        : std::max(params.documentLeftInset - toggleSize - 6.0f, 6.0f);
+    const SkRect toggleRect = SkRect::MakeXYWH(toggleX, params.contentTopInset + 5.0f, toggleSize, toggleSize);
+    SkPaint togglePaint;
+    togglePaint.setAntiAlias(true);
+    togglePaint.setColor(params.palette.menuSelectedBackground);
+    togglePaint.setAlphaf(params.appState->outlineCollapsed ? 0.25f : 0.16f);
+    ctx.canvas->drawRoundRect(toggleRect, 5.0f, 5.0f, togglePaint);
+
+    drawSidebarToggleIcon(toggleRect, params.appState->outlineCollapsed);
+
+    if (params.appState->outlineCollapsed) {
+        ctx.canvas->restore();
+        return;
+    }
+
+    ctx.font.setSize(15.0f);
+    const float textTop = params.contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    for (size_t index = 0; index < params.appState->docLayout.outline.size(); ++index) {
+        const HeadingOutlineItem& item = params.appState->docLayout.outline[index];
+        const float itemY = textTop + (static_cast<float>(index) * kOutlineItemHeight);
+        if (itemY > params.surfaceHeight) {
+            break;
+        }
+
+        const float indent = 14.0f + (static_cast<float>(std::clamp(item.level, 1, 6) - 1) * 14.0f);
+        const SkRect itemRect = SkRect::MakeXYWH(8.0f, itemY, params.documentLeftInset - 16.0f, kOutlineItemHeight);
+        if (index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)) {
+            SkPaint selectedPaint;
+            selectedPaint.setAntiAlias(true);
+            selectedPaint.setColor(params.palette.menuSelectedBackground);
+            selectedPaint.setAlphaf(params.appState->outlineFocused && index == focusedIndex ? 0.75f : 0.45f);
+            ctx.canvas->drawRoundRect(itemRect, 5.0f, 5.0f, selectedPaint);
+        }
+
+        const std::string fallbackText = "(untitled)";
+        const std::string& text = item.text.empty() ? fallbackText : item.text;
+        const float maxTextWidth = std::max(params.documentLeftInset - indent - 16.0f, 16.0f);
+        const size_t bytesToDraw = FitUtf8TextBytes(ctx.font, text, maxTextWidth);
+
+        ctx.paint.setColor(index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)
+            ? params.palette.menuSelectedText
+            : params.palette.menuText);
+        ctx.canvas->drawString(
+            text.substr(0, bytesToDraw).c_str(),
+            indent,
+            itemY + 21.0f,
+            ctx.font,
+            ctx.paint);
+    }
+
+    ctx.canvas->restore();
+}
+
 } // namespace
 
 bool IsHeadingBlock(BlockType blockType) {
@@ -845,9 +992,11 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
     ctx.font.setHinting(SkFontHinting::kSlight);
     ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
+    DrawOutlineSidebar(ctx, params);
+
     params.canvas->save();
-    params.canvas->clipRect(SkRect::MakeLTRB(0.0f, params.contentTopInset, params.surfaceWidth, params.surfaceHeight));
-    params.canvas->translate(0, params.contentTopInset - params.appState->scrollOffset);
+    params.canvas->clipRect(SkRect::MakeLTRB(params.documentLeftInset, params.contentTopInset, params.surfaceWidth, params.surfaceHeight));
+    params.canvas->translate(params.documentLeftInset, params.contentTopInset - params.appState->scrollOffset);
 
     DrawBlocks(ctx, params, params.appState->docLayout.blocks);
 
@@ -858,7 +1007,12 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
         SkRect bounds;
         ctx.font.measureText(message, std::strlen(message), SkTextEncoding::kUTF8, &bounds);
         const float emptyStateY = params.viewportHeight * 0.5f;
-        params.canvas->drawString(message, (params.surfaceWidth - bounds.width()) / 2, emptyStateY, ctx.font, ctx.paint);
+        params.canvas->drawString(
+            message,
+            params.documentLeftInset + ((params.surfaceWidth - params.documentLeftInset - bounds.width()) / 2.0f),
+            emptyStateY,
+            ctx.font,
+            ctx.paint);
     }
 
     params.canvas->restore();

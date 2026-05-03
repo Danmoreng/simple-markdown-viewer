@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include "layout/document_model.h"
@@ -41,11 +42,19 @@ struct BlockLayout {
     std::vector<BlockLayout> children;
 };
 
+struct HeadingOutlineItem {
+    int level = 1;
+    std::string text;
+    std::string slug;
+    float y = 0.0f;
+};
+
 struct DocumentLayout {
     std::vector<BlockLayout> blocks;
     float totalHeight;
     std::string plainText;
     std::unordered_map<std::string, float> anchors;
+    std::vector<HeadingOutlineItem> outline;
 };
 
 class LayoutEngine {

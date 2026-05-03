@@ -204,6 +204,7 @@ set(SOURCES
     src/view/document_context_menu.cpp
     src/view/document_hit_test.cpp
     src/view/document_interaction.cpp
+    src/view/document_outline.cpp
     ${TREE_SITTER_CORE_SOURCE}
     ${TREE_SITTER_LANGUAGE_SOURCES}
     ${TREE_SITTER_QUERY_SOURCE}
@@ -345,6 +346,7 @@ add_executable(mdviewer_tests
     src/util/skia_font_utils.cpp
     src/util/utf8.cpp
     src/view/document_interaction.cpp
+    src/view/document_outline.cpp
     ${TREE_SITTER_CORE_SOURCE}
     ${TREE_SITTER_LANGUAGE_SOURCES}
     ${TREE_SITTER_QUERY_SOURCE}

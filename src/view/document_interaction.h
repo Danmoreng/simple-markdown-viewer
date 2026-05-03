@@ -22,6 +22,8 @@ enum class InteractionKey {
     ZoomOut,
     Left,
     Right,
+    Up,
+    Down,
     Back,
     Copy,
     Find,
@@ -48,6 +50,8 @@ struct KeyCommandResult {
     bool searchNext = false;
     bool searchPrevious = false;
     bool searchBackspace = false;
+    bool outlinePrevious = false;
+    bool outlineNext = false;
 };
 
 struct PointerUpResult {

@@ -51,6 +51,7 @@ SkTypeface* GetRegularTypeface(ViewerHostContext& context);
 SkTypeface* GetMenuTypeface(ViewerHostContext& context);
 
 float GetContentTopInset();
+float GetDocumentLeftInset(const ViewerHostContext& context);
 float GetViewportHeight(HWND hwnd, const ViewerHostContext& context);
 float GetMaxScroll(HWND hwnd, const ViewerHostContext& context);
 void ClampScrollOffset(HWND hwnd, const ViewerHostContext& context);

@@ -48,6 +48,18 @@ bool IsHeading(BlockType type) {
            type == BlockType::Heading6;
 }
 
+int HeadingLevel(BlockType type) {
+    switch (type) {
+        case BlockType::Heading1: return 1;
+        case BlockType::Heading2: return 2;
+        case BlockType::Heading3: return 3;
+        case BlockType::Heading4: return 4;
+        case BlockType::Heading5: return 5;
+        case BlockType::Heading6: return 6;
+        default: return 1;
+    }
+}
+
 } // namespace
 
 class LayoutContext {
@@ -59,6 +71,7 @@ public:
     size_t currentTextOffset = 0;
     std::string plainText;
     std::unordered_map<std::string, float> anchors;
+    std::vector<HeadingOutlineItem> outline;
     SkFont font;
     float baseFontSize;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
@@ -383,6 +396,12 @@ private:
 
         const std::string slug = MakeHeadingAnchor(text);
         if (slug.empty()) {
+            outline.push_back(HeadingOutlineItem{
+                .level = HeadingLevel(block.type),
+                .text = text,
+                .slug = {},
+                .y = y,
+            });
             return;
         }
 
@@ -393,6 +412,12 @@ private:
             uniqueSlug = slug + "-" + std::to_string(suffix);
         }
         anchors[uniqueSlug] = y;
+        outline.push_back(HeadingOutlineItem{
+            .level = HeadingLevel(block.type),
+            .text = std::move(text),
+            .slug = uniqueSlug,
+            .y = y,
+        });
     }
 
     float GetLineHeight(BlockType blockType, InlineStyle inlineStyle = InlineStyle::Plain) {
@@ -615,6 +640,7 @@ DocumentLayout LayoutEngine::ComputeLayout(
     layout.totalHeight = ctx.currentY + kDocumentBottomPadding;
     layout.plainText = std::move(ctx.plainText);
     layout.anchors = std::move(ctx.anchors);
+    layout.outline = std::move(ctx.outline);
     return layout;
 }
 
