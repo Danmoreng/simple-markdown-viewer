@@ -148,7 +148,7 @@ Goal: make the custom-rendered UI safer for everyday and accessibility use.
 Goal: support common output workflows without compromising the viewer architecture.
 
 - [ ] Add native print support.
-- [ ] Add export to PDF.
+- [x] Add export to PDF.
 - [ ] Use a print-friendly light palette by default, independent of the active dark theme.
 - [ ] Preserve links in exported PDF if practical.
 - [ ] Handle page breaks for headings, paragraphs, code blocks, tables, and images.

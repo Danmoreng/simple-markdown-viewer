@@ -36,6 +36,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - `File` recent files list on Windows
   - command-line file argument
   - clicking internal file links
+- Save the currently open Markdown document as PDF from `File -> Save as PDF...`
 - Render:
   - paragraphs
   - headings
@@ -165,6 +166,7 @@ Useful variants:
 
 - GitHub Actions builds the Windows release on pushes to `main` and on pull requests.
 - CI prefers a prebuilt Windows Skia bundle so normal app builds do not rebuild Skia from source.
+- The prebuilt Skia bundle must be built with `skia_enable_pdf=true` for PDF export support.
 - Each workflow run uploads `mdviewer-windows-x64.zip` as a build artifact.
 - Pushing a tag like `v0.1.4` also creates or updates a GitHub release and attaches the packaged Windows build.
 - Release archives contain `mdviewer.exe`, `LICENSE`, and `THIRD_PARTY_NOTICES`.
@@ -203,6 +205,7 @@ The Linux host is compiled from the same CMake target on Linux. It uses GLFW for
 ## Controls
 
 - `File -> Open...`: open a file
+- `File -> Save as PDF...`: export the currently open Markdown document to PDF
 - `File`: reopen recently opened files on Windows; the newest file appears first with its last-opened date and time
 - drag and drop: open a file
 - mouse wheel: scroll
@@ -243,7 +246,7 @@ The Linux host is compiled from the same CMake target on Linux. It uses GLFW for
 Direct dependencies used by the current build:
 
 - `Skia`
-  - role: 2D rendering and text drawing
+  - role: 2D rendering, text drawing, and PDF generation
   - license: BSD-3-Clause-style
   - local license file: `third_party/skia/LICENSE`
 - `md4c`
@@ -325,5 +328,6 @@ CMakeLists.txt    CMake project definition
 - The app has native Windows and Linux hosts sharing the same document/controller/render/view layers.
 - The menu bar is client-drawn so it can follow the selected theme; shared layout/drawing helpers live in `src/render/menu_renderer.*`.
 - The document zoom affects rendered document typography, not the top menu bar.
+- PDF export uses Skia's PDF backend and the shared document renderer with PDF-specific page margins, page-break handling, and slightly smaller typography than the interactive view.
 - On Windows, live reload is event-driven via OS file-change notifications rather than polling.
 - Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.
