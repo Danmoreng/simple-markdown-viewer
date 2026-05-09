@@ -23,6 +23,22 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
                 LoadFile(hwnd, appPtr->Host(), *path);
             }
         },
+        .saveAsPdf = [hwnd, appPtr]() {
+            if (!appPtr->Controller().HasCurrentFile()) {
+                MessageBoxW(hwnd, L"Open a Markdown file before saving as PDF.", L"Save as PDF", MB_ICONINFORMATION);
+                return;
+            }
+
+            std::filesystem::path currentPath;
+            {
+                auto& appState = GetAppState(appPtr->Host());
+                std::lock_guard<std::mutex> lock(appState.mtx);
+                currentPath = appState.currentFilePath;
+            }
+            if (const auto path = ShowSavePdfDialog(hwnd, currentPath)) {
+                SaveCurrentDocumentAsPdf(hwnd, appPtr->Host(), *path);
+            }
+        },
         .openRecentFile = [hwnd, appPtr](const std::filesystem::path& path) {
             LoadFile(hwnd, appPtr->Host(), path);
         },
@@ -269,6 +285,11 @@ bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& hand
         case kCommandOpenFile:
             if (handlers.openFile) {
                 handlers.openFile();
+            }
+            return true;
+        case kCommandSaveAsPdf:
+            if (handlers.saveAsPdf) {
+                handlers.saveAsPdf();
             }
             return true;
         case kCommandExit:

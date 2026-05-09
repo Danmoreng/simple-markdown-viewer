@@ -141,6 +141,16 @@ void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
                 LoadFile(window, host, *path);
             }
         } break;
+        case MenuCommand::SaveAsPdf: {
+            const auto& appState = GetAppState(host);
+            if (appState.currentFilePath.empty()) {
+                std::cerr << "Open a Markdown file before saving as PDF." << std::endl;
+                break;
+            }
+            if (auto path = ShowSavePdfDialog(appState.currentFilePath)) {
+                SaveCurrentDocumentAsPdf(window, host, *path);
+            }
+        } break;
         case MenuCommand::SelectFont: {
             if (auto fontName = ShowFontDialog()) {
                 ApplySelectedFont(window, host, *fontName);

@@ -1,6 +1,7 @@
 #include "platform/linux/linux_viewer_host.h"
 
 #include <algorithm>
+#include <iostream>
 
 #include "app/heading_anchor.h"
 #include "app/document_loader.h"
@@ -8,6 +9,7 @@
 #include "render/menu_renderer.h"
 #include "render/typography.h"
 #include "platform/linux/linux_shell.h"
+#include "render/pdf_exporter.h"
 #include "util/skia_font_utils.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
@@ -236,6 +238,47 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
         return true;
     }
     return false;
+}
+
+bool SaveCurrentDocumentAsPdf(GLFWwindow* window, LinuxHostContext context, const std::filesystem::path& outputPath) {
+    (void)window;
+    if (!EnsureFontSystem(context)) {
+        std::cerr << "Font initialization failed. The PDF cannot be rendered." << std::endl;
+        return false;
+    }
+
+    PdfExportRequest request;
+    request.outputPath = outputPath;
+    request.typefaces = context.typefaces.GetTypefaceSet();
+    request.layoutTypeface = GetRegularTypeface(context);
+
+    auto& appState = GetAppState(context);
+    request.sourcePath = appState.currentFilePath;
+    request.sourceText = appState.sourceText;
+    request.document = appState.docModel;
+    request.theme = appState.theme;
+    request.baseFontSize = appState.baseFontSize;
+
+    if (request.sourcePath.empty()) {
+        std::cerr << PdfExportStatusMessage(PdfExportStatus::NoDocument) << std::endl;
+        return false;
+    }
+
+    const std::filesystem::path baseDir = request.sourcePath.parent_path();
+    request.imageSizeProvider = [&context, baseDir](const std::string& url) {
+        return context.imageCache.GetImageSize(url, baseDir);
+    };
+    request.resolveImage = [&context, baseDir](const std::string& url, float displayWidth, float displayHeight) {
+        return context.imageCache.GetImage(url, baseDir, displayWidth, displayHeight);
+    };
+
+    const PdfExportStatus status = ExportMarkdownToPdf(request);
+    if (status != PdfExportStatus::Success) {
+        std::cerr << PdfExportStatusMessage(status) << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 void GoBack(GLFWwindow* window, LinuxHostContext context) {

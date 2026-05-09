@@ -13,6 +13,7 @@
 namespace mdviewer::win {
 
 std::optional<std::filesystem::path> ShowOpenFileDialog(HWND hwnd);
+std::optional<std::filesystem::path> ShowSavePdfDialog(HWND hwnd, const std::filesystem::path& currentFilePath);
 std::optional<std::wstring> ShowFontDialog(HWND hwnd, const std::wstring& currentFontFamily);
 
 } // namespace mdviewer::win

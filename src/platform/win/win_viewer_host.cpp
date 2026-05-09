@@ -10,6 +10,7 @@
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
+#include "render/pdf_exporter.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -132,6 +133,7 @@ void SyncMenuState(HWND hwnd, const ViewerHostContext& context) {
     UpdateMenuState(
         hwnd,
         context.controller.GetTheme(),
+        context.controller.HasCurrentFile(),
         State(context).outlineCollapsed,
         context.controller.GetOutlineSide(),
         context.controller.HasCustomFontFamily(),
@@ -277,6 +279,65 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
 
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
+}
+
+bool SaveCurrentDocumentAsPdf(HWND hwnd, ViewerHostContext& context, const std::filesystem::path& outputPath) {
+    if (!EnsureFontSystem(context)) {
+        MessageBoxW(hwnd, L"Font initialization failed. The PDF cannot be rendered.", L"Save as PDF", MB_ICONERROR);
+        return false;
+    }
+
+    PdfExportRequest request;
+    request.outputPath = outputPath;
+    request.typefaces = GetDocumentTypefaces(context);
+    request.layoutTypeface = GetRegularTypeface(context);
+
+    AppState& appState = State(context);
+    {
+        std::lock_guard<std::mutex> lock(appState.mtx);
+        request.sourcePath = appState.currentFilePath;
+        request.sourceText = appState.sourceText;
+        request.document = appState.docModel;
+        request.theme = appState.theme;
+        request.baseFontSize = appState.baseFontSize;
+    }
+
+    if (request.sourcePath.empty()) {
+        MessageBoxW(hwnd, L"Open a Markdown file before saving as PDF.", L"Save as PDF", MB_ICONINFORMATION);
+        return false;
+    }
+
+    const std::filesystem::path baseDir = request.sourcePath.parent_path();
+    request.imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
+        return context.imageCache.GetImageSize(url, baseDir);
+    };
+    request.resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
+        return context.imageCache.GetImage(url, baseDir, displayWidth, displayHeight);
+    };
+
+    const PdfExportStatus status = ExportMarkdownToPdf(request);
+    if (status == PdfExportStatus::Success) {
+        return true;
+    }
+
+    std::wstring message;
+    switch (status) {
+        case PdfExportStatus::PdfBackendUnavailable:
+            message = L"PDF export is unavailable because Skia was built without PDF support. Rebuild Skia with the updated build script.";
+            break;
+        case PdfExportStatus::NoDocument:
+            message = L"Open a Markdown file before saving as PDF.";
+            break;
+        case PdfExportStatus::FileOpenError:
+            message = L"Could not open the PDF file for writing.";
+            break;
+        case PdfExportStatus::WriteError:
+        default:
+            message = L"Could not write the PDF file.";
+            break;
+    }
+    MessageBoxW(hwnd, message.c_str(), L"Save as PDF", MB_ICONERROR);
+    return false;
 }
 
 void GoBack(HWND hwnd, ViewerHostContext& context) {

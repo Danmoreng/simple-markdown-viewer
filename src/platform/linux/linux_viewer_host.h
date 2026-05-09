@@ -30,6 +30,7 @@ void ClampScrollOffset(GLFWwindow* window, const LinuxHostContext context);
 
 void Render(GLFWwindow* window, LinuxHostContext context);
 bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesystem::path& path, bool pushHistory = true);
+bool SaveCurrentDocumentAsPdf(GLFWwindow* window, LinuxHostContext context, const std::filesystem::path& outputPath);
 void GoBack(GLFWwindow* window, LinuxHostContext context);
 void GoForward(GLFWwindow* window, LinuxHostContext context);
 void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context);

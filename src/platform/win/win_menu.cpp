@@ -299,6 +299,7 @@ bool CreateMenus(const ThemePalette& palette) {
     }
 
     AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+    AppendMenuW(g_fileMenu, MF_STRING, kCommandSaveAsPdf, L"Save as &PDF...");
     AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(g_fileMenu, MF_STRING, kCommandExit, L"E&xit");
 
@@ -350,6 +351,7 @@ void CleanupMenus() {
 void UpdateMenuState(
     HWND hwnd,
     ThemeMode currentTheme,
+    bool hasCurrentFile,
     bool outlineCollapsed,
     OutlineSide outlineSide,
     bool hasCustomFont,
@@ -366,6 +368,7 @@ void UpdateMenuState(
         }
 
         AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandSaveAsPdf, L"Save as &PDF...");
         if (!g_recentFiles.empty()) {
             AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
             const size_t recentCount = std::min(g_recentFiles.size(), kMaxRecentFiles);
@@ -386,6 +389,10 @@ void UpdateMenuState(
     ConfigureOwnerDrawMenu(g_fileMenu);
     ConfigureOwnerDrawMenu(g_viewMenu);
 
+    EnableMenuItem(
+        g_fileMenu,
+        kCommandSaveAsPdf,
+        MF_BYCOMMAND | (hasCurrentFile ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(
         g_viewMenu,
         kCommandUseDefaultFont,

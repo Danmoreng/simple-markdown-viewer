@@ -38,6 +38,7 @@ struct DocumentSceneParams {
     uint64_t currentTickCount = 0;
     float visibleDocumentTop = 0.0f;
     float visibleDocumentBottom = 0.0f;
+    bool showInteractiveElements = true;
     std::optional<SkRect> scrollbarThumbRect;
     std::function<sk_sp<SkImage>(const std::string& url, float displayWidth, float displayHeight)> resolveImage;
     std::function<void(const SkRect& rect, size_t start, size_t end)> addCodeBlockButton;

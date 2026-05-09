@@ -26,6 +26,7 @@ std::vector<MenuDropdown> GetLinuxMenus() {
             "File",
             {
                 {"Open...", MenuCommand::OpenFile},
+                {"Save as PDF...", MenuCommand::SaveAsPdf},
                 {"", MenuCommand::None, true},
                 {"Exit", MenuCommand::Exit}
             }

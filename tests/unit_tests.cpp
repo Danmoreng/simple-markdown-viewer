@@ -16,6 +16,7 @@
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
 #include "render/menu_renderer.h"
+#include "render/pdf_exporter.h"
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
 #include "view/document_interaction.h"
@@ -371,6 +372,51 @@ void LayoutSensitiveBehavior() {
     Require(narrowTable.bounds.width() < normalTable.bounds.width(), "table width should relayout with viewport width");
 }
 
+void PdfExportWritesFile() {
+    TempDir temp;
+    const fs::path sourcePath = temp.Path() / "export-source.md";
+    const fs::path outputPath = temp.Path() / "export-output.pdf";
+    const std::string source =
+        "# Export Title\n\n"
+        "This paragraph should be rendered into a PDF file.\n\n"
+        "```cpp\n"
+        "int main() { return 0; }\n"
+        "```\n";
+    WriteText(sourcePath, source);
+
+    const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(source);
+    const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    mdviewer::DocumentTypefaceSet typefaces;
+    typefaces.fontMgr = fontMgr.get();
+    typefaces.regular = typeface.get();
+    typefaces.bold = typeface.get();
+    typefaces.heading = typeface.get();
+    typefaces.code = typeface.get();
+
+    mdviewer::PdfExportRequest request;
+    request.outputPath = outputPath;
+    request.sourcePath = sourcePath;
+    request.sourceText = source;
+    request.document = doc;
+    request.theme = mdviewer::ThemeMode::Light;
+    request.baseFontSize = mdviewer::kDefaultBaseFontSize;
+    request.typefaces = typefaces;
+    request.layoutTypeface = typeface.get();
+
+    const mdviewer::PdfExportStatus status = mdviewer::ExportMarkdownToPdf(request);
+    Require(
+        status == mdviewer::PdfExportStatus::Success,
+        std::string("PDF export should succeed: ") + mdviewer::PdfExportStatusMessage(status));
+    Require(fs::exists(outputPath), "PDF output file should exist");
+    Require(fs::file_size(outputPath) > 500, "PDF output file should contain rendered data");
+
+    std::ifstream input(outputPath, std::ios::binary);
+    std::string header(5, '\0');
+    input.read(header.data(), static_cast<std::streamsize>(header.size()));
+    RequireEqual(header, std::string("%PDF-"), "PDF output should have a PDF header");
+}
+
 void MenuLayoutHitTesting() {
     const std::vector<float> itemWidths = {30.0f, 40.0f};
     const auto layout = mdviewer::ComputeMenuBarLayout(500.0f, 42.0f, itemWidths);
@@ -489,6 +535,7 @@ int main() {
         {"LinkResolution", LinkResolution},
         {"HeadingAnchors", HeadingAnchors},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
+        {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},
         {"ScrollAnchorPreservesReadingPosition", ScrollAnchorPreservesReadingPosition},
     };

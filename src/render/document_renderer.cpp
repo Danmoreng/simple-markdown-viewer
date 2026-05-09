@@ -458,6 +458,7 @@ void DrawBlockDecoration(
 
         ctx.canvas->drawRoundRect(bgRect, 8.0f, 8.0f, backgroundPaint);
 
+        const bool showControls = params.showInteractiveElements;
         const float btnSize = 28.0f;
         const float btnPadding = 6.0f;
         const SkRect btnRect = SkRect::MakeXYWH(
@@ -466,11 +467,13 @@ void DrawBlockDecoration(
             btnSize,
             btnSize);
 
-        if (params.addCodeBlockButton) {
+        if (showControls && params.addCodeBlockButton) {
             params.addCodeBlockButton(btnRect, block.textStart, block.textStart + block.textLength);
         }
 
-        DrawCopyIcon(ctx.canvas, btnRect.left(), btnRect.top(), btnSize, params.palette.listMarker);
+        if (showControls) {
+            DrawCopyIcon(ctx.canvas, btnRect.left(), btnRect.top(), btnSize, params.palette.listMarker);
+        }
 
         if (!block.codeLanguage.empty()) {
             ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::CodeBlock, InlineStyle::Plain, params.baseFontSize);
@@ -481,7 +484,7 @@ void DrawBlockDecoration(
             const float labelPaddingX = 6.0f;
             const float labelHeight = 20.0f;
             const float labelWidth = labelBounds.width() + (labelPaddingX * 2.0f);
-            const float labelRight = btnRect.left() - 6.0f;
+            const float labelRight = showControls ? btnRect.left() - 6.0f : bgRect.right() - 6.0f;
             const SkRect labelRect = SkRect::MakeXYWH(
                 std::max(bgRect.left() + 6.0f, labelRight - labelWidth),
                 bgRect.top() + 6.0f,
@@ -1189,8 +1192,10 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
         ctx.canvas->drawRoundRect(*params.scrollbarThumbRect, 5.0f, 5.0f, ctx.paint);
     }
 
-    DrawAutoScrollIndicator(ctx.canvas, params.palette, *params.appState);
-    DrawStatusOverlays(ctx, params);
+    if (params.showInteractiveElements) {
+        DrawAutoScrollIndicator(ctx.canvas, params.palette, *params.appState);
+        DrawStatusOverlays(ctx, params);
+    }
 }
 
 } // namespace mdviewer

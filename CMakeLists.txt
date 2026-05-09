@@ -198,6 +198,7 @@ set(SOURCES
     src/render/document_typefaces.cpp
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
+    src/render/pdf_exporter.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp
@@ -338,7 +339,9 @@ add_executable(mdviewer_tests
     src/app/viewer_controller.cpp
     src/layout/layout_engine.cpp
     src/markdown/markdown_parser.cpp
+    src/render/document_renderer.cpp
     src/render/menu_renderer.cpp
+    src/render/pdf_exporter.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp

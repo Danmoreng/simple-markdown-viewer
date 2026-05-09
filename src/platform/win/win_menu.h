@@ -25,6 +25,7 @@ inline constexpr UINT_PTR kCommandOpenFile = 1001;
 inline constexpr UINT_PTR kCommandExit = 1002;
 inline constexpr UINT_PTR kCommandSelectFont = 1003;
 inline constexpr UINT_PTR kCommandUseDefaultFont = 1004;
+inline constexpr UINT_PTR kCommandSaveAsPdf = 1009;
 inline constexpr UINT_PTR kCommandThemeLight = 1101;
 inline constexpr UINT_PTR kCommandThemeSepia = 1102;
 inline constexpr UINT_PTR kCommandThemeDark = 1103;
@@ -42,6 +43,7 @@ void CleanupMenus();
 void UpdateMenuState(
     HWND hwnd,
     ThemeMode currentTheme,
+    bool hasCurrentFile,
     bool outlineCollapsed,
     OutlineSide outlineSide,
     bool hasCustomFont,

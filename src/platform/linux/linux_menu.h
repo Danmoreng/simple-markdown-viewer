@@ -18,6 +18,7 @@ enum class MenuCommand {
     ToggleOutline = 1006,
     OutlineLeft = 1007,
     OutlineRight = 1008,
+    SaveAsPdf = 1009,
     ThemeLight = 1101,
     ThemeSepia = 1102,
     ThemeDark = 1103
