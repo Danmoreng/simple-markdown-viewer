@@ -37,6 +37,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - command-line file argument
   - clicking internal file links
 - Save the currently open Markdown document as PDF from `File -> Save as PDF...`
+- Print the currently open Markdown document with the native Windows print dialog from `File -> Print...`
 - Render:
   - paragraphs
   - headings
@@ -206,6 +207,7 @@ The Linux host is compiled from the same CMake target on Linux. It uses GLFW for
 
 - `File -> Open...`: open a file
 - `File -> Save as PDF...`: export the currently open Markdown document to PDF
+- `File -> Print...` or `Ctrl+P`: print the currently open Markdown document on Windows
 - `File`: reopen recently opened files on Windows; the newest file appears first with its last-opened date and time
 - drag and drop: open a file
 - mouse wheel: scroll
@@ -329,5 +331,6 @@ CMakeLists.txt    CMake project definition
 - The menu bar is client-drawn so it can follow the selected theme; shared layout/drawing helpers live in `src/render/menu_renderer.*`.
 - The document zoom affects rendered document typography, not the top menu bar.
 - PDF export uses Skia's PDF backend and the shared document renderer with PDF-specific page margins, page-break handling, and slightly smaller typography than the interactive view.
+- Windows printing uses the native system print dialog and the same paginated rendering path as PDF export. The current Win32/GDI print path does not provide a system-dialog page preview; an in-app print preview is tracked separately.
 - On Windows, live reload is event-driven via OS file-change notifications rather than polling.
 - Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.

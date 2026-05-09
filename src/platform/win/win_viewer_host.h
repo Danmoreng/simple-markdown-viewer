@@ -63,6 +63,7 @@ std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd, const ViewerHostContext& 
 void Render(HWND hwnd, ViewerHostContext& context);
 bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path& path, bool pushHistory = true);
 bool SaveCurrentDocumentAsPdf(HWND hwnd, ViewerHostContext& context, const std::filesystem::path& outputPath);
+bool PrintCurrentDocument(HWND hwnd, ViewerHostContext& context);
 void GoBack(HWND hwnd, ViewerHostContext& context);
 void GoForward(HWND hwnd, ViewerHostContext& context);
 void HandleLinkClick(HWND hwnd, ViewerHostContext& context, const std::string& url, bool forceExternal);

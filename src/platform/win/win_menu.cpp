@@ -300,6 +300,7 @@ bool CreateMenus(const ThemePalette& palette) {
 
     AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
     AppendMenuW(g_fileMenu, MF_STRING, kCommandSaveAsPdf, L"Save as &PDF...");
+    AppendMenuW(g_fileMenu, MF_STRING, kCommandPrint, L"&Print...\tCtrl+P");
     AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(g_fileMenu, MF_STRING, kCommandExit, L"E&xit");
 
@@ -369,6 +370,7 @@ void UpdateMenuState(
 
         AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
         AppendMenuW(g_fileMenu, MF_STRING, kCommandSaveAsPdf, L"Save as &PDF...");
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandPrint, L"&Print...\tCtrl+P");
         if (!g_recentFiles.empty()) {
             AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
             const size_t recentCount = std::min(g_recentFiles.size(), kMaxRecentFiles);
@@ -392,6 +394,10 @@ void UpdateMenuState(
     EnableMenuItem(
         g_fileMenu,
         kCommandSaveAsPdf,
+        MF_BYCOMMAND | (hasCurrentFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(
+        g_fileMenu,
+        kCommandPrint,
         MF_BYCOMMAND | (hasCurrentFile ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(
         g_viewMenu,

@@ -5,12 +5,15 @@
 #include <mutex>
 #include <utility>
 
+#include <commdlg.h>
+
 #include "app/heading_anchor.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
 #include "render/pdf_exporter.h"
+#include "render/print_document.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -20,6 +23,9 @@
 #pragma warning(disable: 4267)
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkSurface.h"
 #pragma warning(pop)
 
 namespace mdviewer::win {
@@ -338,6 +344,156 @@ bool SaveCurrentDocumentAsPdf(HWND hwnd, ViewerHostContext& context, const std::
     }
     MessageBoxW(hwnd, message.c_str(), L"Save as PDF", MB_ICONERROR);
     return false;
+}
+
+bool PrintCurrentDocument(HWND hwnd, ViewerHostContext& context) {
+    if (!EnsureFontSystem(context)) {
+        MessageBoxW(hwnd, L"Font initialization failed. The document cannot be printed.", L"Print", MB_ICONERROR);
+        return false;
+    }
+
+    PrintDocumentRequest request;
+    request.typefaces = GetDocumentTypefaces(context);
+    request.layoutTypeface = GetRegularTypeface(context);
+
+    AppState& appState = State(context);
+    {
+        std::lock_guard<std::mutex> lock(appState.mtx);
+        request.sourcePath = appState.currentFilePath;
+        request.sourceText = appState.sourceText;
+        request.document = appState.docModel;
+        request.theme = appState.theme;
+        request.baseFontSize = appState.baseFontSize;
+    }
+
+    if (request.sourcePath.empty()) {
+        MessageBoxW(hwnd, L"Open a Markdown file before printing.", L"Print", MB_ICONINFORMATION);
+        return false;
+    }
+
+    PRINTDLGW printDialog = {};
+    printDialog.lStructSize = sizeof(printDialog);
+    printDialog.hwndOwner = hwnd;
+    printDialog.Flags = PD_RETURNDC | PD_NOSELECTION | PD_NOPAGENUMS;
+
+    if (!PrintDlgW(&printDialog)) {
+        return false;
+    }
+
+    HDC printerDc = printDialog.hDC;
+    if (!printerDc) {
+        MessageBoxW(hwnd, L"Could not open the selected printer.", L"Print", MB_ICONERROR);
+        return false;
+    }
+
+    const int printableWidthPx = GetDeviceCaps(printerDc, HORZRES);
+    const int printableHeightPx = GetDeviceCaps(printerDc, VERTRES);
+    const int dpiX = std::max(GetDeviceCaps(printerDc, LOGPIXELSX), 1);
+    const int dpiY = std::max(GetDeviceCaps(printerDc, LOGPIXELSY), 1);
+    if (printableWidthPx <= 0 || printableHeightPx <= 0) {
+        DeleteDC(printerDc);
+        MessageBoxW(hwnd, L"The selected printer reported an invalid printable area.", L"Print", MB_ICONERROR);
+        return false;
+    }
+
+    request.pageWidth = static_cast<float>(printableWidthPx) * 72.0f / static_cast<float>(dpiX);
+    request.pageHeight = static_cast<float>(printableHeightPx) * 72.0f / static_cast<float>(dpiY);
+
+    const std::filesystem::path baseDir = request.sourcePath.parent_path();
+    request.imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
+        return context.imageCache.GetImageSize(url, baseDir);
+    };
+
+    PreparedPrintDocument prepared;
+    if (!PreparePrintDocument(request, prepared)) {
+        DeleteDC(printerDc);
+        MessageBoxW(hwnd, L"Could not prepare the document for printing.", L"Print", MB_ICONERROR);
+        return false;
+    }
+
+    const std::wstring documentName = request.sourcePath.filename().empty()
+        ? L"Markdown document"
+        : request.sourcePath.filename().wstring();
+    DOCINFOW docInfo = {};
+    docInfo.cbSize = sizeof(docInfo);
+    docInfo.lpszDocName = documentName.c_str();
+
+    if (StartDocW(printerDc, &docInfo) <= 0) {
+        DeleteDC(printerDc);
+        MessageBoxW(hwnd, L"Could not start the print job.", L"Print", MB_ICONERROR);
+        return false;
+    }
+
+    bool success = true;
+    for (size_t pageIndex = 0; pageIndex < prepared.pages.size(); ++pageIndex) {
+        if (StartPage(printerDc) <= 0) {
+            success = false;
+            break;
+        }
+
+        sk_sp<SkSurface> pageSurface = SkSurfaces::Raster(
+            SkImageInfo::MakeN32Premul(printableWidthPx, printableHeightPx));
+        if (!pageSurface) {
+            success = false;
+            EndPage(printerDc);
+            break;
+        }
+
+        SkCanvas* canvas = pageSurface->getCanvas();
+        canvas->scale(static_cast<float>(dpiX) / 72.0f, static_cast<float>(dpiY) / 72.0f);
+        RenderPrintDocumentPage(
+            prepared,
+            pageIndex,
+            canvas,
+            [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
+                return context.imageCache.GetImage(url, baseDir, displayWidth, displayHeight);
+            });
+        SkPixmap pixmap;
+        if (!pageSurface->peekPixels(&pixmap)) {
+            success = false;
+            EndPage(printerDc);
+            break;
+        }
+
+        BITMAPINFO bitmapInfo = {};
+        bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
+        bitmapInfo.bmiHeader.biWidth = printableWidthPx;
+        bitmapInfo.bmiHeader.biHeight = -printableHeightPx;
+        bitmapInfo.bmiHeader.biPlanes = 1;
+        bitmapInfo.bmiHeader.biBitCount = 32;
+        bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+        const int scanLines = SetDIBitsToDevice(
+            printerDc,
+            0,
+            0,
+            printableWidthPx,
+            printableHeightPx,
+            0,
+            0,
+            0,
+            static_cast<UINT>(printableHeightPx),
+            pixmap.addr(),
+            &bitmapInfo,
+            DIB_RGB_COLORS);
+        if (scanLines == 0 || EndPage(printerDc) <= 0) {
+            success = false;
+            break;
+        }
+    }
+
+    if (success) {
+        EndDoc(printerDc);
+    } else {
+        AbortDoc(printerDc);
+    }
+    DeleteDC(printerDc);
+
+    if (!success) {
+        MessageBoxW(hwnd, L"The print job could not be completed.", L"Print", MB_ICONERROR);
+        return false;
+    }
+    return true;
 }
 
 void GoBack(HWND hwnd, ViewerHostContext& context) {

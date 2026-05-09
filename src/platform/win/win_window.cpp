@@ -39,6 +39,9 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
                 SaveCurrentDocumentAsPdf(hwnd, appPtr->Host(), *path);
             }
         },
+        .print = [hwnd, appPtr]() {
+            PrintCurrentDocument(hwnd, appPtr->Host());
+        },
         .openRecentFile = [hwnd, appPtr](const std::filesystem::path& path) {
             LoadFile(hwnd, appPtr->Host(), path);
         },
@@ -243,6 +246,10 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
                 (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0);
             return 0;
         case WM_KEYDOWN:
+            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && wParam == 'P') {
+                PrintCurrentDocument(hwnd, app.Host());
+                return 0;
+            }
             if (HandleKeyDown(hwnd, app.Interaction(), wParam)) {
                 return 0;
             }
@@ -290,6 +297,11 @@ bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& hand
         case kCommandSaveAsPdf:
             if (handlers.saveAsPdf) {
                 handlers.saveAsPdf();
+            }
+            return true;
+        case kCommandPrint:
+            if (handlers.print) {
+                handlers.print();
             }
             return true;
         case kCommandExit:

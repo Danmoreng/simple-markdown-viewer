@@ -1,19 +1,12 @@
 #include "render/pdf_exporter.h"
 
-#include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <limits>
-#include <optional>
 #include <system_error>
-#include <utility>
-#include <vector>
 
-#include "app/app_state.h"
-#include "render/document_renderer.h"
+#include "render/print_document.h"
 #include "render/theme.h"
-#include "render/typography.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -28,17 +21,6 @@
 
 namespace mdviewer {
 namespace {
-
-constexpr float kPdfFontScale = 0.88f;
-constexpr float kMinPageAdvance = 72.0f;
-constexpr float kPageBreakBottomSlack = 8.0f;
-constexpr float kPdfPageMarginTop = 42.0f;
-constexpr float kPdfPageMarginBottom = 48.0f;
-
-struct PdfPageRange {
-    float top = 0.0f;
-    float bottom = 0.0f;
-};
 
 class FilesystemWStream final : public SkWStream {
 public:
@@ -122,101 +104,6 @@ SkPDF::Metadata MakePdfMetadata(const std::filesystem::path& sourcePath) {
     return metadata;
 }
 
-void PopulateExportState(
-    AppState& state,
-    const PdfExportRequest& request,
-    DocumentLayout layout,
-    float exportBaseFontSize) {
-    state.currentFilePath = request.sourcePath;
-    state.sourceText = request.sourceText;
-    state.docModel = request.document;
-    state.docLayout = std::move(layout);
-    state.theme = request.theme;
-    state.baseFontSize = exportBaseFontSize;
-    state.outlineCollapsed = true;
-    state.selectionAnchor = 0;
-    state.selectionFocus = 0;
-    state.hoveredUrl.clear();
-    state.searchActive = false;
-    state.searchQuery.clear();
-    state.searchMatches.clear();
-    state.copiedFeedbackTimeout = 0;
-    state.zoomFeedbackTimeout = 0;
-    state.isAutoScrolling = false;
-    state.isDraggingScrollbar = false;
-    state.isSelecting = false;
-}
-
-void AppendPageBreakCandidates(const std::vector<BlockLayout>& blocks, std::vector<float>& candidates) {
-    for (const BlockLayout& block : blocks) {
-        if (block.bounds.top() > 0.0f) {
-            candidates.push_back(block.bounds.top());
-        }
-        for (const LineLayout& line : block.lines) {
-            if (line.y > 0.0f) {
-                candidates.push_back(line.y);
-            }
-        }
-        if (!block.children.empty()) {
-            AppendPageBreakCandidates(block.children, candidates);
-        }
-    }
-}
-
-float FindFirstContentTop(const std::vector<BlockLayout>& blocks) {
-    float firstTop = std::numeric_limits<float>::max();
-    for (const BlockLayout& block : blocks) {
-        firstTop = std::min(firstTop, block.bounds.top());
-        if (!block.children.empty()) {
-            firstTop = std::min(firstTop, FindFirstContentTop(block.children));
-        }
-    }
-
-    return firstTop == std::numeric_limits<float>::max() ? 0.0f : std::max(firstTop, 0.0f);
-}
-
-std::vector<PdfPageRange> ComputePageRanges(const DocumentLayout& layout, float contentHeight) {
-    std::vector<PdfPageRange> pages;
-    const float totalHeight = std::max(layout.totalHeight, 1.0f);
-    if (totalHeight <= contentHeight) {
-        pages.push_back({0.0f, totalHeight});
-        return pages;
-    }
-
-    std::vector<float> candidates;
-    candidates.reserve(layout.blocks.size() * 2);
-    AppendPageBreakCandidates(layout.blocks, candidates);
-    std::sort(candidates.begin(), candidates.end());
-    candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
-
-    float pageTop = 0.0f;
-    while (pageTop < totalHeight) {
-        if (pageTop + contentHeight >= totalHeight) {
-            pages.push_back({pageTop, totalHeight});
-            break;
-        }
-
-        const float desiredBreak = pageTop + contentHeight - kPageBreakBottomSlack;
-        float pageBottom = pageTop + contentHeight;
-        const auto upper = std::upper_bound(candidates.begin(), candidates.end(), desiredBreak);
-        if (upper != candidates.begin()) {
-            const float candidate = *std::prev(upper);
-            if (candidate > pageTop + kMinPageAdvance) {
-                pageBottom = candidate;
-            }
-        }
-
-        if (pageBottom <= pageTop + 1.0f) {
-            pageBottom = pageTop + contentHeight;
-        }
-
-        pages.push_back({pageTop, pageBottom});
-        pageTop = pageBottom;
-    }
-
-    return pages;
-}
-
 } // namespace
 
 PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
@@ -229,20 +116,24 @@ PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
     if (request.pageWidth <= 1.0f || request.pageHeight <= 1.0f) {
         return PdfExportStatus::WriteError;
     }
-    const float contentHeight = request.pageHeight - kPdfPageMarginTop - kPdfPageMarginBottom;
-    if (contentHeight <= kMinPageAdvance) {
+
+    PreparedPrintDocument prepared;
+    if (!PreparePrintDocument(
+            PrintDocumentRequest{
+                .sourcePath = request.sourcePath,
+                .sourceText = request.sourceText,
+                .document = request.document,
+                .theme = request.theme,
+                .baseFontSize = request.baseFontSize,
+                .typefaces = request.typefaces,
+                .layoutTypeface = request.layoutTypeface,
+                .imageSizeProvider = request.imageSizeProvider,
+                .pageWidth = request.pageWidth,
+                .pageHeight = request.pageHeight,
+            },
+            prepared)) {
         return PdfExportStatus::WriteError;
     }
-
-    const float exportBaseFontSize = ClampBaseFontSize(request.baseFontSize * kPdfFontScale);
-    DocumentLayout layout = LayoutEngine::ComputeLayout(
-        request.document,
-        request.pageWidth,
-        request.layoutTypeface,
-        exportBaseFontSize,
-        request.imageSizeProvider);
-    AppState exportState;
-    PopulateExportState(exportState, request, std::move(layout), exportBaseFontSize);
 
     SkDynamicMemoryWStream pdfBytes;
     sk_sp<SkDocument> pdfDocument = SkPDF::MakeDocument(&pdfBytes, MakePdfMetadata(request.sourcePath));
@@ -250,48 +141,14 @@ PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
         return PdfExportStatus::PdfBackendUnavailable;
     }
 
-    const ThemePalette palette = GetThemePalette(request.theme);
-    const std::vector<PdfPageRange> pages = ComputePageRanges(exportState.docLayout, contentHeight);
-
-    const float firstContentTop = FindFirstContentTop(exportState.docLayout.blocks);
-    for (size_t pageIndex = 0; pageIndex < pages.size(); ++pageIndex) {
-        const PdfPageRange& page = pages[pageIndex];
-        const float renderTop = pageIndex == 0 ? std::min(firstContentTop, page.bottom - 1.0f) : page.top;
-        const float pageContentHeight = std::clamp(page.bottom - renderTop, 1.0f, contentHeight);
+    for (size_t pageIndex = 0; pageIndex < prepared.pages.size(); ++pageIndex) {
         SkCanvas* canvas = pdfDocument->beginPage(request.pageWidth, request.pageHeight);
         if (!canvas) {
             pdfDocument->abort();
             return PdfExportStatus::WriteError;
         }
 
-        canvas->clear(palette.windowBackground);
-        exportState.scrollOffset = renderTop;
-        canvas->save();
-        canvas->clipRect(SkRect::MakeXYWH(0.0f, kPdfPageMarginTop, request.pageWidth, pageContentHeight));
-        RenderDocumentScene(
-            DocumentSceneParams{
-                .canvas = canvas,
-                .appState = &exportState,
-                .palette = palette,
-                .typefaces = request.typefaces,
-                .baseFontSize = exportState.baseFontSize,
-                .contentTopInset = kPdfPageMarginTop,
-                .viewportHeight = pageContentHeight,
-                .surfaceWidth = request.pageWidth,
-                .surfaceHeight = request.pageHeight,
-                .documentLeftInset = 0.0f,
-                .scrollbarWidth = 0.0f,
-                .scrollbarMargin = 0.0f,
-                .currentTickCount = 0,
-                .visibleDocumentTop = renderTop,
-                .visibleDocumentBottom = page.bottom,
-                .showInteractiveElements = false,
-                .scrollbarThumbRect = std::nullopt,
-                .resolveImage = request.resolveImage,
-                .addCodeBlockButton = nullptr,
-            });
-        canvas->restore();
-
+        RenderPrintDocumentPage(prepared, pageIndex, canvas, request.resolveImage);
         pdfDocument->endPage();
     }
 

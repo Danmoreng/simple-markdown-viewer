@@ -17,6 +17,7 @@ namespace mdviewer::win {
 struct WindowCommandHandlers {
     std::function<void()> openFile;
     std::function<void()> saveAsPdf;
+    std::function<void()> print;
     std::function<void(const std::filesystem::path&)> openRecentFile;
     std::function<void()> exitApp;
     std::function<void()> selectFont;

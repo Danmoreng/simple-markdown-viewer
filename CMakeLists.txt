@@ -199,6 +199,7 @@ set(SOURCES
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
     src/render/pdf_exporter.cpp
+    src/render/print_document.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp
@@ -342,6 +343,7 @@ add_executable(mdviewer_tests
     src/render/document_renderer.cpp
     src/render/menu_renderer.cpp
     src/render/pdf_exporter.cpp
+    src/render/print_document.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
     src/render/theme.cpp
     src/render/typography.cpp
@@ -392,6 +394,7 @@ if(WIN32)
         ole32.lib
         user32.lib
         gdi32.lib
+        comdlg32.lib
     )
 elseif(UNIX AND NOT APPLE)
     target_link_libraries(mdviewer_tests PRIVATE
