@@ -4,6 +4,8 @@
 
 This document tracks product and engineering milestones for Simple Markdown Viewer.
 It is separate from `AGENTS.md`, which should remain focused on instructions for agents working on the project.
+The durable product scope and target experience are documented in
+[`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md).
 
 The product remains:
 
