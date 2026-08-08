@@ -63,6 +63,22 @@ function Get-ConfiguredGenerator {
     return $null
 }
 
+function Get-VisualStudioGenerator {
+    $visualStudioVersion = $env:VisualStudioVersion
+    if ([string]::IsNullOrWhiteSpace($visualStudioVersion) -or
+        $visualStudioVersion -notmatch "^(\d+)\.") {
+        throw "Could not determine the loaded Visual Studio version. Use -UseNinja or run from a Visual Studio developer environment."
+    }
+
+    switch ([int]$matches[1]) {
+        17 { return "Visual Studio 17 2022" }
+        18 { return "Visual Studio 18 2026" }
+        default {
+            throw "Visual Studio $visualStudioVersion is not supported by this build script. Use -UseNinja or add its CMake generator mapping."
+        }
+    }
+}
+
 # Ensure build directory exists
 if ($Clean -and (Test-Path $BuildDir)) {
     Write-Host "Cleaning build directory..." -ForegroundColor Yellow
@@ -188,7 +204,7 @@ if ($UseNinja -and -not (Get-Command ninja -ErrorAction SilentlyContinue)) {
     throw "Ninja was requested with -UseNinja but was not found on PATH."
 }
 
-$generator = if ($UseNinja) { "Ninja" } else { "Visual Studio 17 2022" }
+$generator = if ($UseNinja) { "Ninja" } else { Get-VisualStudioGenerator }
 $currentGenerator = Get-ConfiguredGenerator $BuildDir
 
 if ($currentGenerator -and $currentGenerator -ne $generator) {
