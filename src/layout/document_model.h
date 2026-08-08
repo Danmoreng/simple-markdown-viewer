@@ -62,6 +62,7 @@ struct InlineRun {
     InlineStyle style;
     std::string text;
     std::string url;
+    std::string linkUrl;
 };
 
 struct Block {

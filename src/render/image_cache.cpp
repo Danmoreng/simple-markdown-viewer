@@ -1,7 +1,10 @@
 #include "render/image_cache.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+
+#include "util/skia_font_utils.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -11,7 +14,9 @@
 #include "include/core/SkData.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkSamplingOptions.h"
+#include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
+#include "modules/skshaper/include/SkShaper_factory.h"
 #pragma warning(pop)
 
 namespace mdviewer {
@@ -24,6 +29,15 @@ constexpr int kMaxScaledImageDimension = 8192;
 constexpr uint64_t kMaxScaledImagePixels = 16ULL * 1024ULL * 1024ULL;
 constexpr size_t kMaxCachedImageEntries = 256;
 constexpr size_t kMaxScaledImageBytes = 128ULL * 1024ULL * 1024ULL;
+constexpr uintmax_t kMaxSvgFileBytes = 8ULL * 1024ULL * 1024ULL;
+
+bool IsSvgPath(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    return extension == ".svg";
+}
 
 void PreloadBlocks(
     DocumentImageCache& cache,
@@ -58,12 +72,18 @@ void DocumentImageCache::ClearScaledImages() {
 }
 
 std::pair<float, float> DocumentImageCache::GetImageSize(const std::string& url, const std::filesystem::path& baseDir) {
-    const sk_sp<SkImage> image = GetOrLoadBaseImage(url, baseDir);
-    if (!image) {
+    const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
+    CachedImageEntry* entry = GetOrLoadEntry(imagePath);
+    if (!entry) {
         return {0.0f, 0.0f};
     }
-
-    return {static_cast<float>(image->width()), static_cast<float>(image->height())};
+    if (entry->svgDom) {
+        return {entry->intrinsicSize.width(), entry->intrinsicSize.height()};
+    }
+    if (entry->baseImage) {
+        return {static_cast<float>(entry->baseImage->width()), static_cast<float>(entry->baseImage->height())};
+    }
+    return {0.0f, 0.0f};
 }
 
 sk_sp<SkImage> DocumentImageCache::GetImage(
@@ -71,8 +91,10 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
     const std::filesystem::path& baseDir,
     float displayWidth,
     float displayHeight) {
-    sk_sp<SkImage> baseImage = GetOrLoadBaseImage(url, baseDir);
-    if (!baseImage || !std::isfinite(displayWidth) || !std::isfinite(displayHeight) ||
+    const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
+    CachedImageEntry* entry = GetOrLoadEntry(imagePath);
+    if (!entry || (!entry->baseImage && !entry->svgDom) ||
+        !std::isfinite(displayWidth) || !std::isfinite(displayHeight) ||
         displayWidth <= 0.0f || displayHeight <= 0.0f) {
         return nullptr;
     }
@@ -98,17 +120,21 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
 
     const int targetWidth = std::max(1, static_cast<int>(std::round(safeWidth)));
     const int targetHeight = std::max(1, static_cast<int>(std::round(safeHeight)));
-    if (baseImage->width() == targetWidth && baseImage->height() == targetHeight) {
-        return baseImage;
+    if (entry->baseImage && entry->baseImage->width() == targetWidth && entry->baseImage->height() == targetHeight) {
+        return entry->baseImage;
     }
 
-    const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
-    auto& entry = entries_[MakeCacheKey(imagePath)];
     const uint64_t scaledKey = MakeScaledImageKey(static_cast<float>(targetWidth), static_cast<float>(targetHeight));
-    auto it = entry.scaledImages.find(scaledKey);
-    if (it != entry.scaledImages.end()) {
+    auto it = entry->scaledImages.find(scaledKey);
+    if (it != entry->scaledImages.end()) {
         return it->second;
     }
+
+    if (entry->svgDom) {
+        return RenderSvg(*entry, targetWidth, targetHeight);
+    }
+
+    sk_sp<SkImage> baseImage = entry->baseImage;
 
     const auto info = SkImageInfo::MakeN32Premul(targetWidth, targetHeight);
     auto surface = SkSurfaces::Raster(info);
@@ -196,16 +222,93 @@ sk_sp<SkImage> DocumentImageCache::CreateRasterImageFromFile(const std::filesyst
     return image->makeRasterImage();
 }
 
-sk_sp<SkImage> DocumentImageCache::GetOrLoadBaseImage(const std::string& url, const std::filesystem::path& baseDir) {
-    const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
+DocumentImageCache::CachedImageEntry* DocumentImageCache::GetOrLoadEntry(
+    const std::filesystem::path& imagePath) {
     const std::string key = MakeCacheKey(imagePath);
-    if (const auto existing = entries_.find(key); existing != entries_.end()) {
-        return existing->second.baseImage;
+    if (auto existing = entries_.find(key); existing != entries_.end()) {
+        return &existing->second;
+    }
+    if (entries_.size() >= kMaxCachedImageEntries) {
+        return nullptr;
     }
 
-    sk_sp<SkImage> image = CreateRasterImageFromFile(imagePath);
-    if (image && entries_.size() < kMaxCachedImageEntries) {
-        entries_.emplace(key, CachedImageEntry{image, {}});
+    CachedImageEntry entry;
+    if (IsSvgPath(imagePath)) {
+        std::error_code sizeError;
+        const uintmax_t fileSize = std::filesystem::file_size(imagePath, sizeError);
+        if (!sizeError && fileSize <= kMaxSvgFileBytes) {
+            SkFILEStream stream(imagePath.string().c_str());
+            if (stream.isValid()) {
+                if (!svgFontManager_) {
+                    svgFontManager_ = CreateFontManager();
+                }
+                SkSVGDOM::Builder builder;
+                builder.setFontManager(svgFontManager_);
+                builder.setTextShapingFactory(SkShapers::Primitive::Factory());
+                entry.svgDom = builder.make(stream);
+                if (entry.svgDom) {
+                    entry.intrinsicSize = entry.svgDom->containerSize();
+                    const double pixelCount = static_cast<double>(entry.intrinsicSize.width()) *
+                        static_cast<double>(entry.intrinsicSize.height());
+                    if (!std::isfinite(pixelCount) || entry.intrinsicSize.width() <= 0.0f ||
+                        entry.intrinsicSize.height() <= 0.0f ||
+                        entry.intrinsicSize.width() > kMaxDecodedImageDimension ||
+                        entry.intrinsicSize.height() > kMaxDecodedImageDimension ||
+                        pixelCount > static_cast<double>(kMaxDecodedImagePixels)) {
+                        entry.svgDom.reset();
+                        entry.intrinsicSize = SkSize::Make(0.0f, 0.0f);
+                    }
+                }
+            }
+        }
+    } else {
+        entry.baseImage = CreateRasterImageFromFile(imagePath);
+    }
+
+    auto [inserted, unused] = entries_.emplace(key, std::move(entry));
+    (void)unused;
+    return &inserted->second;
+}
+
+sk_sp<SkImage> DocumentImageCache::RenderSvg(
+    CachedImageEntry& entry,
+    int targetWidth,
+    int targetHeight) {
+    if (!entry.svgDom || entry.intrinsicSize.width() <= 0.0f || entry.intrinsicSize.height() <= 0.0f) {
+        return nullptr;
+    }
+
+    auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(targetWidth, targetHeight));
+    if (!surface) {
+        return nullptr;
+    }
+
+    SkCanvas* canvas = surface->getCanvas();
+    canvas->clear(SK_ColorTRANSPARENT);
+    canvas->scale(
+        static_cast<float>(targetWidth) / entry.intrinsicSize.width(),
+        static_cast<float>(targetHeight) / entry.intrinsicSize.height());
+    entry.svgDom->setContainerSize(entry.intrinsicSize);
+    entry.svgDom->render(canvas);
+
+    sk_sp<SkImage> image = surface->makeImageSnapshot();
+    if (image) {
+        image = image->makeRasterImage();
+    }
+    if (!image) {
+        return nullptr;
+    }
+
+    const uint64_t byteCount = static_cast<uint64_t>(targetWidth) *
+        static_cast<uint64_t>(targetHeight) * 4ULL;
+    if (byteCount <= kMaxScaledImageBytes) {
+        if (scaledImageBytes_ > kMaxScaledImageBytes - static_cast<size_t>(byteCount)) {
+            ClearScaledImages();
+        }
+        entry.scaledImages[MakeScaledImageKey(
+            static_cast<float>(targetWidth),
+            static_cast<float>(targetHeight))] = image;
+        scaledImageBytes_ += static_cast<size_t>(byteCount);
     }
     return image;
 }

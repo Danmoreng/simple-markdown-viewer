@@ -8,3 +8,4 @@ Terminal=false
 Categories=Office;Viewer;
 MimeType=text/markdown;text/plain;
 StartupNotify=true
+StartupWMClass=mdviewer

@@ -11,6 +11,7 @@
 #include "platform/linux/linux_interaction.h"
 #include "platform/linux/linux_surface.h"
 #include "platform/linux/linux_viewer_host.h"
+#include "platform/linux/linux_window_icon.h"
 
 namespace mdviewer::linux_platform {
 
@@ -34,6 +35,8 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
+    glfwWindowHintString(GLFW_X11_CLASS_NAME, "mdviewer");
+    glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "mdviewer");
 
     LinuxApp app;
     app.Controller().SetConfigPath(LinuxApp::GetUserConfigPath());
@@ -46,6 +49,9 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return 1;
+    }
+    if (!SetLinuxWindowIcon(window)) {
+        std::cerr << "Warning: Linux window icon could not be loaded." << std::endl;
     }
 
     std::cerr << "Initializing Skia..." << std::endl;

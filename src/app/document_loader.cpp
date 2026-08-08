@@ -32,6 +32,17 @@ bool IsDefinitelyTextFile(const std::filesystem::path& path) {
            name == "readme";
 }
 
+bool IsKnownNonTextFile(const std::filesystem::path& path) {
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".svg" || ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
+           ext == ".gif" || ext == ".webp" || ext == ".bmp" || ext == ".ico" ||
+           ext == ".pdf" || ext == ".zip" || ext == ".7z" || ext == ".rar" ||
+           ext == ".gz" || ext == ".bz2" || ext == ".xz" || ext == ".tar" ||
+           ext == ".tldraw" || ext == ".exe" || ext == ".dll" || ext == ".so" ||
+           ext == ".dylib" || ext == ".bin";
+}
+
 bool ProbeIsText(const std::string& content) {
     const size_t checkSize = std::min(content.size(), static_cast<size_t>(4096));
     for (size_t index = 0; index < checkSize; ++index) {
@@ -58,7 +69,7 @@ DocumentLoadResult LoadDocumentFromPath(const std::filesystem::path& path) {
     DocumentModel docModel;
     if (IsMarkdownFile(path)) {
         docModel = MarkdownParser::Parse(sanitized.text);
-    } else if (IsDefinitelyTextFile(path) || ProbeIsText(*content)) {
+    } else if (!IsKnownNonTextFile(path) && (IsDefinitelyTextFile(path) || ProbeIsText(*content))) {
         Block block;
         block.type = BlockType::Paragraph;
         block.inlineRuns.push_back({InlineStyle::Plain, sanitized.text, ""});

@@ -251,6 +251,7 @@ elseif(UNIX AND NOT APPLE)
         src/platform/linux/linux_shell.cpp
         src/platform/linux/linux_surface.cpp
         src/platform/linux/linux_viewer_host.cpp
+        src/platform/linux/linux_window_icon.cpp
     )
 endif()
 
@@ -301,8 +302,16 @@ endif()
 if(WIN32)
     target_link_libraries(mdviewer PRIVATE 
         md4c
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/svg.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/svg.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skresources.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skresources.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skshaper.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skshaper.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/expat.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/expat.lib>
         # Windows dependencies for Skia
         windowscodecs.lib
         dwrite.lib
@@ -317,8 +326,16 @@ else()
         md4c
         glfw
         ${GTK3_LIBRARIES}
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libsvg.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libsvg.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskresources.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskresources.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskshaper.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskshaper.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libexpat.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libexpat.a>
         # Linux dependencies for Skia
         fontconfig
         freetype
@@ -331,7 +348,7 @@ endif()
 
 # Basic Windows flags
 if(MSVC)
-    target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
+    target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267 /wd5030)
     set_source_files_properties(
         ${TREE_SITTER_CORE_SOURCE}
         ${TREE_SITTER_LANGUAGE_SOURCES}
@@ -353,6 +370,7 @@ add_executable(mdviewer_tests
     src/layout/layout_engine.cpp
     src/markdown/markdown_parser.cpp
     src/render/document_renderer.cpp
+    src/render/image_cache.cpp
     src/render/menu_renderer.cpp
     src/render/pdf_exporter.cpp
     src/render/print_document.cpp
@@ -402,8 +420,16 @@ target_include_directories(mdviewer_tests PRIVATE
 if(WIN32)
     target_link_libraries(mdviewer_tests PRIVATE
         md4c
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/svg.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/svg.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skresources.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skresources.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skshaper.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skshaper.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/expat.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/expat.lib>
         windowscodecs.lib
         dwrite.lib
         usp10.lib
@@ -415,8 +441,16 @@ if(WIN32)
 elseif(UNIX AND NOT APPLE)
     target_link_libraries(mdviewer_tests PRIVATE
         md4c
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libsvg.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libsvg.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskresources.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskresources.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskshaper.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskshaper.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libexpat.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libexpat.a>
         fontconfig
         freetype
         pthread
@@ -429,7 +463,7 @@ else()
 endif()
 
 if(MSVC)
-    target_compile_options(mdviewer_tests PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
+    target_compile_options(mdviewer_tests PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267 /wd5030)
     set_property(TARGET mdviewer_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 

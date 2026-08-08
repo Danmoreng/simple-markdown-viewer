@@ -52,10 +52,22 @@ jobs:
 
           Remove-Item $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $bundleOutDir -Force | Out-Null
+          New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\svg" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\skresources" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\skshaper" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$bundleSkiaDir\src" -Force | Out-Null
 
           Copy-Item "third_party\skia\LICENSE" "$bundleSkiaDir\LICENSE"
           Copy-Item "third_party\skia\include" "$bundleSkiaDir\include" -Recurse
+          Copy-Item "third_party\skia\modules\svg\include" "$bundleSkiaDir\modules\svg\include" -Recurse
+          Copy-Item "third_party\skia\modules\skresources\include" "$bundleSkiaDir\modules\skresources\include" -Recurse
+          Copy-Item "third_party\skia\modules\skshaper\include" "$bundleSkiaDir\modules\skshaper\include" -Recurse
+          Copy-Item "third_party\skia\src\core" "$bundleSkiaDir\src\core" -Recurse
           Copy-Item "third_party\skia\out\Static\skia.lib" "$bundleOutDir\skia.lib"
+          Copy-Item "third_party\skia\out\Static\svg.lib" "$bundleOutDir\svg.lib"
+          Copy-Item "third_party\skia\out\Static\skresources.lib" "$bundleOutDir\skresources.lib"
+          Copy-Item "third_party\skia\out\Static\skshaper.lib" "$bundleOutDir\skshaper.lib"
+          Copy-Item "third_party\skia\out\Static\expat.lib" "$bundleOutDir\expat.lib"
           Copy-Item "third_party\skia\out\Static\SKIA_REVISION" "$bundleOutDir\SKIA_REVISION"
           Copy-Item "third_party\skia\out\Static\SKIA_MILESTONE" "$bundleOutDir\SKIA_MILESTONE"
           Copy-Item "third_party\skia\out\Static\SKIA_GN_ARGS" "$bundleOutDir\SKIA_GN_ARGS"

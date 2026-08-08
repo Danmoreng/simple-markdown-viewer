@@ -455,13 +455,23 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
 
     InlineStyle currentStyle = ctx->styleStack.back();
     std::string currentUrl = ctx->urlStack.back();
+    std::string currentLinkUrl;
+    if (currentStyle == InlineStyle::Image) {
+        for (size_t index = ctx->styleStack.size(); index > 0; --index) {
+            if (ctx->styleStack[index - 1] == InlineStyle::Link) {
+                currentLinkUrl = ctx->urlStack[index - 1];
+                break;
+            }
+        }
+    }
 
-    if (!currentBlock->inlineRuns.empty() && 
+    if (!currentBlock->inlineRuns.empty() &&
         currentBlock->inlineRuns.back().style == currentStyle &&
-        currentBlock->inlineRuns.back().url == currentUrl) {
+        currentBlock->inlineRuns.back().url == currentUrl &&
+        currentBlock->inlineRuns.back().linkUrl == currentLinkUrl) {
         currentBlock->inlineRuns.back().text += str;
     } else {
-        currentBlock->inlineRuns.push_back({currentStyle, str, currentUrl});
+        currentBlock->inlineRuns.push_back({currentStyle, str, currentUrl, currentLinkUrl});
     }
 
     return 0;

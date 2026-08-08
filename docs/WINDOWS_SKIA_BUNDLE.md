@@ -51,7 +51,7 @@ builds.
 Use a Windows machine with Visual Studio C++ tools, Python, Git, sufficient disk
 space, and the repository checked out at the intended revision.
 
-Build the pinned PDF-enabled Release Skia library:
+Build the pinned PDF- and SVG-enabled Release Skia libraries:
 
 ```powershell
 .\build.ps1 -Clean -Configuration Release -SkiaOnly
@@ -97,8 +97,17 @@ Create a staging tree with exactly this shape:
 third_party/skia/
   LICENSE
   include/
+  modules/
+    svg/include/
+    skresources/include/
+    skshaper/include/
+  src/core/
   out/Static/
     skia.lib
+    svg.lib
+    skresources.lib
+    skshaper.lib
+    expat.lib
     SKIA_REVISION
     SKIA_MILESTONE
     SKIA_GN_ARGS
@@ -115,9 +124,21 @@ $zipPath = "dist\skia-windows-x64-static.zip"
 Remove-Item $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $bundleOut -Force | Out-Null
+New-Item -ItemType Directory -Path "$bundleSkia\modules\svg" -Force | Out-Null
+New-Item -ItemType Directory -Path "$bundleSkia\modules\skresources" -Force | Out-Null
+New-Item -ItemType Directory -Path "$bundleSkia\modules\skshaper" -Force | Out-Null
+New-Item -ItemType Directory -Path "$bundleSkia\src" -Force | Out-Null
 Copy-Item "third_party\skia\LICENSE" "$bundleSkia\LICENSE"
 Copy-Item "third_party\skia\include" "$bundleSkia\include" -Recurse
+Copy-Item "third_party\skia\modules\svg\include" "$bundleSkia\modules\svg\include" -Recurse
+Copy-Item "third_party\skia\modules\skresources\include" "$bundleSkia\modules\skresources\include" -Recurse
+Copy-Item "third_party\skia\modules\skshaper\include" "$bundleSkia\modules\skshaper\include" -Recurse
+Copy-Item "third_party\skia\src\core" "$bundleSkia\src\core" -Recurse
 Copy-Item "third_party\skia\out\Static\skia.lib" "$bundleOut\skia.lib"
+Copy-Item "third_party\skia\out\Static\svg.lib" "$bundleOut\svg.lib"
+Copy-Item "third_party\skia\out\Static\skresources.lib" "$bundleOut\skresources.lib"
+Copy-Item "third_party\skia\out\Static\skshaper.lib" "$bundleOut\skshaper.lib"
+Copy-Item "third_party\skia\out\Static\expat.lib" "$bundleOut\expat.lib"
 Copy-Item "third_party\skia\out\Static\SKIA_REVISION" "$bundleOut\SKIA_REVISION"
 Copy-Item "third_party\skia\out\Static\SKIA_MILESTONE" "$bundleOut\SKIA_MILESTONE"
 Copy-Item "third_party\skia\out\Static\SKIA_GN_ARGS" "$bundleOut\SKIA_GN_ARGS"
@@ -134,7 +155,7 @@ while validating it:
 gh release create skia-bundle-v2 `
   .\dist\skia-windows-x64-static.zip `
   --title "Skia Bundle skia-bundle-v2" `
-  --notes "Pinned Windows x64 PDF-enabled Skia bundle."
+  --notes "Pinned Windows x64 PDF- and SVG-enabled Skia bundle."
 ```
 
 The `Publish Skia Bundle` workflow can perform the same source build when

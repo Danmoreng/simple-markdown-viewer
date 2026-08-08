@@ -1,9 +1,10 @@
 #include "app/link_resolver.h"
 
+#include <array>
+#include <fstream>
 #include <sstream>
 
 #include "app/document_loader.h"
-#include "util/file_io.h"
 
 namespace mdviewer {
 
@@ -28,16 +29,26 @@ std::string UrlDecode(const std::string& text) {
     return decoded;
 }
 
+bool ProbeFileIsText(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return false;
+    }
+
+    std::array<char, 4096> buffer{};
+    stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    return ProbeIsText(std::string(buffer.data(), static_cast<size_t>(stream.gcount())));
+}
+
 bool ShouldOpenInternally(const std::filesystem::path& path, bool forceExternal) {
-    if (forceExternal) {
+    if (forceExternal || IsKnownNonTextFile(path)) {
         return false;
     }
     if (IsMarkdownFile(path) || IsDefinitelyTextFile(path)) {
         return true;
     }
 
-    auto content = ReadFileToString(path);
-    return content && ProbeIsText(*content);
+    return ProbeFileIsText(path);
 }
 
 } // namespace

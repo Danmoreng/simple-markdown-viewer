@@ -66,13 +66,15 @@ rm -rf "$STAGE_DIR" "$ARCHIVE" "$ARCHIVE.sha256"
 mkdir -p \
     "$STAGE_DIR/bin" \
     "$STAGE_DIR/share/applications" \
+    "$STAGE_DIR/share/icons/hicolor/128x128/apps" \
     "$STAGE_DIR/share/pixmaps"
 
 cp "$BINARY" "$STAGE_DIR/bin/mdviewer"
 strip --strip-unneeded "$STAGE_DIR/bin/mdviewer"
 cp LICENSE THIRD_PARTY_NOTICES README.md "$STAGE_DIR/"
 cp resources/linux/mdviewer.desktop "$STAGE_DIR/share/applications/"
-cp app_icon.png "$STAGE_DIR/share/pixmaps/mdviewer.png"
+cp resources/linux/mdviewer.png "$STAGE_DIR/share/icons/hicolor/128x128/apps/mdviewer.png"
+cp resources/linux/mdviewer.png "$STAGE_DIR/share/pixmaps/mdviewer.png"
 
 cat > "$STAGE_DIR/run-mdviewer.sh" <<'RUNNER'
 #!/usr/bin/env bash

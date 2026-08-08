@@ -49,7 +49,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - tables
   - emphasis, strong text, strikethrough, inline code, and links
   - decoded Markdown entities
-  - **Images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size
+  - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size; SVG HTML `<foreignObject>` content is not supported
 - Navigation:
   - **Full browsing history** (back/forward)
   - Toolbar navigation buttons
@@ -75,7 +75,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
 - Automatic document reload on external file changes while the file is open on Windows
 - Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side, and recent files with opened timestamps
-- Embedded Windows app icon
+- Platform app icons for the Windows executable and Linux window/desktop integration
 
 ## Scope
 

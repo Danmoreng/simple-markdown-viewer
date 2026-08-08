@@ -262,6 +262,7 @@ private:
                 }
 
                 RunLayout rl = {run.style, run.text, run.url, currentTextOffset, imgDisplayW, imgDisplayH};
+                rl.linkUrl = run.linkUrl;
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.height = std::max(currentLine.height, imgDisplayH + 4.0f);
                 currentLineWidth = currentX + imgDisplayW;
@@ -302,7 +303,9 @@ private:
                     bytesConsumed = remainingLength;
                 }
 
-                currentLine.runs.push_back({run.style, std::string(textPtr, bytesConsumed), run.url, currentTextOffset});
+                RunLayout rl = {run.style, std::string(textPtr, bytesConsumed), run.url, currentTextOffset};
+                rl.linkUrl = run.linkUrl;
+                currentLine.runs.push_back(std::move(rl));
                 currentLine.textLength += bytesConsumed;
                 plainText.append(textPtr, bytesConsumed);
                 currentTextOffset += bytesConsumed;

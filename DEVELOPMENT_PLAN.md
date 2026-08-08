@@ -122,7 +122,7 @@ Goal: polish the most visible rendering and copy edge cases.
 - [ ] Add an image zoom or lightbox view if it can stay within the single-window viewer model.
 - [ ] Decide remote image policy.
 - [ ] If remote images are supported, block them by default or expose a clear setting before loading them.
-- [ ] Treat SVG carefully; do not execute active content or external references.
+- [x] Render constrained local SVG through Skia without external resources; document that embedded HTML `<foreignObject>` content is unsupported.
 
 ## Milestone 6: Search and Keyboard Usability
 
@@ -201,7 +201,7 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [ ] Native browser-free Mermaid rendering for fenced `mermaid` code blocks.
   - [ ] Do not use Chromium, Puppeteer, a webview, or the Mermaid CLI rendering pipeline.
   - [ ] Prefer a lightweight native integration, likely via a Rust static library/C ABI bridge using a mature browser-free renderer such as `mermaid-rs-renderer`.
-  - [ ] Render into an app-native image surface, preferably PNG bytes or another Skia-friendly raster path, because the current Skia build does not enable SVG rendering.
+  - [ ] Render into an app-native image surface using the now-enabled constrained Skia SVG path or a raster image fallback.
   - [ ] Cache rendered diagrams by source hash.
   - [ ] Fall back to the original code block plus an error message when rendering fails.
   - [ ] Defer this until the Rust/Cargo build dependency and CI/release impact are acceptable.

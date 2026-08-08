@@ -284,18 +284,19 @@ Image support is essential for many documents.
 
 Currently supported image behavior:
 
-- Render local images referenced by relative paths.
+- Render local raster and SVG images referenced by relative paths.
 - Respect alt text.
 - Show placeholder for missing or failed images.
 - Fit images to content width by default.
+- Enforce source-size, decoded-pixel, rendered-dimension, and cache limits.
 
-The current Skia build supports common raster formats but does not enable SVG
-rendering. Remote images are not loaded. Before expanding image support, the app
-must add decoded-pixel limits, rendered-dimension limits, cache budgets, and a
-clear remote-content policy.
+SVG rendering uses Skia's browser-free SVG module and does not load external
+resources. Embedded HTML/CSS through SVG `<foreignObject>` is not supported;
+exports from tools such as tldraw should convert text to SVG paths/text or use a
+raster README image. Remote images are not loaded.
 
 Future image features may include opening or copying an image, revealing its
-path, a single-window lightbox, and carefully constrained SVG support.
+path, and a single-window lightbox.
 
 Security and privacy considerations:
 

@@ -16,6 +16,7 @@
 #include "app/viewer_controller.h"
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
+#include "render/image_cache.h"
 #include "render/menu_renderer.h"
 #include "render/pdf_exporter.h"
 #include "render/typography.h"
@@ -24,6 +25,8 @@
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
+
+#include "include/core/SkPixmap.h"
 
 namespace {
 
@@ -249,11 +252,15 @@ void LinkResolution() {
     const fs::path child = root / "docs" / "nested" / "page.md";
     const fs::path textNoExtension = root / "docs" / "LICENSE";
     const fs::path binary = root / "docs" / "app.exe";
+    const fs::path svg = root / "docs" / "diagram.svg";
+    const fs::path tldraw = root / "docs" / "diagram.tldraw";
     WriteText(current, "# Home\n");
     WriteText(sibling, "# Other\n");
     WriteText(child, "# Child\n");
     WriteText(textNoExtension, "license text\n");
     WriteText(binary, std::string("MZ\0\0binary", 10));
+    WriteText(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"32\"></svg>");
+    WriteText(tldraw, std::string("PK\x03\x04\0binary", 11));
 
     auto target = mdviewer::ResolveLinkTarget(current, "#Section%201", false);
     Require(target.kind == mdviewer::LinkTargetKind::InternalDocument, "fragment-only link should stay internal");
@@ -285,8 +292,64 @@ void LinkResolution() {
     target = mdviewer::ResolveLinkTarget(current, binary.string(), false);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "existing binary path should open as external path");
 
+    target = mdviewer::ResolveLinkTarget(current, svg.string(), false);
+    Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "SVG links should not be loaded as text documents");
+    Require(mdviewer::LoadDocumentFromPath(svg).status == mdviewer::DocumentLoadStatus::BinaryFile,
+            "opening an SVG directly should not parse it as a text document");
+
+    target = mdviewer::ResolveLinkTarget(current, tldraw.string(), false);
+    Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "tldraw archives should open externally");
+
     target = mdviewer::ResolveLinkTarget(current, sibling.string(), true);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "forceExternal should override internal text handling");
+}
+
+void SvgImageRendering() {
+    TempDir temp;
+    const fs::path svg = temp.Path() / "diagram.svg";
+    WriteText(
+        svg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"32\" viewBox=\"0 0 64 32\">"
+        "<rect width=\"64\" height=\"32\" fill=\"#00aa55\"/></svg>");
+
+    mdviewer::DocumentImageCache cache;
+    const auto [width, height] = cache.GetImageSize(svg.filename().string(), temp.Path());
+    RequireNear(width, 64.0f, 0.01f, "SVG intrinsic width should be parsed");
+    RequireNear(height, 32.0f, 0.01f, "SVG intrinsic height should be parsed");
+
+    const auto image = cache.GetImage(svg.filename().string(), temp.Path(), 320.0f, 160.0f);
+    Require(image != nullptr, "SVG should rasterize through Skia");
+    RequireEqual(image->width(), 320, "rasterized SVG should use requested width");
+    RequireEqual(image->height(), 160, "rasterized SVG should use requested height");
+
+    const fs::path textSvg = temp.Path() / "text.svg";
+    WriteText(
+        textSvg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"160\" height=\"40\">"
+        "<text x=\"4\" y=\"30\" font-size=\"28\" fill=\"#ffffff\">Visible</text></svg>");
+    const auto textImage = cache.GetImage(textSvg.filename().string(), temp.Path(), 160.0f, 40.0f);
+    Require(textImage != nullptr, "standard SVG text should rasterize");
+    SkPixmap textPixels;
+    Require(textImage->peekPixels(&textPixels), "rasterized SVG text pixels should be readable");
+    bool foundVisibleTextPixel = false;
+    for (int y = 0; y < textPixels.height() && !foundVisibleTextPixel; ++y) {
+        for (int x = 0; x < textPixels.width(); ++x) {
+            if (SkColorGetA(*textPixels.addr32(x, y)) != 0) {
+                foundVisibleTextPixel = true;
+                break;
+            }
+        }
+    }
+    Require(foundVisibleTextPixel, "normal SVG <text> content should produce visible pixels");
+
+    const auto document = mdviewer::MarkdownParser::Parse(
+        "[![diagram](diagram.svg)](https://example.com/full.svg)\n");
+    Require(!document.blocks.empty() && !document.blocks[0].inlineRuns.empty(),
+            "linked SVG fixture should produce an image run");
+    const auto& run = document.blocks[0].inlineRuns[0];
+    RequireEqual(run.url, std::string("diagram.svg"), "image run should preserve its local SVG source");
+    RequireEqual(run.linkUrl, std::string("https://example.com/full.svg"),
+                 "linked image should preserve its outer activation target");
 }
 
 void HeadingAnchors() {
@@ -618,6 +681,7 @@ int main() {
         {"RecentFilesAndHistory", RecentFilesAndHistory},
         {"ConfigPathMigration", ConfigPathMigration},
         {"LinkResolution", LinkResolution},
+        {"SvgImageRendering", SvgImageRendering},
         {"HeadingAnchors", HeadingAnchors},
         {"HitTestingMeasuresOnlyClosestLine", HitTestingMeasuresOnlyClosestLine},
         {"Utf8Boundaries", Utf8Boundaries},

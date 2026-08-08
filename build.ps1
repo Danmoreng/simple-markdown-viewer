@@ -196,7 +196,7 @@ if (-not $SkipSkia) {
         $is_debug = if ($Configuration -eq "Debug") { "true" } else { "false" }
 
         Write-Host "Configuring Skia with GN ($Configuration)..." -ForegroundColor Cyan
-        $gnArgs = "is_official_build=true is_debug=$is_debug skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_direct3d=false skia_use_metal=false skia_enable_pdf=true skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=false skia_enable_svg=false skia_use_piex=false"
+        $gnArgs = "is_official_build=true is_debug=$is_debug skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_direct3d=false skia_use_metal=false skia_enable_pdf=true skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
         
         # GN and Ninja are now in bin/ or provided by depot_tools
         $gnPath = if (Test-Path "bin/gn.exe") { "bin/gn.exe" } else { "gn" }
@@ -206,8 +206,8 @@ if (-not $SkipSkia) {
         Assert-LastExitCode "$gnPath gen"
 
         Write-Host "Building Skia..." -ForegroundColor Cyan
-        & $ninjaPath -C $skiaOutDir skia
-        Assert-LastExitCode "$ninjaPath -C $skiaOutDir skia"
+        & $ninjaPath -C $skiaOutDir skia modules/svg:svg
+        Assert-LastExitCode "$ninjaPath -C $skiaOutDir skia modules/svg:svg"
 
         $milestoneLine = Get-Content "include\core\SkMilestone.h" | Select-String "^#define SK_MILESTONE (\d+)$"
         if (-not $milestoneLine -or $milestoneLine.Matches.Count -ne 1) {

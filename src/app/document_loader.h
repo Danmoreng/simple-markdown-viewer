@@ -25,6 +25,7 @@ struct DocumentLoadResult {
 
 bool IsMarkdownFile(const std::filesystem::path& path);
 bool IsDefinitelyTextFile(const std::filesystem::path& path);
+bool IsKnownNonTextFile(const std::filesystem::path& path);
 bool ProbeIsText(const std::string& content);
 DocumentLoadResult LoadDocumentFromPath(const std::filesystem::path& path);
 

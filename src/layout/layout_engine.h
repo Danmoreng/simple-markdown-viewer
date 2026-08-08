@@ -17,6 +17,7 @@ struct RunLayout {
     size_t textStart = 0;
     float imageWidth = 0.0f;
     float imageHeight = 0.0f;
+    std::string linkUrl;
 };
 
 struct LineLayout {
