@@ -19,11 +19,9 @@
 #include "include/core/SkFontMgr.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <iostream>
-#include <limits>
 #include <string>
 
 namespace mdviewer::linux_platform {
@@ -127,22 +125,20 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
             return run.textStart;
         }
 
-        float bestDistance = std::numeric_limits<float>::max();
-        size_t bestOffset = run.text.size();
-        for (size_t offset = 0; offset <= run.text.size();) {
-            const float width = font.measureText(run.text.data(), offset, SkTextEncoding::kUTF8);
-            const float distance = std::abs(width - x_in_run);
-            if (distance <= bestDistance) {
-                bestDistance = distance;
-                bestOffset = offset;
+        float currentX = 0.0f;
+        for (size_t offset = 0; offset < run.text.size();) {
+            const size_t nextOffset = NextUtf8Boundary(run.text, offset);
+            const float width = font.measureText(
+                run.text.data() + offset,
+                nextOffset - offset,
+                SkTextEncoding::kUTF8);
+            if (x_in_run < currentX + width * 0.5f) {
+                return run.textStart + offset;
             }
-
-            if (offset == run.text.size()) {
-                break;
-            }
-            offset = NextUtf8Boundary(run.text, offset);
+            currentX += width;
+            offset = nextOffset;
         }
-        return run.textStart + bestOffset;
+        return run.textStart + run.text.size();
     };
 
     auto docHit = HitTestDocument(

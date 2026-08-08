@@ -21,6 +21,7 @@
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
 #include "util/utf8.h"
+#include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -336,6 +337,41 @@ void HeadingAnchors() {
     Require(mdviewer::HitTestOutlineSidebar(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "right outline rows should hit inside the right sidebar");
 }
 
+void HitTestingMeasuresOnlyClosestLine() {
+    mdviewer::DocumentLayout layout{};
+    mdviewer::BlockLayout block{};
+    block.type = mdviewer::BlockType::Paragraph;
+    for (size_t index = 0; index < 200; ++index) {
+        mdviewer::LineLayout line{};
+        line.x = 10.0f;
+        line.y = static_cast<float>(index) * 20.0f;
+        line.height = 18.0f;
+        line.textStart = index * 4;
+        line.textLength = 4;
+        line.runs.push_back({mdviewer::InlineStyle::Plain, "text", "", line.textStart});
+        block.lines.push_back(std::move(line));
+    }
+    layout.blocks.push_back(std::move(block));
+
+    int widthCalls = 0;
+    int positionCalls = 0;
+    mdviewer::HitTestCallbacks callbacks;
+    callbacks.get_run_visual_width = [&](const auto&, const auto&, const auto&) {
+        ++widthCalls;
+        return 40.0f;
+    };
+    callbacks.find_text_position_in_run = [&](const auto&, const auto&, const auto& run, float) {
+        ++positionCalls;
+        return run.textStart + 2;
+    };
+
+    const auto hit = mdviewer::HitTestDocument(layout, 0.0f, 30.0f, 20.0f, 2035.0f, callbacks);
+    Require(hit.valid, "hit testing should find the closest visible line");
+    RequireEqual(hit.position, static_cast<size_t>(402), "hit testing should use the target line position");
+    RequireEqual(widthCalls, 1, "hit testing should measure runs on only the closest line");
+    RequireEqual(positionCalls, 1, "hit testing should resolve one text position");
+}
+
 void Utf8Boundaries() {
     const std::string text = std::string("A") + "\xE2\x89\x88" + "B";
     RequireEqual(mdviewer::NextUtf8Boundary(text, 0), static_cast<size_t>(1),
@@ -583,6 +619,7 @@ int main() {
         {"ConfigPathMigration", ConfigPathMigration},
         {"LinkResolution", LinkResolution},
         {"HeadingAnchors", HeadingAnchors},
+        {"HitTestingMeasuresOnlyClosestLine", HitTestingMeasuresOnlyClosestLine},
         {"Utf8Boundaries", Utf8Boundaries},
         {"MarkdownSafetyLimits", MarkdownSafetyLimits},
         {"DocumentSizeLimit", DocumentSizeLimit},
