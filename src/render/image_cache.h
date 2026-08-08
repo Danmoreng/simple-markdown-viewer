@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -41,8 +42,10 @@ private:
     static sk_sp<SkImage> CreateRasterImageFromFile(const std::filesystem::path& imagePath);
 
     sk_sp<SkImage> GetOrLoadBaseImage(const std::string& url, const std::filesystem::path& baseDir);
+    void ClearScaledImages();
 
     std::unordered_map<std::string, CachedImageEntry> entries_;
+    size_t scaledImageBytes_ = 0;
 };
 
 } // namespace mdviewer

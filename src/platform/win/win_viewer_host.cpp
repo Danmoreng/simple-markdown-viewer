@@ -254,6 +254,7 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
         return context.imageCache.GetImageSize(url, baseDir);
     };
 
+    context.imageCache.Clear();
     const auto status = context.controller.OpenFile(
         path,
         width,
@@ -270,6 +271,10 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
     }
     if (status == OpenDocumentStatus::FileReadError) {
         MessageBoxW(hwnd, (L"Could not load file: " + path.wstring()).c_str(), L"Error", MB_ICONERROR);
+        return false;
+    }
+    if (status == OpenDocumentStatus::FileTooLarge) {
+        MessageBoxW(hwnd, L"The file exceeds the current 64 MiB safety limit.", L"File too large", MB_ICONWARNING);
         return false;
     }
 

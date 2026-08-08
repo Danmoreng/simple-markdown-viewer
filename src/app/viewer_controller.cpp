@@ -205,6 +205,9 @@ OpenDocumentStatus ViewerController::OpenFile(
     if (result.status == DocumentLoadStatus::FileReadError) {
         return OpenDocumentStatus::FileReadError;
     }
+    if (result.status == DocumentLoadStatus::FileTooLarge) {
+        return OpenDocumentStatus::FileTooLarge;
+    }
 
     if (preloadDocument) {
         preloadDocument(result.docModel, path.parent_path());

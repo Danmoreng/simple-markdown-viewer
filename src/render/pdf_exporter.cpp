@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <fstream>
-#include <limits>
 #include <system_error>
 
 #include "render/print_document.h"
@@ -13,68 +12,17 @@
 #pragma warning(disable: 4244)
 #pragma warning(disable: 4267)
 #include "include/core/SkCanvas.h"
+#include "include/core/SkData.h"
 #include "include/core/SkDocument.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkString.h"
+#if MDVIEWER_ENABLE_PDF
 #include "include/docs/SkPDFDocument.h"
+#endif
 #pragma warning(pop)
 
 namespace mdviewer {
 namespace {
-
-class FilesystemWStream final : public SkWStream {
-public:
-    explicit FilesystemWStream(const std::filesystem::path& path)
-        : output_(path, std::ios::binary), failed_(!output_.is_open()) {}
-
-    bool write(const void* buffer, size_t size) override {
-        if (!output_.is_open() || failed_) {
-            failed_ = true;
-            return false;
-        }
-        if (size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) {
-            failed_ = true;
-            return false;
-        }
-
-        output_.write(static_cast<const char*>(buffer), static_cast<std::streamsize>(size));
-        if (!output_) {
-            failed_ = true;
-            return false;
-        }
-
-        bytesWritten_ += size;
-        return true;
-    }
-
-    void flush() override {
-        if (!output_.is_open()) {
-            failed_ = true;
-            return;
-        }
-        output_.flush();
-        if (!output_) {
-            failed_ = true;
-        }
-    }
-
-    size_t bytesWritten() const override {
-        return bytesWritten_;
-    }
-
-    bool isOpen() const {
-        return output_.is_open();
-    }
-
-    bool isValid() const {
-        return output_.is_open() && !failed_;
-    }
-
-private:
-    std::ofstream output_;
-    size_t bytesWritten_ = 0;
-    bool failed_ = false;
-};
 
 std::string PathFilenameUtf8(const std::filesystem::path& path) {
     const auto filename = path.filename().u8string();
@@ -92,6 +40,7 @@ bool EnsureParentDirectory(const std::filesystem::path& outputPath) {
     return !createError;
 }
 
+#if MDVIEWER_ENABLE_PDF
 SkPDF::Metadata MakePdfMetadata(const std::filesystem::path& sourcePath) {
     SkPDF::Metadata metadata;
     const std::string title = PathFilenameUtf8(sourcePath);
@@ -103,10 +52,15 @@ SkPDF::Metadata MakePdfMetadata(const std::filesystem::path& sourcePath) {
     metadata.allowNoJpegs = true;
     return metadata;
 }
+#endif
 
 } // namespace
 
 PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
+#if !MDVIEWER_ENABLE_PDF
+    (void)request;
+    return PdfExportStatus::PdfBackendUnavailable;
+#else
     if (request.outputPath.empty() || request.sourceText.empty() || request.document.blocks.empty()) {
         return PdfExportStatus::NoDocument;
     }
@@ -160,15 +114,19 @@ PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
         return PdfExportStatus::FileOpenError;
     }
 
-    FilesystemWStream output(request.outputPath);
-    if (!output.isOpen()) {
-        return PdfExportStatus::FileOpenError;
-    }
-    if (!pdfBytes.writeToStream(&output)) {
+    const sk_sp<SkData> data = pdfBytes.detachAsData();
+    if (!data || data->isEmpty()) {
         return PdfExportStatus::WriteError;
     }
+
+    std::ofstream output(request.outputPath, std::ios::binary);
+    if (!output.is_open()) {
+        return PdfExportStatus::FileOpenError;
+    }
+    output.write(static_cast<const char*>(data->data()), static_cast<std::streamsize>(data->size()));
     output.flush();
-    return output.isValid() ? PdfExportStatus::Success : PdfExportStatus::WriteError;
+    return output.good() ? PdfExportStatus::Success : PdfExportStatus::WriteError;
+#endif
 }
 
 const char* PdfExportStatusMessage(PdfExportStatus status) {

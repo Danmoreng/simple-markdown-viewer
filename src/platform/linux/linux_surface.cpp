@@ -21,7 +21,7 @@ bool InitializeSkia(GLFWwindow* window, LinuxSurfaceContext& context) {
         return false;
     }
 
-    context.skiaContext = GrDirectContexts::MakeGL(interface).release();
+    context.skiaContext = GrDirectContexts::MakeGL(interface);
     if (!context.skiaContext) {
         std::cerr << "Failed to create Skia GPU context" << std::endl;
         return false;
@@ -34,8 +34,7 @@ void CleanupSkia(LinuxSurfaceContext& context) {
     context.surface.reset();
     if (context.skiaContext) {
         context.skiaContext->abandonContext();
-        delete context.skiaContext;
-        context.skiaContext = nullptr;
+        context.skiaContext.reset();
     }
 }
 
@@ -67,7 +66,7 @@ bool EnsureSurfaceSize(GLFWwindow* window, LinuxSurfaceContext& context) {
 
     SkSurfaceProps props;
     context.surface = SkSurfaces::WrapBackendRenderTarget(
-        context.skiaContext,
+        context.skiaContext.get(),
         backendRT,
         kBottomLeft_GrSurfaceOrigin,
         kRGBA_8888_SkColorType,

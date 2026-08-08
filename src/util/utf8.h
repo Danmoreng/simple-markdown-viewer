@@ -12,5 +12,6 @@ struct Utf8SanitizationResult {
 };
 
 Utf8SanitizationResult SanitizeUtf8(std::string_view input);
+size_t NextUtf8Boundary(std::string_view text, size_t offset);
 
 } // namespace mdviewer

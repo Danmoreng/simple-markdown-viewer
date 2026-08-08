@@ -1,5 +1,7 @@
 #include "platform/linux/linux_menu.h"
 
+#include "render/pdf_exporter.h"
+
 namespace mdviewer::linux_platform {
 
 const std::vector<MenuBarItem>& GetLinuxMenuBarItems() {
@@ -21,15 +23,19 @@ std::vector<DropdownItem> GetLinuxDropdownItems(const MenuDropdown& menu) {
 }
 
 std::vector<MenuDropdown> GetLinuxMenus() {
+    std::vector<MenuItem> fileItems = {
+        {"Open...", MenuCommand::OpenFile},
+    };
+#if MDVIEWER_ENABLE_PDF
+    fileItems.push_back({"Save as PDF...", MenuCommand::SaveAsPdf});
+#endif
+    fileItems.push_back({"", MenuCommand::None, true});
+    fileItems.push_back({"Exit", MenuCommand::Exit});
+
     return {
         {
             "File",
-            {
-                {"Open...", MenuCommand::OpenFile},
-                {"Save as PDF...", MenuCommand::SaveAsPdf},
-                {"", MenuCommand::None, true},
-                {"Exit", MenuCommand::Exit}
-            }
+            std::move(fileItems)
         },
         {
             "View",

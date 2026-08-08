@@ -12,14 +12,18 @@
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 #include "util/skia_font_utils.h"
+#include "util/utf8.h"
 #include "render/typography.h"
 
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMgr.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <exception>
 #include <iostream>
+#include <limits>
 #include <string>
 
 namespace mdviewer::linux_platform {
@@ -27,6 +31,13 @@ namespace mdviewer::linux_platform {
 namespace {
 
 constexpr float kDropdownItemHeight = 30.0f;
+
+float GetLogicalWindowWidth(GLFWwindow* window) {
+    int width = 0;
+    int height = 0;
+    glfwGetWindowSize(window, &width, &height);
+    return static_cast<float>(width);
+}
 
 bool CopySelection(GLFWwindow* window, LinuxApp& app) {
     auto& appState = GetAppState(app.GetHostContext());
@@ -107,19 +118,31 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     };
 
     callbacks.find_text_position_in_run = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run, float x_in_run) {
-        if (run.text.empty()) return run.textStart;
+        (void)line;
+        if (run.text.empty() || run.style == InlineStyle::Image) return run.textStart;
         SkFont font;
         ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.style, appState.baseFontSize);
-        
-        const char* text = run.text.data();
-        size_t len = run.text.size();
-        float currentX = 0;
-        for (size_t i = 0; i < len; ++i) {
-            float w = font.measureText(text + i, 1, SkTextEncoding::kUTF8);
-            if (x_in_run < currentX + w * 0.5f) return run.textStart + i;
-            currentX += w;
+
+        if (x_in_run <= 0.0f) {
+            return run.textStart;
         }
-        return run.textStart + len;
+
+        float bestDistance = std::numeric_limits<float>::max();
+        size_t bestOffset = run.text.size();
+        for (size_t offset = 0; offset <= run.text.size();) {
+            const float width = font.measureText(run.text.data(), offset, SkTextEncoding::kUTF8);
+            const float distance = std::abs(width - x_in_run);
+            if (distance <= bestDistance) {
+                bestDistance = distance;
+                bestOffset = offset;
+            }
+
+            if (offset == run.text.size()) {
+                break;
+            }
+            offset = NextUtf8Boundary(run.text, offset);
+        }
+        return run.textStart + bestOffset;
     };
 
     auto docHit = HitTestDocument(
@@ -216,7 +239,7 @@ std::string Utf32CodepointToUtf8(unsigned int codepoint) {
     return result;
 }
 
-void OnMouseMove(GLFWwindow* window, double xpos, double ypos) {
+void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
@@ -264,7 +287,7 @@ void OnMouseMove(GLFWwindow* window, double xpos, double ypos) {
     }
 }
 
-void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
+void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
@@ -362,7 +385,7 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
                 appState,
                 static_cast<float>(xpos),
                 static_cast<float>(ypos),
-                app->GetHostContext().surface ? static_cast<float>(app->GetHostContext().surface->width()) : 0.0f,
+                GetLogicalWindowWidth(window),
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
             appState.outlineFocused = true;
@@ -377,7 +400,7 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
                 appState,
                 static_cast<float>(xpos),
                 static_cast<float>(ypos),
-                app->GetHostContext().surface ? static_cast<float>(app->GetHostContext().surface->width()) : 0.0f,
+                GetLogicalWindowWidth(window),
                 GetContentTopInset())) {
             FocusOutlineItem(appState, *outlineHit, GetMaxScroll(window, app->GetHostContext()));
             ClampScrollOffset(window, app->GetHostContext());
@@ -422,7 +445,7 @@ void OnMouseButton(GLFWwindow* window, int button, int action, int mods) {
         appState.needsRepaint = true;
     }
 }
-void OnScroll(GLFWwindow* window, double xoffset, double yoffset) {
+void OnScrollImpl(GLFWwindow* window, double xoffset, double yoffset) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
@@ -442,7 +465,7 @@ void OnScroll(GLFWwindow* window, double xoffset, double yoffset) {
     GetAppState(app->GetHostContext()).needsRepaint = true;
 }
 
-void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
+void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app || (action != GLFW_PRESS && action != GLFW_REPEAT)) return;
 
@@ -527,7 +550,7 @@ void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (result.handled) GetAppState(app->GetHostContext()).needsRepaint = true;
 }
 
-void OnChar(GLFWwindow* window, unsigned int codepoint) {
+void OnCharImpl(GLFWwindow* window, unsigned int codepoint) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
@@ -541,20 +564,65 @@ void OnChar(GLFWwindow* window, unsigned int codepoint) {
     appState.needsRepaint = true;
 }
 
-void OnFramebufferSize(GLFWwindow* window, int width, int height) {
+void OnFramebufferSizeImpl(GLFWwindow* window, int width, int height) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
     EnsureSurfaceSize(window, app->SurfaceContext());
     RelayoutCurrentDocument(window, app->GetHostContext());
 }
 
-void OnDrop(GLFWwindow* window, int count, const char** paths) {
+void OnDropImpl(GLFWwindow* window, int count, const char** paths) {
     std::cerr << "File drop received: " << count << " files" << std::endl;
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (app && count > 0) {
         std::cerr << "Loading first dropped file: " << paths[0] << std::endl;
         LoadFile(window, app->GetHostContext(), paths[0]);
     }
+}
+
+template <typename Callback>
+void RunGuardedCallback(GLFWwindow* window, const char* phase, Callback&& callback) noexcept {
+    try {
+        callback();
+    } catch (const std::exception& error) {
+        std::cerr << "Linux callback failed during " << phase << ": " << error.what() << std::endl;
+        if (auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window))) {
+            GetAppState(app->GetHostContext()).needsRepaint = true;
+        }
+    } catch (...) {
+        std::cerr << "Linux callback failed during " << phase << ": unknown exception" << std::endl;
+        if (auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window))) {
+            GetAppState(app->GetHostContext()).needsRepaint = true;
+        }
+    }
+}
+
+void OnMouseMove(GLFWwindow* window, double xpos, double ypos) noexcept {
+    RunGuardedCallback(window, "pointer movement", [&] { OnMouseMoveImpl(window, xpos, ypos); });
+}
+
+void OnMouseButton(GLFWwindow* window, int button, int action, int mods) noexcept {
+    RunGuardedCallback(window, "pointer button", [&] { OnMouseButtonImpl(window, button, action, mods); });
+}
+
+void OnScroll(GLFWwindow* window, double xoffset, double yoffset) noexcept {
+    RunGuardedCallback(window, "scroll", [&] { OnScrollImpl(window, xoffset, yoffset); });
+}
+
+void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods) noexcept {
+    RunGuardedCallback(window, "keyboard input", [&] { OnKeyImpl(window, key, scancode, action, mods); });
+}
+
+void OnChar(GLFWwindow* window, unsigned int codepoint) noexcept {
+    RunGuardedCallback(window, "text input", [&] { OnCharImpl(window, codepoint); });
+}
+
+void OnFramebufferSize(GLFWwindow* window, int width, int height) noexcept {
+    RunGuardedCallback(window, "framebuffer resize", [&] { OnFramebufferSizeImpl(window, width, height); });
+}
+
+void OnDrop(GLFWwindow* window, int count, const char** paths) noexcept {
+    RunGuardedCallback(window, "file drop", [&] { OnDropImpl(window, count, paths); });
 }
 
 } // namespace

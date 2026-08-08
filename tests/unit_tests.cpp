@@ -10,6 +10,7 @@
 
 #include "app/app_config.h"
 #include "app/app_state.h"
+#include "app/document_loader.h"
 #include "app/heading_anchor.h"
 #include "app/link_resolver.h"
 #include "app/viewer_controller.h"
@@ -19,6 +20,7 @@
 #include "render/pdf_exporter.h"
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
+#include "util/utf8.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -334,6 +336,41 @@ void HeadingAnchors() {
     Require(mdviewer::HitTestOutlineSidebar(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "right outline rows should hit inside the right sidebar");
 }
 
+void Utf8Boundaries() {
+    const std::string text = std::string("A") + "\xE2\x89\x88" + "B";
+    RequireEqual(mdviewer::NextUtf8Boundary(text, 0), static_cast<size_t>(1),
+                 "ASCII should advance by one byte");
+    RequireEqual(mdviewer::NextUtf8Boundary(text, 1), static_cast<size_t>(4),
+                 "UTF-8 hit testing must skip continuation bytes");
+    RequireEqual(mdviewer::NextUtf8Boundary(text, 4), static_cast<size_t>(5),
+                 "the byte after a multibyte code point should remain addressable");
+}
+
+void MarkdownSafetyLimits() {
+    std::string deeplyNested;
+    for (size_t depth = 0; depth < 300; ++depth) {
+        deeplyNested += "> ";
+    }
+    deeplyNested += "content\n";
+
+    const auto document = mdviewer::MarkdownParser::Parse(deeplyNested);
+    Require(document.blocks.empty(), "Markdown beyond the nesting limit should fail without a partial model");
+}
+
+void DocumentSizeLimit() {
+    TempDir temp;
+    const fs::path oversizedPath = temp.Path() / "oversized.md";
+    std::ofstream output(oversizedPath, std::ios::binary);
+    Require(output.is_open(), "oversized fixture should open");
+    output.seekp(static_cast<std::streamoff>(mdviewer::kMaxDocumentFileSizeBytes));
+    output.put('\n');
+    output.close();
+
+    const auto result = mdviewer::LoadDocumentFromPath(oversizedPath);
+    Require(result.status == mdviewer::DocumentLoadStatus::FileTooLarge,
+            "documents above the hard size limit should be rejected before reading");
+}
+
 void LayoutSensitiveBehavior() {
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(
         "# Title\n\n"
@@ -341,6 +378,9 @@ void LayoutSensitiveBehavior() {
         "| - | - |\n"
         "| left | right |\n\n"
         "```cpp\n"
+        "#include <vector>\n"
+        "*pointer = value;\n"
+        ">literal\n"
         "int main() { return 0; }\n"
         "```\n\n"
         "![diagram](diagram.png)\n");
@@ -359,6 +399,8 @@ void LayoutSensitiveBehavior() {
     Require(HasBlockType(normal, mdviewer::BlockType::Table), "layout should contain table block");
     Require(HasBlockType(normal, mdviewer::BlockType::CodeBlock), "layout should contain code block");
     Require(normal.plainText.find("A\tB\nleft\tright") != std::string::npos, "table layout should preserve tabular plain text");
+    Require(normal.plainText.find("#include <vector>\n*pointer = value;\n>literal") != std::string::npos,
+            "Markdown normalization must not mutate fenced code");
     Require(zoomed.totalHeight > normal.totalHeight, "zoomed layout should increase total height");
 
     const auto& imageBlock = normal.blocks.back();
@@ -405,6 +447,7 @@ void PdfExportWritesFile() {
     request.layoutTypeface = typeface.get();
 
     const mdviewer::PdfExportStatus status = mdviewer::ExportMarkdownToPdf(request);
+#if MDVIEWER_ENABLE_PDF
     Require(
         status == mdviewer::PdfExportStatus::Success,
         std::string("PDF export should succeed: ") + mdviewer::PdfExportStatusMessage(status));
@@ -415,6 +458,12 @@ void PdfExportWritesFile() {
     std::string header(5, '\0');
     input.read(header.data(), static_cast<std::streamsize>(header.size()));
     RequireEqual(header, std::string("%PDF-"), "PDF output should have a PDF header");
+#else
+    Require(
+        status == mdviewer::PdfExportStatus::PdfBackendUnavailable,
+        "disabled PDF builds should report an unavailable backend");
+    Require(!fs::exists(outputPath), "disabled PDF builds should not create an output file");
+#endif
 }
 
 void MenuLayoutHitTesting() {
@@ -534,6 +583,9 @@ int main() {
         {"ConfigPathMigration", ConfigPathMigration},
         {"LinkResolution", LinkResolution},
         {"HeadingAnchors", HeadingAnchors},
+        {"Utf8Boundaries", Utf8Boundaries},
+        {"MarkdownSafetyLimits", MarkdownSafetyLimits},
+        {"DocumentSizeLimit", DocumentSizeLimit},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
         {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},

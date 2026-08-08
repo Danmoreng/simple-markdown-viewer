@@ -18,6 +18,13 @@ namespace mdviewer {
 
 namespace {
 
+constexpr int kMaxDecodedImageDimension = 8192;
+constexpr uint64_t kMaxDecodedImagePixels = 16ULL * 1024ULL * 1024ULL;
+constexpr int kMaxScaledImageDimension = 8192;
+constexpr uint64_t kMaxScaledImagePixels = 16ULL * 1024ULL * 1024ULL;
+constexpr size_t kMaxCachedImageEntries = 256;
+constexpr size_t kMaxScaledImageBytes = 128ULL * 1024ULL * 1024ULL;
+
 void PreloadBlocks(
     DocumentImageCache& cache,
     const std::vector<Block>& blocks,
@@ -39,6 +46,15 @@ void PreloadBlocks(
 
 void DocumentImageCache::Clear() {
     entries_.clear();
+    scaledImageBytes_ = 0;
+}
+
+void DocumentImageCache::ClearScaledImages() {
+    for (auto& [key, entry] : entries_) {
+        (void)key;
+        entry.scaledImages.clear();
+    }
+    scaledImageBytes_ = 0;
 }
 
 std::pair<float, float> DocumentImageCache::GetImageSize(const std::string& url, const std::filesystem::path& baseDir) {
@@ -56,12 +72,32 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
     float displayWidth,
     float displayHeight) {
     sk_sp<SkImage> baseImage = GetOrLoadBaseImage(url, baseDir);
-    if (!baseImage) {
+    if (!baseImage || !std::isfinite(displayWidth) || !std::isfinite(displayHeight) ||
+        displayWidth <= 0.0f || displayHeight <= 0.0f) {
         return nullptr;
     }
 
-    const int targetWidth = std::max(1, static_cast<int>(std::round(displayWidth)));
-    const int targetHeight = std::max(1, static_cast<int>(std::round(displayHeight)));
+    double safeWidth = displayWidth;
+    double safeHeight = displayHeight;
+    const double dimensionScale = std::min(
+        1.0,
+        std::min(
+            static_cast<double>(kMaxScaledImageDimension) / safeWidth,
+            static_cast<double>(kMaxScaledImageDimension) / safeHeight));
+    safeWidth *= dimensionScale;
+    safeHeight *= dimensionScale;
+    const double pixelCount = safeWidth * safeHeight;
+    if (!std::isfinite(pixelCount) || pixelCount <= 0.0) {
+        return nullptr;
+    }
+    if (pixelCount > static_cast<double>(kMaxScaledImagePixels)) {
+        const double pixelScale = std::sqrt(static_cast<double>(kMaxScaledImagePixels) / pixelCount);
+        safeWidth *= pixelScale;
+        safeHeight *= pixelScale;
+    }
+
+    const int targetWidth = std::max(1, static_cast<int>(std::round(safeWidth)));
+    const int targetHeight = std::max(1, static_cast<int>(std::round(safeHeight)));
     if (baseImage->width() == targetWidth && baseImage->height() == targetHeight) {
         return baseImage;
     }
@@ -92,7 +128,16 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
         scaledImage = scaledImage->makeRasterImage();
     }
     if (scaledImage) {
-        entry.scaledImages[scaledKey] = scaledImage;
+        const uint64_t byteCount = static_cast<uint64_t>(targetWidth) *
+            static_cast<uint64_t>(targetHeight) * 4ULL;
+        if (byteCount <= kMaxScaledImageBytes) {
+            if (scaledImageBytes_ > kMaxScaledImageBytes - static_cast<size_t>(byteCount)) {
+                ClearScaledImages();
+            }
+            auto& refreshedEntry = entries_[MakeCacheKey(imagePath)];
+            refreshedEntry.scaledImages[scaledKey] = scaledImage;
+            scaledImageBytes_ += static_cast<size_t>(byteCount);
+        }
         return scaledImage;
     }
 
@@ -131,7 +176,8 @@ uint64_t DocumentImageCache::MakeScaledImageKey(float width, float height) {
 }
 
 sk_sp<SkImage> DocumentImageCache::CreateRasterImageFromFile(const std::filesystem::path& imagePath) {
-    if (!std::filesystem::exists(imagePath)) {
+    std::error_code existsError;
+    if (!std::filesystem::exists(imagePath, existsError) || existsError) {
         return nullptr;
     }
 
@@ -141,7 +187,9 @@ sk_sp<SkImage> DocumentImageCache::CreateRasterImageFromFile(const std::filesyst
     }
 
     auto image = SkImages::DeferredFromEncodedData(data);
-    if (!image) {
+    if (!image || image->width() <= 0 || image->height() <= 0 ||
+        image->width() > kMaxDecodedImageDimension || image->height() > kMaxDecodedImageDimension ||
+        static_cast<uint64_t>(image->width()) * static_cast<uint64_t>(image->height()) > kMaxDecodedImagePixels) {
         return nullptr;
     }
 
@@ -150,13 +198,16 @@ sk_sp<SkImage> DocumentImageCache::CreateRasterImageFromFile(const std::filesyst
 
 sk_sp<SkImage> DocumentImageCache::GetOrLoadBaseImage(const std::string& url, const std::filesystem::path& baseDir) {
     const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
-    auto& entry = entries_[MakeCacheKey(imagePath)];
-    if (entry.baseImage) {
-        return entry.baseImage;
+    const std::string key = MakeCacheKey(imagePath);
+    if (const auto existing = entries_.find(key); existing != entries_.end()) {
+        return existing->second.baseImage;
     }
 
-    entry.baseImage = CreateRasterImageFromFile(imagePath);
-    return entry.baseImage;
+    sk_sp<SkImage> image = CreateRasterImageFromFile(imagePath);
+    if (image && entries_.size() < kMaxCachedImageEntries) {
+        entries_.emplace(key, CachedImageEntry{image, {}});
+    }
+    return image;
 }
 
 } // namespace mdviewer

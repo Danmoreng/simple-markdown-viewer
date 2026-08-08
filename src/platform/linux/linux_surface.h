@@ -7,7 +7,7 @@
 namespace mdviewer::linux_platform {
 
 struct LinuxSurfaceContext {
-    GrDirectContext* skiaContext = nullptr;
+    sk_sp<GrDirectContext> skiaContext;
     sk_sp<SkSurface> surface;
 };
 

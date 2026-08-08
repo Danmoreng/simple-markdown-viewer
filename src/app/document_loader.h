@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -7,9 +8,12 @@
 
 namespace mdviewer {
 
+inline constexpr uintmax_t kMaxDocumentFileSizeBytes = 64ULL * 1024ULL * 1024ULL;
+
 enum class DocumentLoadStatus {
     Success,
     FileReadError,
+    FileTooLarge,
     BinaryFile
 };
 

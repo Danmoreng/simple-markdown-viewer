@@ -168,7 +168,8 @@ Goal: support common output workflows without compromising the viewer architectu
 
 Goal: keep the app responsive with large or generated Markdown files.
 
-- [ ] Add file-size and content-complexity thresholds for warnings or degraded mode.
+- [x] Add an initial hard 64 MiB file-size safety limit before reading document contents.
+- [ ] Add softer file-size and content-complexity thresholds for warnings or degraded mode.
 - [ ] Avoid blocking the UI during expensive image preloading, syntax highlighting, search, or layout where practical.
 - [ ] Consider incremental or cancellable layout for very large documents.
 - [ ] Add graceful feedback for files too large to render comfortably.
@@ -179,6 +180,13 @@ Goal: keep the app responsive with large or generated Markdown files.
 
 Goal: harden the second native host and keep it aligned with the shared viewer behavior.
 
+- [x] Add Linux configure/build/test CI plus AddressSanitizer and UndefinedBehaviorSanitizer test coverage.
+- [x] Make Linux PDF support explicit and keep non-PDF Skia builds linkable with the PDF command hidden.
+- [x] Add exception boundaries around GLFW callbacks and the Linux update/render loop.
+- [x] Use RAII for the Linux Skia GPU context and remove the duplicate leaked font-system owner.
+- [x] Establish logical window coordinates for Linux layout/input and scale Skia drawing to framebuffer pixels.
+- [x] Add initial image dimension/pixel/cache limits and clear document image caches on file changes.
+- [x] Stop md4c callback exceptions at the C boundary, check parser failures, and cap Markdown nesting depth.
 - [ ] Keep Linux build and runtime startup validated.
 - [ ] Validate Linux file open dialog, clipboard, shell open, drag/drop if supported, menu commands, font selection, Skia surface creation, DPI behavior, and context menus.
 - [ ] Match shared viewer behavior with Windows for opening files, links, search, selection, copy, themes, zoom, recent files, and history.

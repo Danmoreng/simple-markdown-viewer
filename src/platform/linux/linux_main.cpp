@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 
 #include "GLFW/glfw3.h"
@@ -21,7 +22,7 @@ uint64_t GetCurrentTickCountMs() {
 
 } // namespace
 
-int RunLinuxApp(int argc, char* argv[]) {
+int RunLinuxAppImpl(int argc, char* argv[]) {
     std::cerr << "Starting Linux application..." << std::endl;
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -73,33 +74,41 @@ int RunLinuxApp(int argc, char* argv[]) {
     std::cerr << "Entering main loop..." << std::endl;
     GetAppState(app.GetHostContext()).needsRepaint = true;
     while (!glfwWindowShouldClose(window)) {
-        auto& appState = GetAppState(app.GetHostContext());
-        const uint64_t nowMs = GetCurrentTickCountMs();
-        if (appState.copiedFeedbackTimeout > 0 && appState.copiedFeedbackTimeout <= nowMs) {
-            appState.copiedFeedbackTimeout = 0;
-            appState.needsRepaint = true;
-        }
-        if (appState.zoomFeedbackTimeout > 0 && appState.zoomFeedbackTimeout <= nowMs) {
-            appState.zoomFeedbackTimeout = 0;
-            appState.needsRepaint = true;
-        }
-
-        if (appState.needsRepaint) {
-            appState.needsRepaint = false;
-            if (EnsureSurfaceSize(window, app.SurfaceContext())) {
-                Render(window, app.GetHostContext());
-                PresentSurface(window, app.SurfaceContext());
+        try {
+            auto& appState = GetAppState(app.GetHostContext());
+            const uint64_t nowMs = GetCurrentTickCountMs();
+            if (appState.copiedFeedbackTimeout > 0 && appState.copiedFeedbackTimeout <= nowMs) {
+                appState.copiedFeedbackTimeout = 0;
+                appState.needsRepaint = true;
             }
-        }
+            if (appState.zoomFeedbackTimeout > 0 && appState.zoomFeedbackTimeout <= nowMs) {
+                appState.zoomFeedbackTimeout = 0;
+                appState.needsRepaint = true;
+            }
 
-        const uint64_t nextFeedbackTimeout = std::min(
-            appState.copiedFeedbackTimeout > nowMs ? appState.copiedFeedbackTimeout : UINT64_MAX,
-            appState.zoomFeedbackTimeout > nowMs ? appState.zoomFeedbackTimeout : UINT64_MAX);
-        if (nextFeedbackTimeout != UINT64_MAX) {
-            const double timeoutSeconds = static_cast<double>(nextFeedbackTimeout - nowMs) / 1000.0;
-            glfwWaitEventsTimeout(timeoutSeconds);
-        } else {
-            glfwWaitEvents();
+            if (appState.needsRepaint) {
+                appState.needsRepaint = false;
+                if (EnsureSurfaceSize(window, app.SurfaceContext())) {
+                    Render(window, app.GetHostContext());
+                    PresentSurface(window, app.SurfaceContext());
+                }
+            }
+
+            const uint64_t nextFeedbackTimeout = std::min(
+                appState.copiedFeedbackTimeout > nowMs ? appState.copiedFeedbackTimeout : UINT64_MAX,
+                appState.zoomFeedbackTimeout > nowMs ? appState.zoomFeedbackTimeout : UINT64_MAX);
+            if (nextFeedbackTimeout != UINT64_MAX) {
+                const double timeoutSeconds = static_cast<double>(nextFeedbackTimeout - nowMs) / 1000.0;
+                glfwWaitEventsTimeout(timeoutSeconds);
+            } else {
+                glfwWaitEvents();
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "Linux main loop failed during update/render: " << error.what() << std::endl;
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        } catch (...) {
+            std::cerr << "Linux main loop failed during update/render: unknown exception" << std::endl;
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
 
@@ -108,6 +117,18 @@ int RunLinuxApp(int argc, char* argv[]) {
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
+}
+
+int RunLinuxApp(int argc, char* argv[]) {
+    try {
+        return RunLinuxAppImpl(argc, argv);
+    } catch (const std::exception& error) {
+        std::cerr << "Linux application failed during startup/shutdown: " << error.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Linux application failed during startup/shutdown: unknown exception" << std::endl;
+    }
+    glfwTerminate();
+    return 1;
 }
 
 } // namespace mdviewer::linux_platform

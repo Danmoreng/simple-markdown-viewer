@@ -119,8 +119,17 @@ The Linux host is built from the same CMake project on Linux. It uses GLFW for
 windowing/event integration and GTK3 for native dialogs/context menus.
 
 Linux dependencies include Skia, md4c, Tree-sitter, GLFW, GTK3, fontconfig,
-freetype, pthread, dl, OpenGL, and X11. The exact Linux build invocation may
-depend on the local Skia setup.
+freetype, pthread, dl, OpenGL, and X11. Build the PDF-enabled application and
+Skia dependency, then run the tests, with:
+
+```bash
+./build.sh
+cmake --build build --target mdviewer_tests --parallel 2
+ctest --test-dir build --output-on-failure
+```
+
+Use `./build.sh --skip-skia` after Skia has already been built. Use
+`--disable-pdf` only with a Skia build configured without its PDF backend.
 
 ## Configuration
 
@@ -160,6 +169,7 @@ safe defaults.
 
 ## Current Test State
 
-There is no dedicated automated test tree in the current repository. Use focused
-manual fixture documents in `test-docs/` and build/smoke verification until a
-test harness is added.
+Focused shared tests live in `tests/unit_tests.cpp` and are registered with
+CTest as `mdviewer_unit_tests`. Linux CI builds the application, runs the normal
+tests, and repeats them with AddressSanitizer and UndefinedBehaviorSanitizer.
+Manual rendering coverage remains in `test-docs/`.

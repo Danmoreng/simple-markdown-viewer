@@ -66,12 +66,7 @@ ThemePalette GetCurrentThemePalette(const LinuxHostContext& context) {
 }
 
 bool EnsureFontSystem(LinuxHostContext context) {
-    auto& appState = GetAppState(context);
-    if (!appState.fontSystem) {
-        appState.fontSystem = CreateSkiaFontSystem();
-    }
-    context.typefaces.EnsureInitialized(context.controller.GetFontFamilyUtf8());
-    return appState.fontSystem != nullptr;
+    return context.typefaces.EnsureInitialized(context.controller.GetFontFamilyUtf8());
 }
 
 SkTypeface* GetRegularTypeface(LinuxHostContext context) {
@@ -128,10 +123,20 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
     auto& appState = GetAppState(context);
     const auto palette = GetCurrentThemePalette(context);
 
-    int width, height;
+    int width = 0;
+    int height = 0;
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
     glfwGetWindowSize(window, &width, &height);
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
 
     canvas->clear(palette.windowBackground);
+    canvas->save();
+    if (width > 0 && height > 0) {
+        canvas->scale(
+            static_cast<float>(framebufferWidth) / static_cast<float>(width),
+            static_cast<float>(framebufferHeight) / static_cast<float>(height));
+    }
 
     DocumentSceneParams params;
     params.canvas = canvas;
@@ -199,10 +204,12 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
                 palette);
         }
     }
+    canvas->restore();
 }
 
 bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesystem::path& path, bool pushHistory) {
-    if (!std::filesystem::exists(path)) {
+    std::error_code existsError;
+    if (!std::filesystem::exists(path, existsError) || existsError) {
         return false;
     }
 
@@ -215,6 +222,7 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
         return false;
     }
 
+    context.imageCache.Clear();
     auto status = context.controller.OpenFile(
         path,
         contentWidth,
@@ -236,6 +244,13 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
             RelayoutCurrentDocument(window, context);
         }
         return true;
+    }
+    if (status == OpenDocumentStatus::FileTooLarge) {
+        std::cerr << "The file exceeds the current 64 MiB safety limit: " << path << std::endl;
+    } else if (status == OpenDocumentStatus::BinaryFile) {
+        std::cerr << "The file appears to be binary and cannot be opened internally: " << path << std::endl;
+    } else {
+        std::cerr << "Could not load file: " << path << std::endl;
     }
     return false;
 }

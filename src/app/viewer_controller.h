@@ -22,6 +22,7 @@ struct RecentFileEntry {
 enum class OpenDocumentStatus {
     Success,
     FileReadError,
+    FileTooLarge,
     BinaryFile
 };
 

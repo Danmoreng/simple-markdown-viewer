@@ -14,8 +14,6 @@
 
 namespace mdviewer {
 
-struct SkiaFontSystem;
-
 struct AppState {
     std::filesystem::path currentFilePath;
     std::string sourceText;
@@ -57,7 +55,6 @@ struct AppState {
     std::string pendingLinkUrl;
     
     MenuBarState menuBarState;
-    SkiaFontSystem* fontSystem = nullptr;
     
     // Maps code block button regions to the range of text in that code block
     std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;

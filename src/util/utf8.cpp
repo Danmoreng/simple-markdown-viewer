@@ -139,4 +139,16 @@ Utf8SanitizationResult SanitizeUtf8(std::string_view input) {
     return result;
 }
 
+size_t NextUtf8Boundary(std::string_view text, size_t offset) {
+    if (offset >= text.size()) {
+        return text.size();
+    }
+
+    ++offset;
+    while (offset < text.size() && IsContinuationByte(static_cast<unsigned char>(text[offset]))) {
+        ++offset;
+    }
+    return offset;
+}
+
 } // namespace mdviewer

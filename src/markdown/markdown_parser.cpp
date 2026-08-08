@@ -8,12 +8,17 @@
 
 namespace mdviewer {
 
+namespace {
+constexpr size_t kMaxMarkdownNestingDepth = 256;
+}
+
 struct ParserContext {
     DocumentModel doc;
     std::stack<Block*> blockStack;
     std::vector<bool> emittedBlockStack;
     std::vector<InlineStyle> styleStack;
     std::vector<std::string> urlStack;
+    bool failed = false;
 
     ParserContext() {
         styleStack.push_back(InlineStyle::Plain);
@@ -129,6 +134,9 @@ static std::string NormalizeMarkdown(const std::string& source) {
     std::string normalized;
     normalized.reserve(source.size() + 16);
 
+    bool inFence = false;
+    char fenceMarker = '\0';
+    size_t fenceLength = 0;
     size_t lineStart = 0;
     while (lineStart < source.size()) {
         size_t lineEnd = source.find('\n', lineStart);
@@ -142,7 +150,43 @@ static std::string NormalizeMarkdown(const std::string& source) {
             contentEnd--;
         }
 
-        normalized += normalizeLine(std::string_view(source.data() + lineStart, contentEnd - lineStart));
+        const std::string_view line(source.data() + lineStart, contentEnd - lineStart);
+        size_t fenceIndent = 0;
+        while (fenceIndent < line.size() && fenceIndent < 4 && line[fenceIndent] == ' ') {
+            ++fenceIndent;
+        }
+        size_t markerEnd = fenceIndent;
+        const char marker = markerEnd < line.size() ? line[markerEnd] : '\0';
+        if (marker == '`' || marker == '~') {
+            while (markerEnd < line.size() && line[markerEnd] == marker) {
+                ++markerEnd;
+            }
+        }
+        const size_t markerLength = markerEnd - fenceIndent;
+        const bool isFenceCandidate = fenceIndent <= 3 && markerLength >= 3;
+        bool isClosingFence = false;
+        if (inFence && isFenceCandidate && marker == fenceMarker && markerLength >= fenceLength) {
+            size_t suffix = markerEnd;
+            while (suffix < line.size() && (line[suffix] == ' ' || line[suffix] == '\t')) {
+                ++suffix;
+            }
+            isClosingFence = suffix == line.size();
+        }
+
+        if (inFence || isFenceCandidate) {
+            normalized.append(line);
+            if (isClosingFence) {
+                inFence = false;
+                fenceMarker = '\0';
+                fenceLength = 0;
+            } else if (!inFence && isFenceCandidate) {
+                inFence = true;
+                fenceMarker = marker;
+                fenceLength = markerLength;
+            }
+        } else {
+            normalized += normalizeLine(line);
+        }
         if (hasCarriageReturn) {
             normalized += '\r';
         }
@@ -279,12 +323,16 @@ static bool ShouldSkipBlock(MD_BLOCKTYPE type, const ParserContext& ctx) {
     return false;
 }
 
-static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
+static int EnterBlockImpl(MD_BLOCKTYPE type, void* detail, void* userdata) {
     if (type == MD_BLOCK_DOC) {
         return 0;
     }
 
     auto* ctx = static_cast<ParserContext*>(userdata);
+    if (ctx->blockStack.size() >= kMaxMarkdownNestingDepth) {
+        ctx->failed = true;
+        return 1;
+    }
     if (ShouldSkipBlock(type, *ctx)) {
         ctx->emittedBlockStack.push_back(false);
         return 0;
@@ -331,7 +379,7 @@ static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
-static int LeaveBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
+static int LeaveBlockImpl(MD_BLOCKTYPE type, void* detail, void* userdata) {
     (void)type;
     (void)detail;
     if (type == MD_BLOCK_DOC) {
@@ -348,8 +396,12 @@ static int LeaveBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
-static int EnterSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
+static int EnterSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     auto* ctx = static_cast<ParserContext*>(userdata);
+    if (ctx->styleStack.size() >= kMaxMarkdownNestingDepth) {
+        ctx->failed = true;
+        return 1;
+    }
     InlineStyle style = MapSpanType(type);
     ctx->styleStack.push_back(style);
 
@@ -366,7 +418,7 @@ static int EnterSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
-static int LeaveSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
+static int LeaveSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     (void)type;
     (void)detail;
     auto* ctx = static_cast<ParserContext*>(userdata);
@@ -379,7 +431,7 @@ static int LeaveSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
-static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
+static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
     auto* ctx = static_cast<ParserContext*>(userdata);
     auto* currentBlock = ctx->CurrentBlock();
     if (!currentBlock) return 0;
@@ -415,6 +467,37 @@ static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, voi
     return 0;
 }
 
+template <typename Callback>
+static int GuardParserCallback(void* userdata, Callback&& callback) noexcept {
+    auto* ctx = static_cast<ParserContext*>(userdata);
+    try {
+        return callback();
+    } catch (...) {
+        ctx->failed = true;
+        return 1;
+    }
+}
+
+static int EnterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) noexcept {
+    return GuardParserCallback(userdata, [&] { return EnterBlockImpl(type, detail, userdata); });
+}
+
+static int LeaveBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) noexcept {
+    return GuardParserCallback(userdata, [&] { return LeaveBlockImpl(type, detail, userdata); });
+}
+
+static int EnterSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) noexcept {
+    return GuardParserCallback(userdata, [&] { return EnterSpanImpl(type, detail, userdata); });
+}
+
+static int LeaveSpanCallback(MD_SPANTYPE type, void* detail, void* userdata) noexcept {
+    return GuardParserCallback(userdata, [&] { return LeaveSpanImpl(type, detail, userdata); });
+}
+
+static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) noexcept {
+    return GuardParserCallback(userdata, [&] { return TextImpl(type, text, size, userdata); });
+}
+
 DocumentModel MarkdownParser::Parse(const std::string& source) {
     ParserContext ctx;
     const std::string normalizedSource = NormalizeMarkdown(source);
@@ -427,7 +510,14 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
     parser.leave_span = LeaveSpanCallback;
     parser.text = TextCallback;
 
-    md_parse(normalizedSource.c_str(), static_cast<MD_SIZE>(normalizedSource.size()), &parser, &ctx);
+    const int parseStatus = md_parse(
+        normalizedSource.c_str(),
+        static_cast<MD_SIZE>(normalizedSource.size()),
+        &parser,
+        &ctx);
+    if (parseStatus != 0 || ctx.failed) {
+        return {};
+    }
 
     return std::move(ctx.doc);
 }

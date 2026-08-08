@@ -9,6 +9,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 enable_testing()
 
+option(MDVIEWER_ENABLE_PDF "Enable PDF export (requires a PDF-enabled Skia build)" ON)
+option(MDVIEWER_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
 # md4c - Lightweight Markdown parser
 FetchContent_Declare(
     md4c
@@ -21,67 +24,67 @@ FetchContent_MakeAvailable(md4c)
 FetchContent_Declare(
     tree_sitter
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
-    GIT_TAG        master
+    GIT_TAG        4f7ab225840f05e080851cc839a1fa92bbf46a36
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_c
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c.git
-    GIT_TAG        master
+    GIT_TAG        b780e47fc780ddc8da13afa35a3f4ed5c157823d
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_cpp
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
-    GIT_TAG        master
+    GIT_TAG        8b5b49eb196bec7040441bee33b2c9a4838d6967
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_javascript
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-javascript.git
-    GIT_TAG        master
+    GIT_TAG        58404d8cf191d69f2674a8fd507bd5776f46cb11
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_typescript
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-typescript.git
-    GIT_TAG        master
+    GIT_TAG        75b3874edb2dc714fb1fd77a32013d0f8699989f
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_json
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-json.git
-    GIT_TAG        master
+    GIT_TAG        001c28d7a29832b06b0e831ec77845553c89b56d
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_python
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-python.git
-    GIT_TAG        master
+    GIT_TAG        26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_bash
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-bash.git
-    GIT_TAG        master
+    GIT_TAG        a06c2e4415e9bc0346c6b86d401879ffb44058f7
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_rust
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-rust.git
-    GIT_TAG        master
+    GIT_TAG        77a3747266f4d621d0757825e6b11edcbf991ca5
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_go
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-go.git
-    GIT_TAG        master
+    GIT_TAG        2346a3ab1bb3857b48b29d779a1ef9799a248cd7
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_Declare(
     tree_sitter_c_sharp
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c-sharp.git
-    GIT_TAG        master
+    GIT_TAG        9150f7d56bb47f1a809fa23623f1ba1413e93fa9
     SOURCE_SUBDIR  cmake-unused
 )
 FetchContent_MakeAvailable(
@@ -258,6 +261,9 @@ else()
     add_executable(mdviewer ${SOURCES} ${HEADERS})
 endif()
 
+target_compile_definitions(mdviewer PRIVATE
+    MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
+
 target_include_directories(mdviewer PRIVATE 
     src
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -359,6 +365,9 @@ add_executable(mdviewer_tests
     ${TREE_SITTER_QUERY_SOURCE}
 )
 
+target_compile_definitions(mdviewer_tests PRIVATE
+    MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
+
 target_include_directories(mdviewer_tests PRIVATE
     src
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -417,6 +426,23 @@ endif()
 if(MSVC)
     target_compile_options(mdviewer_tests PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267)
     set_property(TARGET mdviewer_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+if(MDVIEWER_ENABLE_SANITIZERS)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        foreach(target mdviewer mdviewer_tests)
+            target_compile_options(${target} PRIVATE
+                -fno-omit-frame-pointer
+                -fsanitize=address,undefined
+                -fno-sanitize=vptr)
+            target_link_options(${target} PRIVATE
+                -fno-omit-frame-pointer
+                -fsanitize=address,undefined
+                -fno-sanitize=vptr)
+        endforeach()
+    else()
+        message(FATAL_ERROR "MDVIEWER_ENABLE_SANITIZERS requires GCC or Clang")
+    endif()
 endif()
 
 add_test(NAME mdviewer_unit_tests COMMAND mdviewer_tests)

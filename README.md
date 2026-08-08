@@ -203,6 +203,18 @@ For compatibility, if the per-user file does not exist, the app can still load a
 
 The Linux host is compiled from the same CMake target on Linux. It uses GLFW for the window/event loop and GTK3 for native dialogs/context menus, alongside the same Skia, md4c, and Tree-sitter dependencies.
 
+Build Skia and the PDF-enabled viewer, then run the tests:
+
+```bash
+./build.sh
+cmake --build build --target mdviewer_tests --parallel 2
+ctest --test-dir build --output-on-failure
+```
+
+For subsequent builds, use `./build.sh --skip-skia`. A build against Skia without its PDF backend can be configured with `./build.sh --disable-pdf`; that build omits the Linux PDF menu command and reports the backend as unavailable through the shared export API.
+
+Linux CI performs a normal build/test pass and a second unit-test pass with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
+
 ## Controls
 
 - `File -> Open...`: open a file

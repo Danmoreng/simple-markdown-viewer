@@ -43,6 +43,12 @@ bool ProbeIsText(const std::string& content) {
 }
 
 DocumentLoadResult LoadDocumentFromPath(const std::filesystem::path& path) {
+    std::error_code sizeError;
+    const uintmax_t fileSize = std::filesystem::file_size(path, sizeError);
+    if (!sizeError && fileSize > kMaxDocumentFileSizeBytes) {
+        return {DocumentLoadStatus::FileTooLarge, {}, {}};
+    }
+
     auto content = ReadFileToString(path);
     if (!content) {
         return {DocumentLoadStatus::FileReadError, {}, {}};

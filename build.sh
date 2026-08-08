@@ -5,12 +5,14 @@ CONFIGURATION="Release"
 BUILD_DIR="build"
 TARGET="mdviewer"
 SKIP_SKIA=false
+ENABLE_PDF=true
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --clean) CLEAN=true ;;
         --debug) CONFIGURATION="Debug" ;;
         --skip-skia) SKIP_SKIA=true ;;
+        --disable-pdf) ENABLE_PDF=false ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
@@ -62,7 +64,8 @@ if [ "$SKIP_SKIA" = false ]; then
     fi
 
     echo "Configuring Skia with GN ($CONFIGURATION)..."
-    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=false skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=false skia_enable_svg=false skia_use_piex=false"
+    SKIA_ENABLE_PDF="$ENABLE_PDF"
+    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=false skia_enable_svg=false skia_use_piex=false"
     
     # GN and Ninja paths
     GN_PATH="./bin/gn"
@@ -85,7 +88,8 @@ cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE="$CONFIGURATION" \
     -DSKIA_DIR="$SKIA_DIR" \
     -DSKIA_OUT_DIR="$SKIA_OUT_PATH" \
-    -DSKIA_DEBUG_OUT_DIR="$SKIA_DIR/out/Debug"
+    -DSKIA_DEBUG_OUT_DIR="$SKIA_DIR/out/Debug" \
+    -DMDVIEWER_ENABLE_PDF="$ENABLE_PDF"
 
 echo "Building target $TARGET ($CONFIGURATION)..."
 cmake --build "$BUILD_DIR" --target "$TARGET"

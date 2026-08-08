@@ -23,14 +23,6 @@ sk_sp<SkFontMgr> CreateFontManager() {
 #endif
 }
 
-SkiaFontSystem* CreateSkiaFontSystem() {
-    auto fontMgr = CreateFontManager();
-    if (!fontMgr) {
-        return nullptr;
-    }
-    return new SkiaFontSystem{std::move(fontMgr)};
-}
-
 sk_sp<SkTypeface> CreateDefaultTypeface(const sk_sp<SkFontMgr>& fontMgr, SkFontStyle style) {
     if (!fontMgr) {
         return nullptr;
