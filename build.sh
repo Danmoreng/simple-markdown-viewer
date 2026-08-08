@@ -29,6 +29,17 @@ mkdir -p "$BUILD_DIR"
 THIRD_PARTY_DIR="$(pwd)/third_party"
 SKIA_DIR="$THIRD_PARTY_DIR/skia"
 DEPOT_TOOLS_DIR="$THIRD_PARTY_DIR/depot_tools"
+SKIA_REVISION_FILE="$(pwd)/ci/skia-revision.txt"
+
+if [ ! -f "$SKIA_REVISION_FILE" ]; then
+    echo "Missing Skia revision file: $SKIA_REVISION_FILE" >&2
+    exit 1
+fi
+SKIA_REVISION="$(tr -d '[:space:]' < "$SKIA_REVISION_FILE")"
+if [[ ! "$SKIA_REVISION" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Invalid Skia revision in $SKIA_REVISION_FILE" >&2
+    exit 1
+fi
 
 mkdir -p "$THIRD_PARTY_DIR"
 
@@ -46,6 +57,15 @@ if [ "$SKIP_SKIA" = false ]; then
     fi
 
     pushd "$SKIA_DIR"
+    echo "Checking out pinned Skia revision $SKIA_REVISION..."
+    git fetch origin "$SKIA_REVISION"
+    git checkout --detach "$SKIA_REVISION"
+    ACTUAL_SKIA_REVISION="$(git rev-parse HEAD)"
+    if [ "$ACTUAL_SKIA_REVISION" != "$SKIA_REVISION" ]; then
+        echo "Skia revision mismatch: expected $SKIA_REVISION, got $ACTUAL_SKIA_REVISION" >&2
+        exit 1
+    fi
+
     echo "Syncing Skia dependencies..."
     export GIT_SYNC_DEPS_SKIP_EMSDK=1
     python3 tools/git-sync-deps
@@ -75,6 +95,12 @@ if [ "$SKIP_SKIA" = false ]; then
 
     echo "Building Skia..."
     $NINJA_PATH -C "$SKIA_OUT_DIR" skia
+
+    SKIA_MILESTONE="$(awk '/^#define SK_MILESTONE / { print $3; exit }' include/core/SkMilestone.h)"
+    printf '%s\n' "$SKIA_REVISION" > "$SKIA_OUT_DIR/SKIA_REVISION"
+    printf '%s\n' "$SKIA_MILESTONE" > "$SKIA_OUT_DIR/SKIA_MILESTONE"
+    printf '%s\n' "$GN_ARGS" > "$SKIA_OUT_DIR/SKIA_GN_ARGS"
+    echo "Built Skia revision $SKIA_REVISION (milestone $SKIA_MILESTONE)."
     popd
 fi
 

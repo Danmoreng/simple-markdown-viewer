@@ -166,7 +166,7 @@ Useful variants:
 ## GitHub Builds And Releases
 
 - GitHub Actions builds Windows and Linux releases on pushes to `main` and on pull requests.
-- CI prefers a prebuilt Windows Skia bundle so normal Windows app builds do not rebuild Skia from source.
+- CI prefers a prebuilt Windows Skia bundle so normal Windows app builds do not rebuild Skia from source. Skia source builds use the exact commit in `ci/skia-revision.txt`; Windows bundle maintenance is documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md).
 - The prebuilt Skia bundle must be built with `skia_enable_pdf=true` for PDF export support.
 - Workflow runs upload `mdviewer-windows-x64.zip` and `mdviewer-linux-x64.tar.gz` as build artifacts.
 - Pushing a tag like `v0.1.5` creates or updates a GitHub release and attaches both platform archives plus the Linux SHA-256 checksum after their respective builds succeed.

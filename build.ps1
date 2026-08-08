@@ -98,6 +98,15 @@ if (-not $env:VCINSTALLDIR) {
 $thirdPartyDir = Join-Path $PSScriptRoot "third_party"
 $skiaDir = Join-Path $thirdPartyDir "skia"
 $depotToolsDir = Join-Path $thirdPartyDir "depot_tools"
+$skiaRevisionFile = Join-Path $PSScriptRoot "ci\skia-revision.txt"
+
+if (-not (Test-Path $skiaRevisionFile)) {
+    throw "Missing Skia revision file: $skiaRevisionFile"
+}
+$skiaRevision = (Get-Content $skiaRevisionFile -Raw).Trim()
+if ($skiaRevision -notmatch "^[0-9a-fA-F]{40}$") {
+    throw "Invalid Skia revision in $skiaRevisionFile"
+}
 
 if (-not (Test-Path $thirdPartyDir)) {
     New-Item -ItemType Directory $thirdPartyDir | Out-Null
@@ -158,6 +167,17 @@ if (-not $SkipSkia) {
 
     Push-Location $skiaDir
     try {
+        Write-Host "Checking out pinned Skia revision $skiaRevision..." -ForegroundColor Cyan
+        git fetch origin $skiaRevision
+        Assert-LastExitCode "git fetch pinned Skia revision"
+        git checkout --detach $skiaRevision
+        Assert-LastExitCode "git checkout pinned Skia revision"
+        $actualSkiaRevision = (git rev-parse HEAD).Trim()
+        Assert-LastExitCode "git rev-parse Skia HEAD"
+        if ($actualSkiaRevision -ne $skiaRevision) {
+            throw "Skia revision mismatch: expected $skiaRevision, got $actualSkiaRevision"
+        }
+
         Write-Host "Syncing Skia dependencies..." -ForegroundColor Cyan
         # The desktop Windows build does not use Skia's wasm toolchain.
         # Skipping EMSDK avoids a GitHub Actions Windows activation failure
@@ -188,6 +208,16 @@ if (-not $SkipSkia) {
         Write-Host "Building Skia..." -ForegroundColor Cyan
         & $ninjaPath -C $skiaOutDir skia
         Assert-LastExitCode "$ninjaPath -C $skiaOutDir skia"
+
+        $milestoneLine = Get-Content "include\core\SkMilestone.h" | Select-String "^#define SK_MILESTONE (\d+)$"
+        if (-not $milestoneLine -or $milestoneLine.Matches.Count -ne 1) {
+            throw "Could not determine the Skia milestone."
+        }
+        $skiaMilestone = $milestoneLine.Matches[0].Groups[1].Value
+        Set-Content -Path (Join-Path $skiaOutDir "SKIA_REVISION") -Value $skiaRevision -NoNewline
+        Set-Content -Path (Join-Path $skiaOutDir "SKIA_MILESTONE") -Value $skiaMilestone -NoNewline
+        Set-Content -Path (Join-Path $skiaOutDir "SKIA_GN_ARGS") -Value $gnArgs -NoNewline
+        Write-Host "Built Skia revision $skiaRevision (milestone $skiaMilestone)." -ForegroundColor Green
     }
     finally {
         Remove-Item Env:GIT_SYNC_DEPS_SKIP_EMSDK -ErrorAction SilentlyContinue

@@ -91,6 +91,10 @@ Primary build script:
 .\build.ps1 -Configuration Release
 ```
 
+Windows CI normally consumes a prebuilt Skia bundle because hosted Windows
+source builds are expensive. Bundle history, local creation, provenance, testing,
+and activation are documented in `docs/WINDOWS_SKIA_BUNDLE.md`.
+
 Useful variants:
 
 ```powershell

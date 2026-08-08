@@ -180,6 +180,7 @@ Goal: keep the app responsive with large or generated Markdown files.
 
 Goal: harden the second native host and keep it aligned with the shared viewer behavior.
 
+- [x] Pin Skia source builds to one recorded revision and document the locally produced Windows bundle workflow and provenance requirements.
 - [x] Add Linux configure/build/test CI plus AddressSanitizer and UndefinedBehaviorSanitizer test coverage.
 - [x] Make Linux PDF support explicit and keep non-PDF Skia builds linkable with the PDF command hidden.
 - [x] Add exception boundaries around GLFW callbacks and the Linux update/render loop.

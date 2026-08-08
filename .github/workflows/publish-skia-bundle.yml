@@ -2,6 +2,12 @@ name: Publish Skia Bundle
 
 on:
   workflow_dispatch:
+    inputs:
+      bundle_tag:
+        description: "Bundle release tag to create or update"
+        required: true
+        default: "skia-bundle-v2"
+        type: string
 
 permissions:
   contents: write
@@ -26,9 +32,9 @@ jobs:
       - name: Resolve bundle version
         shell: pwsh
         run: |
-          $tag = (Get-Content "ci/skia-bundle-version.txt" -Raw).Trim()
+          $tag = "${{ inputs.bundle_tag }}".Trim()
           if (-not $tag) {
-            throw "ci/skia-bundle-version.txt is empty."
+            throw "bundle_tag is empty."
           }
           "SKIA_BUNDLE_TAG=$tag" >> $env:GITHUB_ENV
           "SKIA_BUNDLE_ASSET=skia-windows-x64-static.zip" >> $env:GITHUB_ENV
@@ -50,6 +56,9 @@ jobs:
           Copy-Item "third_party\skia\LICENSE" "$bundleSkiaDir\LICENSE"
           Copy-Item "third_party\skia\include" "$bundleSkiaDir\include" -Recurse
           Copy-Item "third_party\skia\out\Static\skia.lib" "$bundleOutDir\skia.lib"
+          Copy-Item "third_party\skia\out\Static\SKIA_REVISION" "$bundleOutDir\SKIA_REVISION"
+          Copy-Item "third_party\skia\out\Static\SKIA_MILESTONE" "$bundleOutDir\SKIA_MILESTONE"
+          Copy-Item "third_party\skia\out\Static\SKIA_GN_ARGS" "$bundleOutDir\SKIA_GN_ARGS"
 
       - name: Archive Skia bundle
         shell: pwsh
