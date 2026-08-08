@@ -16,6 +16,11 @@ The product remains:
 
 ## Current Baseline
 
+The current repository-specific stability and compatibility findings are tracked
+in [`docs/LINUX_STABILITY_AND_MARKDOWN_AUDIT.md`](docs/LINUX_STABILITY_AND_MARKDOWN_AUDIT.md).
+Linux crash hardening and resource limits should be completed before broadening
+the Markdown feature surface.
+
 The current implementation already includes:
 
 - [x] Markdown parsing with `md4c`
