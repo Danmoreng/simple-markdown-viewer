@@ -165,10 +165,11 @@ Useful variants:
 
 ## GitHub Builds And Releases
 
-- GitHub Actions builds Windows and Linux releases on pushes to `main` and on pull requests.
-- CI prefers a prebuilt Windows Skia bundle so normal Windows app builds do not rebuild Skia from source. Skia source builds use the exact commit in `ci/skia-revision.txt`; Windows bundle maintenance is documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md).
+- Normal branch pushes and pull requests do not run GitHub builds; development builds and tests are run locally.
+- GitHub Actions builds Windows and Linux only for pushed release tags matching `v*`, or when a workflow is started manually.
+- The Windows release workflow prefers a prebuilt Skia bundle so it does not normally rebuild Skia from source. Skia source builds use the exact commit in `ci/skia-revision.txt`; Windows bundle maintenance is documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md).
 - The prebuilt Skia bundle must be built with `skia_enable_pdf=true` for PDF export support.
-- Workflow runs upload `mdviewer-windows-x64.zip` and `mdviewer-linux-x64.tar.gz` as build artifacts.
+- Release workflow runs upload `mdviewer-windows-x64.zip` and `mdviewer-linux-x64.tar.gz` as build artifacts.
 - Pushing a tag like `v0.1.5` creates or updates a GitHub release and attaches both platform archives plus the Linux SHA-256 checksum after their respective builds succeed.
 - Release archives contain the executable, `LICENSE`, `THIRD_PARTY_NOTICES`, and supporting platform metadata where applicable.
 
@@ -213,7 +214,7 @@ ctest --test-dir build --output-on-failure
 
 For subsequent builds, use `./build.sh --skip-skia`. A build against Skia without its PDF backend can be configured with `./build.sh --disable-pdf`; that build omits the Linux PDF menu command and reports the backend as unavailable through the shared export API.
 
-Linux CI performs a normal build/test pass and a second unit-test pass with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
+The Linux release workflow performs a normal build/test pass and a second unit-test pass with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
 
 Create a stripped Linux release archive with:
 

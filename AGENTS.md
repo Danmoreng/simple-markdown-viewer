@@ -91,9 +91,10 @@ Primary build script:
 .\build.ps1 -Configuration Release
 ```
 
-Windows CI normally consumes a prebuilt Skia bundle because hosted Windows
-source builds are expensive. Bundle history, local creation, provenance, testing,
-and activation are documented in `docs/WINDOWS_SKIA_BUNDLE.md`.
+The Windows release workflow normally consumes a prebuilt Skia bundle because
+hosted Windows source builds are expensive. Bundle history, local creation,
+provenance, testing, and activation are documented in
+`docs/WINDOWS_SKIA_BUNDLE.md`.
 
 Useful variants:
 
@@ -176,6 +177,7 @@ safe defaults.
 ## Current Test State
 
 Focused shared tests live in `tests/unit_tests.cpp` and are registered with
-CTest as `mdviewer_unit_tests`. Linux CI builds the application, runs the normal
-tests, and repeats them with AddressSanitizer and UndefinedBehaviorSanitizer.
+CTest as `mdviewer_unit_tests`. The Linux release workflow builds the application,
+runs the normal tests, and repeats them with AddressSanitizer and
+UndefinedBehaviorSanitizer. Normal development builds and tests are run locally.
 Manual rendering coverage remains in `test-docs/`.

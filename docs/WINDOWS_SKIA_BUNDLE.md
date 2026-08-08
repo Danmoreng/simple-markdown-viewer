@@ -3,10 +3,9 @@
 ## Why the bundle exists
 
 A clean Skia source build on GitHub-hosted Windows runners was too slow and was
-not reliable enough for every application build. Normal Windows CI therefore
-downloads a prebuilt static Skia bundle and builds only the application and its
-tests. A source build remains the fallback when the configured bundle cannot be
-downloaded.
+not reliable enough for release builds. The Windows release workflow therefore
+downloads a prebuilt static Skia bundle and builds the application. A source
+build remains the fallback when the configured bundle cannot be downloaded.
 
 The Linux workflow currently builds Skia from source. Its approximately
 20-minute end-to-end runtime is acceptable, so Linux does not currently use a
@@ -148,7 +147,7 @@ Only after the bundle exists, change:
 ci/skia-bundle-version.txt
 ```
 
-Then push that switch as a separate commit. The normal Windows workflow will
-download the published bundle and prove that a clean runner can build the
-application against it. Do not combine bundle publication and activation into a
-single unvalidated step.
+Then push that switch as a separate commit. Normal branch pushes intentionally
+do not run GitHub builds, so start the Windows workflow manually to validate the
+bundle on a clean runner before creating the next release tag. Do not combine
+bundle publication and activation into a single unvalidated step.
