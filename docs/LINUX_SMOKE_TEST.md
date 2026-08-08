@@ -1,0 +1,77 @@
+# Linux Release and Smoke-Test Checklist
+
+Use this checklist before publishing a Linux archive. Run it from the repository
+root on an X11 or Wayland desktop with working OpenGL acceleration.
+
+## 1. Clean release build
+
+```bash
+./build.sh --clean --skip-skia
+cmake --build build --target mdviewer_tests --parallel 2
+ctest --test-dir build --output-on-failure
+```
+
+Omit `--skip-skia` when the PDF-enabled Release Skia archive has not already
+been built.
+
+Verify the configuration:
+
+```bash
+grep -E '^(CMAKE_BUILD_TYPE|MDVIEWER_ENABLE_PDF|MDVIEWER_ENABLE_SANITIZERS):' build/CMakeCache.txt
+```
+
+Expected: `Release`, PDF enabled, sanitizers disabled.
+
+## 2. Build and inspect the archive
+
+```bash
+./package-linux.sh --skip-build
+file dist/mdviewer-linux-x64/bin/mdviewer
+ldd dist/mdviewer-linux-x64/bin/mdviewer
+sha256sum --check dist/mdviewer-linux-x64.tar.gz.sha256
+```
+
+The staged executable must be stripped. `ldd` must not contain paths below the
+repository `build/` directory and must not report missing libraries. md4c, GLFW,
+Tree-sitter, and Skia are linked into the executable; GTK3, OpenGL, X11,
+fontconfig, freetype, libc, and other normal distribution libraries remain
+system dependencies.
+
+Test the archive from outside the repository:
+
+```bash
+rm -rf /tmp/mdviewer-release-test
+mkdir /tmp/mdviewer-release-test
+tar -xzf dist/mdviewer-linux-x64.tar.gz -C /tmp/mdviewer-release-test
+/tmp/mdviewer-release-test/mdviewer-linux-x64/run-mdviewer.sh README.md
+```
+
+## 3. Manual viewer checks
+
+Use `test-docs/markdown-rendering-fixture.md`, this repository's `README.md`,
+and at least one real document containing relative links and local images.
+
+- [ ] Start with no file and open a document through `File -> Open...`.
+- [ ] Start with a path argument containing spaces.
+- [ ] Drop a Markdown file onto the window.
+- [ ] Scroll from start to end with the wheel; verify smooth rendering.
+- [ ] Select ASCII and non-ASCII text; drag rapidly and verify selection remains responsive.
+- [ ] Copy selected text with `Ctrl+C` and verify it in another application.
+- [ ] Open search with `Ctrl+F`; test next, previous, backspace, and Escape.
+- [ ] Open a real relative Markdown link and use Back/Forward to return.
+- [ ] Open an HTTPS link and verify the default browser receives the exact URL.
+- [ ] Right-click selected text and links; verify all enabled context-menu actions.
+- [ ] Toggle and navigate the outline on both the left and right sides.
+- [ ] Change Light, Sepia, and Dark themes.
+- [ ] Select a document font, restore the default, and restart to verify persistence.
+- [ ] Zoom with toolbar, keyboard, and Ctrl+wheel; verify reading position is preserved.
+- [ ] Export a document with text, code, and images to PDF and open the result.
+- [ ] Resize repeatedly and move the window between displays with different scale factors.
+- [ ] Close the app normally and verify no terminal error is printed.
+
+## 4. Known desktop integration boundary
+
+The archive includes a desktop entry and icon under `share/`, but does not
+install them automatically. A future distro package or installer should copy
+those files into the appropriate system or per-user XDG locations and register
+file associations according to the target distribution's policy.

@@ -190,7 +190,9 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [ ] Keep Linux build and runtime startup validated.
 - [ ] Validate Linux file open dialog, clipboard, shell open, drag/drop if supported, menu commands, font selection, Skia surface creation, DPI behavior, and context menus.
 - [ ] Match shared viewer behavior with Windows for opening files, links, search, selection, copy, themes, zoom, recent files, and history.
-- [ ] Add Linux-specific packaging notes after runtime validation.
+- [x] Add a stripped Linux archive with statically linked fetched dependencies, checksum, desktop metadata, CI artifact upload, and packaging notes.
+- [x] Add a repeatable Linux release and manual smoke-test checklist.
+- [ ] Execute and record the full manual Linux smoke-test checklist on representative X11, Wayland, and HiDPI desktops.
 - [ ] Do not introduce platform-only product behavior unless required by native platform conventions.
 
 ## Later Backlog

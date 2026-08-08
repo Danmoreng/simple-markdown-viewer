@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
 
@@ -12,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-test-linux:
@@ -53,6 +55,27 @@ jobs:
       - name: Run unit tests
         run: ctest --test-dir build --output-on-failure
 
+      - name: Package Linux release
+        run: ./package-linux.sh --skip-build
+
+      - name: Verify packaged archive
+        run: |
+          sha256sum --check dist/mdviewer-linux-x64.tar.gz.sha256
+          rm -rf /tmp/mdviewer-release-test
+          mkdir /tmp/mdviewer-release-test
+          tar -xzf dist/mdviewer-linux-x64.tar.gz -C /tmp/mdviewer-release-test
+          test -x /tmp/mdviewer-release-test/mdviewer-linux-x64/bin/mdviewer
+          ! ldd /tmp/mdviewer-release-test/mdviewer-linux-x64/bin/mdviewer | grep -F "$GITHUB_WORKSPACE/build/"
+
+      - name: Upload Linux release artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: mdviewer-linux-x64
+          path: |
+            dist/mdviewer-linux-x64.tar.gz
+            dist/mdviewer-linux-x64.tar.gz.sha256
+          if-no-files-found: error
+
       - name: Configure sanitizer tests
         run: |
           cmake -S . -B build-sanitizers \
@@ -71,3 +94,12 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build-sanitizers --output-on-failure
+
+      - name: Publish Linux GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/mdviewer-linux-x64.tar.gz
+            dist/mdviewer-linux-x64.tar.gz.sha256
+          generate_release_notes: true

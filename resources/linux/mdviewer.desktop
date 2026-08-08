@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Simple Markdown Viewer
+Comment=Read local Markdown documents in a native viewer
+Exec=mdviewer %f
+Icon=mdviewer
+Terminal=false
+Categories=Office;Viewer;
+MimeType=text/markdown;text/plain;
+StartupNotify=true

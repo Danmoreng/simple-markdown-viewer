@@ -130,6 +130,8 @@ ctest --test-dir build --output-on-failure
 
 Use `./build.sh --skip-skia` after Skia has already been built. Use
 `--disable-pdf` only with a Skia build configured without its PDF backend.
+Create the stripped Linux archive with `./package-linux.sh`; release validation
+and manual host checks are documented in `docs/LINUX_SMOKE_TEST.md`.
 
 ## Configuration
 

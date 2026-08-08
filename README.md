@@ -165,12 +165,12 @@ Useful variants:
 
 ## GitHub Builds And Releases
 
-- GitHub Actions builds the Windows release on pushes to `main` and on pull requests.
-- CI prefers a prebuilt Windows Skia bundle so normal app builds do not rebuild Skia from source.
+- GitHub Actions builds Windows and Linux releases on pushes to `main` and on pull requests.
+- CI prefers a prebuilt Windows Skia bundle so normal Windows app builds do not rebuild Skia from source.
 - The prebuilt Skia bundle must be built with `skia_enable_pdf=true` for PDF export support.
-- Each workflow run uploads `mdviewer-windows-x64.zip` as a build artifact.
-- Pushing a tag like `v0.1.4` also creates or updates a GitHub release and attaches the packaged Windows build.
-- Release archives contain `mdviewer.exe`, `LICENSE`, and `THIRD_PARTY_NOTICES`.
+- Workflow runs upload `mdviewer-windows-x64.zip` and `mdviewer-linux-x64.tar.gz` as build artifacts.
+- Pushing a tag like `v0.1.5` creates or updates a GitHub release and attaches both platform archives plus the Linux SHA-256 checksum after their respective builds succeed.
+- Release archives contain the executable, `LICENSE`, `THIRD_PARTY_NOTICES`, and supporting platform metadata where applicable.
 
 Default output:
 
@@ -214,6 +214,14 @@ ctest --test-dir build --output-on-failure
 For subsequent builds, use `./build.sh --skip-skia`. A build against Skia without its PDF backend can be configured with `./build.sh --disable-pdf`; that build omits the Linux PDF menu command and reports the backend as unavailable through the shared export API.
 
 Linux CI performs a normal build/test pass and a second unit-test pass with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
+
+Create a stripped Linux release archive with:
+
+```bash
+./package-linux.sh
+```
+
+If the Release application has already been built, use `./package-linux.sh --skip-build`. The resulting archive and checksum are written to `dist/mdviewer-linux-x64.tar.gz` and `dist/mdviewer-linux-x64.tar.gz.sha256`. Skia, md4c, GLFW, and Tree-sitter are linked into the executable; GTK3, OpenGL, X11, fontconfig, freetype, and standard C/C++ runtime libraries remain distribution-provided dependencies. See [`docs/LINUX_SMOKE_TEST.md`](docs/LINUX_SMOKE_TEST.md) for release validation and manual desktop checks.
 
 ## Controls
 

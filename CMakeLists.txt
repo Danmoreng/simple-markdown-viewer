@@ -12,6 +12,10 @@ enable_testing()
 option(MDVIEWER_ENABLE_PDF "Enable PDF export (requires a PDF-enabled Skia build)" ON)
 option(MDVIEWER_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
+# Fetched runtime dependencies are linked statically so the Linux release does
+# not depend on libraries inside the build tree.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build fetched dependencies as static libraries" FORCE)
+
 # md4c - Lightweight Markdown parser
 FetchContent_Declare(
     md4c
