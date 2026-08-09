@@ -11,7 +11,8 @@ struct DocumentTextHit {
     size_t position = 0;
     bool valid = false;
     std::string url;
-    InlineStyle style = InlineStyle::Plain;
+    InlineFormatting formatting = InlineFormatting::None;
+    InlineKind kind = InlineKind::Text;
 };
 
 struct HitTestCallbacks {

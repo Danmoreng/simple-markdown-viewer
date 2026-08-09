@@ -160,9 +160,9 @@ The current md4c pipeline supports the following CommonMark-style features:
 - Escaped characters.
 - HTML entity decoding.
 
-Known correctness work remains for combined/nested inline styles, soft line
-breaks, heading-anchor compatibility, and the preprocessing pass that currently
-mutates some fenced-code content.
+Combined/nested inline styles, soft versus hard line breaks, and fenced-code
+preservation are covered by the current shared model and regression suite.
+Additional heading-anchor compatibility remains separate follow-up work.
 
 ### Importance
 
@@ -912,8 +912,8 @@ code. The most important remaining quality work is:
 
 1. Prevent crashes and unbounded resource use for images, large files, deep
    nesting, large tables, and large code blocks.
-2. Correct fenced-code mutation, nested inline styles, soft line breaks, and
-   heading-anchor compatibility.
+2. Completed: correct fenced-code mutation, nested inline styles, and soft line
+   breaks; additional heading-anchor compatibility remains separate follow-up work.
 3. Add explicit overflow behavior for tables, long code lines, and unbroken
    tokens.
 4. Implement a small safe native HTML subset.

@@ -18,6 +18,7 @@
 #include "layout/layout_engine.h"
 #include "markdown/markdown_parser.h"
 #include "render/image_cache.h"
+#include "render/document_renderer.h"
 #include "render/menu_renderer.h"
 #include "render/pdf_exporter.h"
 #include "render/syntax/tree_sitter_highlighter.h"
@@ -109,6 +110,35 @@ const mdviewer::BlockLayout& FirstBlockOfType(const mdviewer::DocumentLayout& la
     });
     Require(found != layout.blocks.end(), "expected block type not found");
     return *found;
+}
+
+const mdviewer::Block* FindModelBlockOfType(const std::vector<mdviewer::Block>& blocks, mdviewer::BlockType type) {
+    for (const auto& block : blocks) {
+        if (block.type == type) {
+            return &block;
+        }
+        if (const auto* nested = FindModelBlockOfType(block.children, type)) {
+            return nested;
+        }
+    }
+    return nullptr;
+}
+
+const mdviewer::InlineRun* FindInlineRunContaining(
+    const std::vector<mdviewer::Block>& blocks,
+    const std::string& text) {
+    for (const auto& block : blocks) {
+        const auto run = std::find_if(block.inlineRuns.begin(), block.inlineRuns.end(), [&](const auto& candidate) {
+            return candidate.text.find(text) != std::string::npos;
+        });
+        if (run != block.inlineRuns.end()) {
+            return &*run;
+        }
+        if (const auto* nested = FindInlineRunContaining(block.children, text)) {
+            return nested;
+        }
+    }
+    return nullptr;
 }
 
 void ConfigParsingAndSaving() {
@@ -362,8 +392,9 @@ void SvgImageRendering() {
     Require(!document.blocks.empty() && !document.blocks[0].inlineRuns.empty(),
             "linked SVG fixture should produce an image run");
     const auto& run = document.blocks[0].inlineRuns[0];
-    RequireEqual(run.url, std::string("diagram.svg"), "image run should preserve its local SVG source");
-    RequireEqual(run.linkUrl, std::string("https://example.com/full.svg"),
+    Require(run.kind == mdviewer::InlineKind::Image, "linked SVG fixture should preserve image semantics");
+    RequireEqual(run.imageSource, std::string("diagram.svg"), "image run should preserve its local SVG source");
+    RequireEqual(run.linkTarget, std::string("https://example.com/full.svg"),
                  "linked image should preserve its outer activation target");
 }
 
@@ -480,7 +511,10 @@ void HitTestingMeasuresOnlyClosestLine() {
         line.height = 18.0f;
         line.textStart = index * 4;
         line.textLength = 4;
-        line.runs.push_back({mdviewer::InlineStyle::Plain, "text", "", line.textStart});
+        line.runs.push_back(mdviewer::RunLayout{
+            .text = "text",
+            .textStart = line.textStart,
+        });
         block.lines.push_back(std::move(line));
     }
     layout.blocks.push_back(std::move(block));
@@ -539,6 +573,109 @@ void DocumentSizeLimit() {
             "documents above the hard size limit should be rejected before reading");
 }
 
+void MarkdownCorrectnessFoundation() {
+    const mdviewer::DocumentModel fenced = mdviewer::MarkdownParser::Parse(
+        "- Parent item\n\n"
+        "    ```cpp\n"
+        "    #include <vector>\n"
+        "    *pointer = value;\n"
+        "    >literal\n"
+        "    ```\n");
+    const mdviewer::Block* codeBlock = FindModelBlockOfType(fenced.blocks, mdviewer::BlockType::CodeBlock);
+    Require(codeBlock != nullptr, "nested list fixture should retain its fenced code block");
+    const std::string codeText = MergeInlineRunText(codeBlock->inlineRuns);
+    Require(codeText.find("#include <vector>") != std::string::npos, "parser must preserve hash-prefixed fenced code exactly");
+    Require(codeText.find("*pointer = value;") != std::string::npos, "parser must preserve list-like fenced code exactly");
+    Require(codeText.find(">literal") != std::string::npos, "parser must preserve quote-like fenced code exactly");
+    Require(codeText.find("# include") == std::string::npos, "parser must not normalize fenced code contents");
+
+    const mdviewer::DocumentModel nestedStyles = mdviewer::MarkdownParser::Parse(
+        "***bold italic*** and [**bold link**](https://example.com) and ~~**bold strike**~~\n");
+    const auto* boldItalic = FindInlineRunContaining(nestedStyles.blocks, "bold italic");
+    Require(boldItalic != nullptr, "nested emphasis fixture should produce a text run");
+    Require(mdviewer::HasFormatting(boldItalic->formatting, mdviewer::InlineFormatting::Strong), "bold+italic run should retain strong formatting");
+    Require(mdviewer::HasFormatting(boldItalic->formatting, mdviewer::InlineFormatting::Emphasis), "bold+italic run should retain emphasis formatting");
+
+    const auto* boldLink = FindInlineRunContaining(nestedStyles.blocks, "bold link");
+    Require(boldLink != nullptr, "bold link fixture should produce a text run");
+    Require(mdviewer::HasFormatting(boldLink->formatting, mdviewer::InlineFormatting::Strong), "link text should retain strong formatting");
+    RequireEqual(boldLink->linkTarget, std::string("https://example.com"), "formatting should not replace the link target");
+
+    const auto* boldStrike = FindInlineRunContaining(nestedStyles.blocks, "bold strike");
+    Require(boldStrike != nullptr, "bold strike fixture should produce a text run");
+    Require(mdviewer::HasFormatting(boldStrike->formatting, mdviewer::InlineFormatting::Strong), "struck text should retain strong formatting");
+    Require(mdviewer::HasFormatting(boldStrike->formatting, mdviewer::InlineFormatting::Strikethrough), "strong text should retain strikethrough formatting");
+
+    const mdviewer::DocumentModel breaks = mdviewer::MarkdownParser::Parse(
+        "soft line\ncontinues here\n\n"
+        "hard line  \nbreaks here\n");
+    size_t softBreakCount = 0;
+    size_t hardBreakCount = 0;
+    for (const auto& block : breaks.blocks) {
+        for (const auto& run : block.inlineRuns) {
+            softBreakCount += run.kind == mdviewer::InlineKind::SoftBreak ? 1U : 0U;
+            hardBreakCount += run.kind == mdviewer::InlineKind::HardBreak ? 1U : 0U;
+        }
+    }
+    RequireEqual(softBreakCount, static_cast<size_t>(1), "soft break should remain distinct in the document model");
+    RequireEqual(hardBreakCount, static_cast<size_t>(1), "hard break should remain distinct in the document model");
+
+    const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regularTypeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    const sk_sp<SkTypeface> boldTypeface = mdviewer::CreateDefaultTypeface(fontMgr, SkFontStyle::Bold());
+    const auto breakLayout = mdviewer::LayoutEngine::ComputeLayout(
+        breaks,
+        1200.0f,
+        regularTypeface.get(),
+        mdviewer::kDefaultBaseFontSize);
+    Require(breakLayout.blocks.size() >= 2, "break fixture should produce two paragraphs");
+    RequireEqual(breakLayout.blocks[0].lines.size(), static_cast<size_t>(1), "soft break should render as normal whitespace on a wide line");
+    Require(breakLayout.blocks[1].lines.size() >= 2, "hard break should force a visible new line");
+    Require(breakLayout.plainText.find("soft line continues here") != std::string::npos, "copy/search text should represent a soft break as a space");
+    Require(breakLayout.plainText.find("hard line\nbreaks here") != std::string::npos, "copy/search text should preserve a hard break as a newline");
+
+    mdviewer::AppState searchState;
+    searchState.docLayout = breakLayout;
+    mdviewer::OpenSearch(searchState);
+    mdviewer::InsertSearchText(searchState, "soft line continues here");
+    RequireEqual(searchState.searchMatches.size(), static_cast<size_t>(1), "search should match across a rendered soft break");
+
+    mdviewer::DocumentTypefaceSet typefaces;
+    typefaces.fontMgr = fontMgr.get();
+    typefaces.regular = regularTypeface.get();
+    typefaces.bold = boldTypeface.get();
+    typefaces.heading = boldTypeface.get();
+    typefaces.code = regularTypeface.get();
+    SkFont combinedFont;
+    mdviewer::ConfigureDocumentFont(
+        combinedFont,
+        typefaces,
+        mdviewer::BlockType::Paragraph,
+        mdviewer::InlineFormatting::Strong | mdviewer::InlineFormatting::Emphasis,
+        mdviewer::kDefaultBaseFontSize);
+    Require(combinedFont.getTypeface() == boldTypeface.get(), "renderer should select the bold face for combined strong+emphasis text");
+    Require(combinedFont.getSkewX() < 0.0f, "renderer should also retain emphasis skew on strong text");
+
+    const auto linkLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse("[**bold link**](https://example.com)\n"),
+        600.0f,
+        regularTypeface.get(),
+        mdviewer::kDefaultBaseFontSize);
+    Require(!linkLayout.blocks.empty() && !linkLayout.blocks[0].lines.empty(), "link fixture should create a laid-out line");
+    mdviewer::HitTestCallbacks callbacks;
+    callbacks.get_run_visual_width = [](const auto&, const auto&, const auto&) { return 120.0f; };
+    callbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) { return run.textStart; };
+    const auto linkHit = mdviewer::HitTestDocument(
+        linkLayout,
+        0.0f,
+        30.0f,
+        linkLayout.blocks[0].lines[0].x + 1.0f,
+        linkLayout.blocks[0].lines[0].y + 31.0f,
+        callbacks);
+    RequireEqual(linkHit.url, std::string("https://example.com"), "hit testing should preserve a formatted link target");
+    Require(mdviewer::HasFormatting(linkHit.formatting, mdviewer::InlineFormatting::Strong), "hit testing should preserve combined formatting metadata");
+}
+
 void LayoutSensitiveBehavior() {
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(
         "# Title\n\n"
@@ -574,7 +711,7 @@ void LayoutSensitiveBehavior() {
     const auto& imageBlock = normal.blocks.back();
     Require(!imageBlock.lines.empty(), "image block should create a line");
     Require(!imageBlock.lines[0].runs.empty(), "image line should contain an image run");
-    Require(imageBlock.lines[0].runs[0].style == mdviewer::InlineStyle::Image, "last block should be image run");
+    Require(imageBlock.lines[0].runs[0].kind == mdviewer::InlineKind::Image, "last block should be image run");
     RequireNear(imageBlock.lines[0].runs[0].imageHeight * 2.0f, imageBlock.lines[0].runs[0].imageWidth, 0.5f, "image aspect ratio should be preserved");
 
     const auto& normalTable = FirstBlockOfType(normal, mdviewer::BlockType::Table);
@@ -680,7 +817,7 @@ void SyntaxHighlightingCacheAndFallback() {
 
     mdviewer::syntax::ClearHighlightCache();
     const std::vector<mdviewer::InlineRun> codeRuns = {
-        {mdviewer::InlineStyle::Plain, "class Widget { public: Widget(); };\n", ""},
+        mdviewer::InlineRun{.text = "class Widget { public: Widget(); };\n"},
     };
     mdviewer::syntax::HighlightOptions generousOptions;
     generousOptions.timeBudget = std::chrono::seconds(5);
@@ -694,6 +831,17 @@ void SyntaxHighlightingCacheAndFallback() {
         MergeInlineRunText(first.runs),
         MergeInlineRunText(codeRuns),
         "syntax highlighting should preserve the exact source text");
+    Require(
+        std::any_of(first.runs.begin(), first.runs.end(), [](const auto& run) {
+            return run.syntaxRole != mdviewer::SyntaxRole::None;
+        }),
+        "syntax highlighting should assign at least one independent syntax role");
+    Require(
+        std::all_of(first.runs.begin(), first.runs.end(), [](const auto& run) {
+            return run.formatting == mdviewer::InlineFormatting::None &&
+                   run.kind == mdviewer::InlineKind::Text;
+        }),
+        "syntax roles should not replace formatting or content-kind metadata");
 
     const auto second = mdviewer::syntax::HighlightCodeBlock("c++", codeRuns, generousOptions);
     Require(second.status == HighlightStatus::Highlighted, "language aliases should reuse highlighted output");
@@ -799,6 +947,7 @@ int main() {
         {"Utf8Boundaries", Utf8Boundaries},
         {"MarkdownSafetyLimits", MarkdownSafetyLimits},
         {"DocumentSizeLimit", DocumentSizeLimit},
+        {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
         {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},

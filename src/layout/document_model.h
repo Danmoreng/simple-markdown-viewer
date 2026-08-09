@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <variant>
@@ -32,24 +33,47 @@ enum class BlockType {
     TableCell
 };
 
-enum class InlineStyle {
-    Plain,
-    Emphasis,
-    Strong,
-    Code,
-    Link,
+enum class InlineFormatting : uint8_t {
+    None = 0,
+    Emphasis = 1 << 0,
+    Strong = 1 << 1,
+    Code = 1 << 2,
+    Strikethrough = 1 << 3,
+};
+
+constexpr InlineFormatting operator|(InlineFormatting left, InlineFormatting right) {
+    return static_cast<InlineFormatting>(
+        static_cast<uint8_t>(left) | static_cast<uint8_t>(right));
+}
+
+constexpr InlineFormatting& operator|=(InlineFormatting& left, InlineFormatting right) {
+    left = left | right;
+    return left;
+}
+
+constexpr bool HasFormatting(InlineFormatting value, InlineFormatting flag) {
+    return (static_cast<uint8_t>(value) & static_cast<uint8_t>(flag)) != 0;
+}
+
+enum class InlineKind {
+    Text,
     Image,
-    Strikethrough,
-    SyntaxComment,
-    SyntaxKeyword,
-    SyntaxString,
-    SyntaxNumber,
-    SyntaxFunction,
-    SyntaxType,
-    SyntaxVariable,
-    SyntaxConstant,
-    SyntaxOperator,
-    SyntaxPunctuation
+    SoftBreak,
+    HardBreak,
+};
+
+enum class SyntaxRole {
+    None,
+    Comment,
+    Keyword,
+    String,
+    Number,
+    Function,
+    Type,
+    Variable,
+    Constant,
+    Operator,
+    Punctuation,
 };
 
 enum class TaskListState {
@@ -59,10 +83,12 @@ enum class TaskListState {
 };
 
 struct InlineRun {
-    InlineStyle style;
+    InlineFormatting formatting = InlineFormatting::None;
+    InlineKind kind = InlineKind::Text;
+    SyntaxRole syntaxRole = SyntaxRole::None;
     std::string text;
-    std::string url;
-    std::string linkUrl;
+    std::string imageSource;
+    std::string linkTarget;
 };
 
 struct Block {

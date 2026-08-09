@@ -47,7 +47,8 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - fenced code blocks with **one-click copy** and Tree-sitter syntax highlighting
   - thematic breaks
   - tables
-  - emphasis, strong text, strikethrough, inline code, and links
+  - combinable emphasis, strong text, strikethrough, inline code, and links
+  - CommonMark soft breaks as flowing whitespace and explicit hard breaks as visible line breaks
   - decoded Markdown entities
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size; SVG HTML `<foreignObject>` content is not supported
 - Navigation:
@@ -349,6 +350,7 @@ CMakeLists.txt    CMake project definition
 - The viewer copies rendered text content, not raw Markdown markup.
 - Search matches rendered document text, not raw Markdown source.
 - Syntax highlighting uses Tree-sitter for fenced code blocks with known language tags; unknown languages render as plain code.
+- Markdown source is passed to md4c unchanged; fenced and indented code is never rewritten by a normalization pass.
 - The app has native Windows and Linux hosts sharing the same document/controller/render/view layers.
 - The menu bar is client-drawn so it can follow the selected theme; shared layout/drawing helpers live in `src/render/menu_renderer.*`.
 - The document zoom affects rendered document typography, not the top menu bar.

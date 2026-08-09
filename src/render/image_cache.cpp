@@ -45,8 +45,8 @@ void PreloadBlocks(
     const std::filesystem::path& baseDir) {
     for (const auto& block : blocks) {
         for (const auto& run : block.inlineRuns) {
-            if (run.style == InlineStyle::Image) {
-                cache.GetImageSize(run.url, baseDir);
+            if (run.kind == InlineKind::Image) {
+                cache.GetImageSize(run.imageSource, baseDir);
             }
         }
 

@@ -119,15 +119,15 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     callbacks.get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
         if (run.text.empty()) return run.imageWidth;
         SkFont font;
-        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.style, appState.baseFontSize);
+        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.formatting, appState.baseFontSize);
         return font.measureText(run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
     };
 
     callbacks.find_text_position_in_run = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run, float x_in_run) {
         (void)line;
-        if (run.text.empty() || run.style == InlineStyle::Image) return run.textStart;
+        if (run.text.empty() || run.kind == InlineKind::Image) return run.textStart;
         SkFont font;
-        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.style, appState.baseFontSize);
+        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.formatting, appState.baseFontSize);
 
         if (x_in_run <= 0.0f) {
             return run.textStart;

@@ -1,6 +1,5 @@
 #include "markdown_parser.h"
 #include "md4c.h"
-#include <cctype>
 #include <cstdlib>
 #include <stack>
 #include <string_view>
@@ -16,13 +15,19 @@ struct ParserContext {
     DocumentModel doc;
     std::stack<Block*> blockStack;
     std::vector<bool> emittedBlockStack;
-    std::vector<InlineStyle> styleStack;
-    std::vector<std::string> urlStack;
+    std::vector<InlineFormatting> formattingStack;
+    std::vector<std::string> linkTargetStack;
+    struct ImageContext {
+        bool active = false;
+        std::string source;
+    };
+    std::vector<ImageContext> imageStack;
     bool failed = false;
 
     ParserContext() {
-        styleStack.push_back(InlineStyle::Plain);
-        urlStack.push_back("");
+        formattingStack.push_back(InlineFormatting::None);
+        linkTargetStack.push_back("");
+        imageStack.push_back({});
     }
 
     Block* CurrentBlock() {
@@ -45,159 +50,6 @@ static TextAlign MapTextAlign(MD_ALIGN align) {
         default:
             return TextAlign::Default;
     }
-}
-
-static std::string NormalizeMarkdown(const std::string& source) {
-    auto normalizeLine = [](std::string_view line) {
-        std::string normalized(line);
-        size_t indent = 0;
-        while (indent < normalized.size() && (normalized[indent] == ' ' || normalized[indent] == '\t')) {
-            indent++;
-        }
-
-        if (indent >= normalized.size()) {
-            return normalized;
-        }
-
-        auto needsSpace = [&](size_t index) {
-            return index < normalized.size() &&
-                   normalized[index] != ' ' &&
-                   normalized[index] != '\t';
-        };
-
-        auto hasUnescapedPipe = [&]() {
-            bool escaped = false;
-            for (size_t index = indent; index < normalized.size(); ++index) {
-                const char ch = normalized[index];
-                if (escaped) {
-                    escaped = false;
-                    continue;
-                }
-                if (ch == '\\') {
-                    escaped = true;
-                    continue;
-                }
-                if (ch == '|') {
-                    return true;
-                }
-            }
-            return false;
-        };
-
-        if (normalized[indent] == '>') {
-            if (needsSpace(indent + 1)) {
-                normalized.insert(indent + 1, 1, ' ');
-            }
-            return normalized;
-        }
-
-        size_t hashCount = 0;
-        while (indent + hashCount < normalized.size() &&
-               normalized[indent + hashCount] == '#' &&
-               hashCount < 6) {
-            hashCount++;
-        }
-        if (hashCount > 0 && needsSpace(indent + hashCount)) {
-            normalized.insert(indent + hashCount, 1, ' ');
-            return normalized;
-        }
-
-        // Do not reinterpret optional-pipe table rows like
-        // "*Still* | `renders` | **nicely**" as malformed list items.
-        if (hasUnescapedPipe()) {
-            return normalized;
-        }
-
-        if ((normalized[indent] == '*' || normalized[indent] == '-' || normalized[indent] == '+') &&
-            indent + 1 < normalized.size() &&
-            normalized[indent + 1] != normalized[indent] &&
-            needsSpace(indent + 1)) {
-            normalized.insert(indent + 1, 1, ' ');
-            return normalized;
-        }
-
-        size_t numberEnd = indent;
-        while (numberEnd < normalized.size() &&
-               std::isdigit(static_cast<unsigned char>(normalized[numberEnd]))) {
-            numberEnd++;
-        }
-        if (numberEnd > indent &&
-            numberEnd < normalized.size() &&
-            (normalized[numberEnd] == '.' || normalized[numberEnd] == ')') &&
-            needsSpace(numberEnd + 1)) {
-            normalized.insert(numberEnd + 1, 1, ' ');
-        }
-
-        return normalized;
-    };
-
-    std::string normalized;
-    normalized.reserve(source.size() + 16);
-
-    bool inFence = false;
-    char fenceMarker = '\0';
-    size_t fenceLength = 0;
-    size_t lineStart = 0;
-    while (lineStart < source.size()) {
-        size_t lineEnd = source.find('\n', lineStart);
-        if (lineEnd == std::string::npos) {
-            lineEnd = source.size();
-        }
-
-        size_t contentEnd = lineEnd;
-        bool hasCarriageReturn = contentEnd > lineStart && source[contentEnd - 1] == '\r';
-        if (hasCarriageReturn) {
-            contentEnd--;
-        }
-
-        const std::string_view line(source.data() + lineStart, contentEnd - lineStart);
-        size_t fenceIndent = 0;
-        while (fenceIndent < line.size() && fenceIndent < 4 && line[fenceIndent] == ' ') {
-            ++fenceIndent;
-        }
-        size_t markerEnd = fenceIndent;
-        const char marker = markerEnd < line.size() ? line[markerEnd] : '\0';
-        if (marker == '`' || marker == '~') {
-            while (markerEnd < line.size() && line[markerEnd] == marker) {
-                ++markerEnd;
-            }
-        }
-        const size_t markerLength = markerEnd - fenceIndent;
-        const bool isFenceCandidate = fenceIndent <= 3 && markerLength >= 3;
-        bool isClosingFence = false;
-        if (inFence && isFenceCandidate && marker == fenceMarker && markerLength >= fenceLength) {
-            size_t suffix = markerEnd;
-            while (suffix < line.size() && (line[suffix] == ' ' || line[suffix] == '\t')) {
-                ++suffix;
-            }
-            isClosingFence = suffix == line.size();
-        }
-
-        if (inFence || isFenceCandidate) {
-            normalized.append(line);
-            if (isClosingFence) {
-                inFence = false;
-                fenceMarker = '\0';
-                fenceLength = 0;
-            } else if (!inFence && isFenceCandidate) {
-                inFence = true;
-                fenceMarker = marker;
-                fenceLength = markerLength;
-            }
-        } else {
-            normalized += normalizeLine(line);
-        }
-        if (hasCarriageReturn) {
-            normalized += '\r';
-        }
-        if (lineEnd < source.size()) {
-            normalized += '\n';
-        }
-
-        lineStart = lineEnd + 1;
-    }
-
-    return normalized;
 }
 
 static BlockType MapBlockType(MD_BLOCKTYPE type, void* detail) {
@@ -295,15 +147,13 @@ static std::string AttributeToString(const MD_ATTRIBUTE& attribute) {
     return value;
 }
 
-static InlineStyle MapSpanType(MD_SPANTYPE type) {
+static InlineFormatting FormattingForSpan(MD_SPANTYPE type) {
     switch (type) {
-        case MD_SPAN_EM: return InlineStyle::Emphasis;
-        case MD_SPAN_STRONG: return InlineStyle::Strong;
-        case MD_SPAN_CODE: return InlineStyle::Code;
-        case MD_SPAN_A: return InlineStyle::Link;
-        case MD_SPAN_IMG: return InlineStyle::Image;
-        case MD_SPAN_DEL: return InlineStyle::Strikethrough;
-        default: return InlineStyle::Plain;
+        case MD_SPAN_EM: return InlineFormatting::Emphasis;
+        case MD_SPAN_STRONG: return InlineFormatting::Strong;
+        case MD_SPAN_CODE: return InlineFormatting::Code;
+        case MD_SPAN_DEL: return InlineFormatting::Strikethrough;
+        default: return InlineFormatting::None;
     }
 }
 
@@ -398,22 +248,28 @@ static int LeaveBlockImpl(MD_BLOCKTYPE type, void* detail, void* userdata) {
 
 static int EnterSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     auto* ctx = static_cast<ParserContext*>(userdata);
-    if (ctx->styleStack.size() >= kMaxMarkdownNestingDepth) {
+    if (ctx->formattingStack.size() >= kMaxMarkdownNestingDepth) {
         ctx->failed = true;
         return 1;
     }
-    InlineStyle style = MapSpanType(type);
-    ctx->styleStack.push_back(style);
+    InlineFormatting formatting = ctx->formattingStack.back();
+    formatting |= FormattingForSpan(type);
+    ctx->formattingStack.push_back(formatting);
 
-    std::string url;
+    std::string linkTarget = ctx->linkTargetStack.back();
     if (type == MD_SPAN_A) {
         auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        url = AttributeToString(a->href);
-    } else if (type == MD_SPAN_IMG) {
-        auto* img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
-        url = AttributeToString(img->src);
+        linkTarget = AttributeToString(a->href);
     }
-    ctx->urlStack.push_back(url);
+    ctx->linkTargetStack.push_back(std::move(linkTarget));
+
+    ParserContext::ImageContext image = ctx->imageStack.back();
+    if (type == MD_SPAN_IMG) {
+        auto* img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
+        image.active = true;
+        image.source = AttributeToString(img->src);
+    }
+    ctx->imageStack.push_back(std::move(image));
 
     return 0;
 }
@@ -422,11 +278,14 @@ static int LeaveSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     (void)type;
     (void)detail;
     auto* ctx = static_cast<ParserContext*>(userdata);
-    if (ctx->styleStack.size() > 1) {
-        ctx->styleStack.pop_back();
+    if (ctx->formattingStack.size() > 1) {
+        ctx->formattingStack.pop_back();
     }
-    if (ctx->urlStack.size() > 1) {
-        ctx->urlStack.pop_back();
+    if (ctx->linkTargetStack.size() > 1) {
+        ctx->linkTargetStack.pop_back();
+    }
+    if (ctx->imageStack.size() > 1) {
+        ctx->imageStack.pop_back();
     }
     return 0;
 }
@@ -436,11 +295,14 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
     auto* currentBlock = ctx->CurrentBlock();
     if (!currentBlock) return 0;
 
+    InlineKind kind = InlineKind::Text;
     std::string str;
     switch (type) {
         case MD_TEXT_BR:
+            kind = InlineKind::HardBreak;
+            break;
         case MD_TEXT_SOFTBR:
-            str = "\n";
+            kind = InlineKind::SoftBreak;
             break;
         case MD_TEXT_NULLCHAR:
             str = "\xEF\xBF\xBD";
@@ -453,25 +315,29 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
             break;
     }
 
-    InlineStyle currentStyle = ctx->styleStack.back();
-    std::string currentUrl = ctx->urlStack.back();
-    std::string currentLinkUrl;
-    if (currentStyle == InlineStyle::Image) {
-        for (size_t index = ctx->styleStack.size(); index > 0; --index) {
-            if (ctx->styleStack[index - 1] == InlineStyle::Link) {
-                currentLinkUrl = ctx->urlStack[index - 1];
-                break;
-            }
-        }
+    const ParserContext::ImageContext& image = ctx->imageStack.back();
+    if (kind == InlineKind::Text && image.active) {
+        kind = InlineKind::Image;
     }
 
     if (!currentBlock->inlineRuns.empty() &&
-        currentBlock->inlineRuns.back().style == currentStyle &&
-        currentBlock->inlineRuns.back().url == currentUrl &&
-        currentBlock->inlineRuns.back().linkUrl == currentLinkUrl) {
+        kind != InlineKind::SoftBreak &&
+        kind != InlineKind::HardBreak &&
+        currentBlock->inlineRuns.back().formatting == ctx->formattingStack.back() &&
+        currentBlock->inlineRuns.back().kind == kind &&
+        currentBlock->inlineRuns.back().syntaxRole == SyntaxRole::None &&
+        currentBlock->inlineRuns.back().imageSource == (image.active ? image.source : std::string{}) &&
+        currentBlock->inlineRuns.back().linkTarget == ctx->linkTargetStack.back()) {
         currentBlock->inlineRuns.back().text += str;
     } else {
-        currentBlock->inlineRuns.push_back({currentStyle, str, currentUrl, currentLinkUrl});
+        currentBlock->inlineRuns.push_back(InlineRun{
+            .formatting = ctx->formattingStack.back(),
+            .kind = kind,
+            .syntaxRole = SyntaxRole::None,
+            .text = std::move(str),
+            .imageSource = image.active ? image.source : std::string{},
+            .linkTarget = ctx->linkTargetStack.back(),
+        });
     }
 
     return 0;
@@ -510,7 +376,6 @@ static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, voi
 
 DocumentModel MarkdownParser::Parse(const std::string& source) {
     ParserContext ctx;
-    const std::string normalizedSource = NormalizeMarkdown(source);
     MD_PARSER parser = {0};
     parser.abi_version = 0;
     parser.flags = MD_DIALECT_GITHUB | MD_FLAG_PERMISSIVEATXHEADERS;
@@ -521,8 +386,8 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
     parser.text = TextCallback;
 
     const int parseStatus = md_parse(
-        normalizedSource.c_str(),
-        static_cast<MD_SIZE>(normalizedSource.size()),
+        source.c_str(),
+        static_cast<MD_SIZE>(source.size()),
         &parser,
         &ctx);
     if (parseStatus != 0 || ctx.failed) {

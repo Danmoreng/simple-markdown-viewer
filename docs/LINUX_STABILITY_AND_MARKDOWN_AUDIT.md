@@ -154,39 +154,47 @@ platform boundary.
 
 ## Markdown Correctness Findings
 
-### Markdown normalization mutates fenced code
+### Markdown normalization mutates fenced code — resolved
 
-`NormalizeMarkdown()` adds spaces after heading, quote, unordered-list, and
-ordered-list markers on every line without tracking fenced or indented code.
-For example, a fenced line containing `#include <vector>` becomes
+Status: resolved. The preprocessing pass was removed, md4c now receives the
+original source bytes, and nested fenced-code regression coverage was added.
+
+Original finding: `NormalizeMarkdown()` added spaces after heading, quote,
+unordered-list, and ordered-list markers on lines it did not recognize as
+fenced or indented code. For example, a fenced line containing
+`#include <vector>` could become
 `# include <vector>`. Similar corruption can affect `*ptr`, `>value`, and text
 beginning with an ordered-list-like token.
 
-This changes rendering, syntax highlighting, plain-text copy, and code-block
-copy. Remove this normalization where md4c flags already provide the intended
-tolerance, or replace it with a fence-aware preprocessing pass. Add regression
-tests using the existing rendering fixture's `#include` line.
+This changed rendering, syntax highlighting, plain-text copy, and code-block
+copy. The implemented resolution removes the normalization and covers the
+existing rendering fixture's `#include` case plus a nested fence.
 
-### Inline styles cannot be combined correctly
+### Inline styles cannot be combined correctly — resolved
 
-`InlineStyle` represents only one style at a time. The model cannot preserve
-bold plus italic, link plus strong, or other nested combinations. In addition,
-entering a nested non-link span pushes an empty URL, so text such as a strong span
-inside a link loses link behavior for the nested portion.
+Status: resolved. Combinable formatting flags are now independent from link
+targets, image sources, content kind, and syntax-highlight roles.
 
-Split inline semantics into independent fields:
+Original finding: `InlineStyle` represented only one style at a time. The model
+could not preserve bold plus italic, link plus strong, or other nested
+combinations. Entering a nested non-link span also pushed an empty URL, so a
+strong span inside a link lost link behavior for the nested portion.
+
+The implemented model splits inline semantics into independent fields:
 
 - combinable formatting flags;
 - link target;
 - image source and alt text;
 - syntax-highlight role.
 
-### Soft line breaks are rendered as hard line breaks
+### Soft line breaks are rendered as hard line breaks — resolved
 
-Both md4c soft and hard break events currently become `\n`. For GitHub-style
-Markdown files, ordinary source line wrapping should not necessarily create a
-visible line break. Preserve soft-break semantics separately from explicit hard
-breaks.
+Status: resolved. Soft and hard breaks remain distinct in the model; layout,
+copy/search text, rendering, and hit testing use their intended semantics.
+
+Original finding: both md4c soft and hard break events became `\n`. For
+GitHub-style Markdown files, ordinary source line wrapping should not create a
+visible line break. The model and layout now preserve that distinction.
 
 ### Heading anchors differ from GitHub
 
@@ -244,7 +252,7 @@ explicit repository context.
 4. Harden image dimensions, decoding, and cache lifetime.
 5. Add size, nesting, table, and code-highlight budgets.
 6. Add minimized crash fixtures and parser/layout fuzz or property tests.
-7. Correct Markdown normalization and nested inline semantics.
+7. Completed: correct Markdown normalization, nested inline semantics, and soft/hard breaks.
 8. Implement the safe HTML allowlist.
 9. Add footnotes, alerts, front matter, and overflow improvements.
 

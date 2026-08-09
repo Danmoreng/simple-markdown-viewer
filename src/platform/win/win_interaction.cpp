@@ -55,7 +55,7 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
         HitTestCallbacks{
             .get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
                 (void)line;
-                if (run.style == InlineStyle::Image) {
+                if (run.kind == InlineKind::Image) {
                     return run.imageWidth;
                 }
 
@@ -63,13 +63,13 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
                     renderContext.font,
                     typefaces,
                     block.type,
-                    run.style,
+                    run.formatting,
                     appState.baseFontSize);
                 return renderContext.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
             },
             .find_text_position_in_run = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run, float xInRun) {
                 (void)line;
-                if (run.style == InlineStyle::Image) {
+                if (run.kind == InlineKind::Image) {
                     return run.textStart;
                 }
 
@@ -77,7 +77,7 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
                     renderContext.font,
                     typefaces,
                     block.type,
-                    run.style,
+                    run.formatting,
                     appState.baseFontSize);
 
                 if (xInRun <= 0.0f) {
@@ -111,7 +111,8 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
     hit.position = hitTest.position;
     hit.valid = hitTest.valid;
     hit.url = hitTest.url;
-    hit.style = hitTest.style;
+    hit.formatting = hitTest.formatting;
+    hit.kind = hitTest.kind;
     return hit;
 }
 

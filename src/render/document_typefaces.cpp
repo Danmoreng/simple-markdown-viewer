@@ -107,14 +107,6 @@ SkTypeface* DocumentTypefaceCache::GetOrCreateTypeface(const std::string& family
     return regular_.get();
 }
 
-SkTypeface* DocumentTypefaceCache::GetOrCreateTypeface(const std::string& familyNameUtf8, InlineStyle style) {
-    SkFontStyle skStyle = SkFontStyle::Normal();
-    if (style == InlineStyle::Strong) {
-        skStyle = SkFontStyle::Bold();
-    }
-    return GetOrCreateTypeface(familyNameUtf8, skStyle);
-}
-
 sk_sp<SkTypeface> DocumentTypefaceCache::CreateDocumentTypeface(SkFontStyle style) const {
     if (!fontMgr_) {
         return nullptr;

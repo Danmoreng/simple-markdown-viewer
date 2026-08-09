@@ -72,7 +72,9 @@ DocumentLoadResult LoadDocumentFromPath(const std::filesystem::path& path) {
     } else if (!IsKnownNonTextFile(path) && (IsDefinitelyTextFile(path) || ProbeIsText(*content))) {
         Block block;
         block.type = BlockType::Paragraph;
-        block.inlineRuns.push_back({InlineStyle::Plain, sanitized.text, ""});
+        block.inlineRuns.push_back(InlineRun{
+            .text = sanitized.text,
+        });
         docModel.blocks.push_back(std::move(block));
     } else {
         return {DocumentLoadStatus::BinaryFile, {}, {}};

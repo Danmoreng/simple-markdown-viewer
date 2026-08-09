@@ -12,7 +12,7 @@ struct ClosestLine {
 };
 
 size_t GetRunTextEnd(const RunLayout& run) {
-    if (run.style == InlineStyle::Image) {
+    if (run.kind == InlineKind::Image) {
         return run.textStart;
     }
     return run.textStart + run.text.size();
@@ -69,8 +69,9 @@ DocumentTextHit HitTestLine(
         if (x <= runEndX || runIndex + 1 == line.runs.size()) {
             hit.position = callbacks.find_text_position_in_run(block, line, run, x - currentX);
             hit.valid = true;
-            hit.url = run.linkUrl.empty() ? run.url : run.linkUrl;
-            hit.style = run.style;
+            hit.url = run.linkTarget.empty() ? run.imageSource : run.linkTarget;
+            hit.formatting = run.formatting;
+            hit.kind = run.kind;
             return hit;
         }
         currentX = runEndX;

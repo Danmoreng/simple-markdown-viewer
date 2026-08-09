@@ -40,7 +40,7 @@ struct RenderContext {
 };
 
 size_t GetRunTextEnd(const RunLayout& run) {
-    if (run.style == InlineStyle::Image) {
+    if (run.kind == InlineKind::Image) {
         return run.textStart;
     }
     return run.textStart + run.text.size();
@@ -68,11 +68,11 @@ float MeasureRunWidth(
     float baseFontSize,
     BlockType blockType,
     const RunLayout& run) {
-    if (run.style == InlineStyle::Image) {
+    if (run.kind == InlineKind::Image) {
         return run.imageWidth;
     }
 
-    ConfigureDocumentFont(ctx.font, typefaces, blockType, run.style, baseFontSize);
+    ConfigureDocumentFont(ctx.font, typefaces, blockType, run.formatting, baseFontSize);
     return MeasureTextWithFallback(typefaces, ctx.font, run.text.c_str(), run.text.size());
 }
 
@@ -286,10 +286,11 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
             continue;
         }
 
-        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.formatting, params.baseFontSize);
         const size_t highlightStart = std::max(selectionStart, runStart) - runStart;
         const size_t highlightEnd = std::min(selectionEnd, runEnd) - runStart;
-        const bool isCodeText = block.type == BlockType::CodeBlock || run.style == InlineStyle::Code;
+        const bool isCodeText = block.type == BlockType::CodeBlock ||
+            HasFormatting(run.formatting, InlineFormatting::Code);
         const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
         const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
         const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
@@ -311,10 +312,10 @@ void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams&
     float currentX = line.x;
 
     for (const auto& run : line.runs) {
-        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.formatting, params.baseFontSize);
         const float advance = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.type, run);
 
-        if (run.style == InlineStyle::Code && !run.text.empty()) {
+        if (HasFormatting(run.formatting, InlineFormatting::Code) && !run.text.empty()) {
             SkPaint chipPaint;
             chipPaint.setAntiAlias(true);
             chipPaint.setColor(params.palette.codeInlineBackground);
@@ -346,12 +347,12 @@ void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, co
         const size_t runEnd = GetRunTextEnd(run);
         const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.type, run);
 
-        if (runEnd <= runStart || run.style == InlineStyle::Image) {
+        if (runEnd <= runStart || run.kind == InlineKind::Image) {
             currentX += runWidth;
             continue;
         }
 
-        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.formatting, params.baseFontSize);
         for (const auto& match : params.appState->searchMatches) {
             if (match.second <= runStart || match.first >= runEnd) {
                 continue;
@@ -363,7 +364,8 @@ void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, co
                 continue;
             }
 
-            const bool isCodeText = block.type == BlockType::CodeBlock || run.style == InlineStyle::Code;
+            const bool isCodeText = block.type == BlockType::CodeBlock ||
+                HasFormatting(run.formatting, InlineFormatting::Code);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
             const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
             const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
@@ -398,12 +400,12 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
         const size_t runEnd = GetRunTextEnd(run);
         const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.type, run);
 
-        if (runEnd <= runStart || run.style == InlineStyle::Image) {
+        if (runEnd <= runStart || run.kind == InlineKind::Image) {
             currentX += runWidth;
             continue;
         }
 
-        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.formatting, params.baseFontSize);
         for (const auto& match : params.appState->searchMatches) {
             if (match.second <= runStart || match.first >= runEnd) {
                 continue;
@@ -415,7 +417,8 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
                 continue;
             }
 
-            const bool isCodeText = block.type == BlockType::CodeBlock || run.style == InlineStyle::Code;
+            const bool isCodeText = block.type == BlockType::CodeBlock ||
+                HasFormatting(run.formatting, InlineFormatting::Code);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
             const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
             const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
@@ -482,7 +485,7 @@ void DrawBlockDecoration(
                 codeLabel += " · plain";
             }
 
-            ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::CodeBlock, InlineStyle::Plain, params.baseFontSize);
+            ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::CodeBlock, InlineFormatting::None, params.baseFontSize);
             ctx.font.setSize(std::max(params.baseFontSize * 0.7f, 10.0f));
 
             SkRect labelBounds;
@@ -536,7 +539,7 @@ void DrawBlockDecoration(
             return;
         }
 
-        ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::Paragraph, InlineStyle::Plain, params.baseFontSize);
+        ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::Paragraph, InlineFormatting::None, params.baseFontSize);
         ctx.paint.setColor(params.palette.listMarker);
         const float markerBaseline = firstLine->y + firstLine->height - kTextBaselineOffset;
         const float markerX = block.bounds.left() - kListMarkerGap;
@@ -590,16 +593,16 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
     float currentX = line.x;
 
     for (const auto& run : line.runs) {
-        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.style, params.baseFontSize);
+        ConfigureDocumentFont(ctx.font, params.typefaces, block.type, run.formatting, params.baseFontSize);
 
         const float advance = MeasureTextWithFallback(params.typefaces, ctx.font, run.text.c_str(), run.text.size());
         const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
 
-        if (run.style == InlineStyle::Image && !run.url.empty()) {
+        if (run.kind == InlineKind::Image && !run.imageSource.empty()) {
             const float displayW = run.imageWidth;
             const float displayH = run.imageHeight;
             const sk_sp<SkImage> image =
-                params.resolveImage ? params.resolveImage(run.url, displayW, displayH) : nullptr;
+                params.resolveImage ? params.resolveImage(run.imageSource, displayW, displayH) : nullptr;
             float drawX = currentX;
             const float blockW = block.bounds.width();
             if (displayW > blockW * 0.8f) {
@@ -639,7 +642,13 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             continue;
         }
 
-        ctx.paint.setColor(GetDocumentTextColor(params.palette, block.type, run.style));
+        const bool isLink = !run.linkTarget.empty();
+        ctx.paint.setColor(GetDocumentTextColor(
+            params.palette,
+            block.type,
+            run.formatting,
+            run.syntaxRole,
+            isLink));
         DrawTextWithFallback(
             ctx.canvas,
             params.typefaces,
@@ -650,19 +659,29 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             ctx.font,
             ctx.paint);
 
-        if (run.style == InlineStyle::Link && advance > 0.0f) {
+        if (isLink && advance > 0.0f) {
             SkPaint underlinePaint;
             underlinePaint.setAntiAlias(true);
             underlinePaint.setStrokeWidth(1.0f);
-            underlinePaint.setColor(GetDocumentTextColor(params.palette, block.type, run.style));
+            underlinePaint.setColor(GetDocumentTextColor(
+                params.palette,
+                block.type,
+                run.formatting,
+                run.syntaxRole,
+                true));
             ctx.canvas->drawLine(currentX, baselineY + 2.0f, currentX + advance, baselineY + 2.0f, underlinePaint);
         }
 
-        if (run.style == InlineStyle::Strikethrough && advance > 0.0f) {
+        if (HasFormatting(run.formatting, InlineFormatting::Strikethrough) && advance > 0.0f) {
             SkPaint strikePaint;
             strikePaint.setAntiAlias(true);
             strikePaint.setStrokeWidth(std::max(params.baseFontSize * 0.07f, 1.0f));
-            strikePaint.setColor(GetDocumentTextColor(params.palette, block.type, run.style));
+            strikePaint.setColor(GetDocumentTextColor(
+                params.palette,
+                block.type,
+                run.formatting,
+                run.syntaxRole,
+                isLink));
             const float strikeY = baselineY - (ctx.font.getSize() * 0.32f);
             ctx.canvas->drawLine(currentX, strikeY, currentX + advance, strikeY, strikePaint);
         }
@@ -1129,11 +1148,13 @@ void ConfigureDocumentFont(
     SkFont& font,
     const DocumentTypefaceSet& typefaces,
     BlockType blockType,
-    InlineStyle inlineStyle,
+    InlineFormatting formatting,
     float baseFontSize) {
-    const bool isCode = blockType == BlockType::CodeBlock || inlineStyle == InlineStyle::Code;
+    const bool isCode = blockType == BlockType::CodeBlock ||
+        HasFormatting(formatting, InlineFormatting::Code);
     const bool isHeading = IsHeadingBlock(blockType);
-    const bool isStrong = inlineStyle == InlineStyle::Strong || blockType == BlockType::TableHeaderCell;
+    const bool isStrong = HasFormatting(formatting, InlineFormatting::Strong) ||
+        blockType == BlockType::TableHeaderCell;
     font.setTypeface(sk_ref_sp(
         isCode ? typefaces.code : (isHeading ? typefaces.heading : (isStrong ? typefaces.bold : typefaces.regular))));
     font.setSize(
@@ -1143,32 +1164,37 @@ void ConfigureDocumentFont(
     font.setSubpixel(!isHeading);
     font.setHinting(SkFontHinting::kSlight);
     font.setEdging(isHeading ? SkFont::Edging::kAntiAlias : SkFont::Edging::kSubpixelAntiAlias);
-    font.setEmbolden(false);
-    font.setSkewX(inlineStyle == InlineStyle::Emphasis ? -0.18f : 0.0f);
+    font.setEmbolden(isStrong && (isCode || isHeading));
+    font.setSkewX(HasFormatting(formatting, InlineFormatting::Emphasis) ? -0.18f : 0.0f);
     font.setScaleX(1.0f);
 }
 
-SkColor GetDocumentTextColor(const ThemePalette& palette, BlockType blockType, InlineStyle inlineStyle) {
+SkColor GetDocumentTextColor(
+    const ThemePalette& palette,
+    BlockType blockType,
+    InlineFormatting formatting,
+    SyntaxRole syntaxRole,
+    bool isLink) {
     if (blockType == BlockType::Blockquote) {
         return palette.blockquoteText;
     }
-    switch (inlineStyle) {
-        case InlineStyle::SyntaxComment: return palette.syntaxComment;
-        case InlineStyle::SyntaxKeyword: return palette.syntaxKeyword;
-        case InlineStyle::SyntaxString: return palette.syntaxString;
-        case InlineStyle::SyntaxNumber: return palette.syntaxNumber;
-        case InlineStyle::SyntaxFunction: return palette.syntaxFunction;
-        case InlineStyle::SyntaxType: return palette.syntaxType;
-        case InlineStyle::SyntaxVariable: return palette.syntaxVariable;
-        case InlineStyle::SyntaxConstant: return palette.syntaxConstant;
-        case InlineStyle::SyntaxOperator: return palette.syntaxOperator;
-        case InlineStyle::SyntaxPunctuation: return palette.syntaxPunctuation;
+    switch (syntaxRole) {
+        case SyntaxRole::Comment: return palette.syntaxComment;
+        case SyntaxRole::Keyword: return palette.syntaxKeyword;
+        case SyntaxRole::String: return palette.syntaxString;
+        case SyntaxRole::Number: return palette.syntaxNumber;
+        case SyntaxRole::Function: return palette.syntaxFunction;
+        case SyntaxRole::Type: return palette.syntaxType;
+        case SyntaxRole::Variable: return palette.syntaxVariable;
+        case SyntaxRole::Constant: return palette.syntaxConstant;
+        case SyntaxRole::Operator: return palette.syntaxOperator;
+        case SyntaxRole::Punctuation: return palette.syntaxPunctuation;
         default: break;
     }
-    if (inlineStyle == InlineStyle::Code) {
+    if (HasFormatting(formatting, InlineFormatting::Code)) {
         return palette.codeText;
     }
-    if (inlineStyle == InlineStyle::Link) {
+    if (isLink) {
         return palette.linkText;
     }
     if (IsHeadingBlock(blockType)) {

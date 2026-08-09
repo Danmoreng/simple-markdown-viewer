@@ -103,6 +103,10 @@ Goal: make link behavior predictable, inspectable, and safer.
 
 Goal: improve fidelity for real-world documentation without turning the app into a browser.
 
+- [x] Pass original Markdown bytes to md4c without a preprocessing pass that can mutate fenced code.
+- [x] Represent emphasis, strong, inline code, and strikethrough as combinable flags independent of links, images, and syntax roles.
+- [x] Preserve soft and hard breaks separately; render/copy/search soft breaks as whitespace and hard breaks as explicit newlines.
+- [x] Add parser, layout, renderer-font, search, copy-text, and hit-testing regressions plus a manual before/after fixture.
 - [ ] Add front matter detection for YAML, TOML, and JSON front matter at the start of a file.
 - [ ] Decide whether front matter is shown, collapsed, or hidden by default.
 - [ ] Add a deliberate raw HTML policy.

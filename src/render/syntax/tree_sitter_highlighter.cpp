@@ -65,7 +65,7 @@ struct LanguageDefinition {
 struct HighlightRange {
     size_t start = 0;
     size_t end = 0;
-    InlineStyle style = InlineStyle::Plain;
+    SyntaxRole role = SyntaxRole::None;
     int priority = 0;
 };
 
@@ -193,62 +193,62 @@ LanguageDefinition ResolveLanguage(const std::string& language) {
     return {};
 }
 
-InlineStyle StyleForCapture(std::string_view capture) {
+SyntaxRole RoleForCapture(std::string_view capture) {
     if (capture == "comment") {
-        return InlineStyle::SyntaxComment;
+        return SyntaxRole::Comment;
     }
     if (capture == "string" || capture == "string.special" || capture == "character" ||
         capture == "escape" || capture == "embedded") {
-        return InlineStyle::SyntaxString;
+        return SyntaxRole::String;
     }
     if (capture == "number" || capture == "float") {
-        return InlineStyle::SyntaxNumber;
+        return SyntaxRole::Number;
     }
     if (capture == "keyword" || capture == "keyword.conditional" || capture == "keyword.coroutine" ||
         capture == "keyword.directive" || capture == "keyword.exception" || capture == "keyword.function" ||
         capture == "keyword.import" || capture == "keyword.operator" || capture == "keyword.repeat" ||
         capture == "keyword.return" || capture == "keyword.storage" || capture == "keyword.type") {
-        return InlineStyle::SyntaxKeyword;
+        return SyntaxRole::Keyword;
     }
     if (capture == "operator") {
-        return InlineStyle::SyntaxOperator;
+        return SyntaxRole::Operator;
     }
     if (capture == "punctuation.bracket" || capture == "punctuation.delimiter" ||
         capture == "punctuation.special") {
-        return InlineStyle::SyntaxPunctuation;
+        return SyntaxRole::Punctuation;
     }
     if (capture == "function" || capture == "function.builtin" || capture == "function.call" ||
         capture == "function.macro" || capture == "method" || capture == "method.call" ||
         capture == "constructor") {
-        return InlineStyle::SyntaxFunction;
+        return SyntaxRole::Function;
     }
     if (capture == "type" || capture == "type.builtin" || capture == "type.definition" ||
         capture == "module" || capture == "namespace" || capture == "tag") {
-        return InlineStyle::SyntaxType;
+        return SyntaxRole::Type;
     }
     if (capture == "constant" || capture == "constant.builtin" || capture == "boolean" ||
         capture == "null" || capture == "attribute") {
-        return InlineStyle::SyntaxConstant;
+        return SyntaxRole::Constant;
     }
     if (capture == "property" || capture == "variable" || capture == "variable.builtin" ||
         capture == "variable.member" || capture == "variable.parameter" || capture == "parameter") {
-        return InlineStyle::SyntaxVariable;
+        return SyntaxRole::Variable;
     }
-    return InlineStyle::Plain;
+    return SyntaxRole::None;
 }
 
-int PriorityForStyle(InlineStyle style) {
-    switch (style) {
-        case InlineStyle::SyntaxComment: return 90;
-        case InlineStyle::SyntaxString: return 80;
-        case InlineStyle::SyntaxKeyword: return 70;
-        case InlineStyle::SyntaxFunction: return 60;
-        case InlineStyle::SyntaxType: return 55;
-        case InlineStyle::SyntaxNumber: return 50;
-        case InlineStyle::SyntaxConstant: return 45;
-        case InlineStyle::SyntaxVariable: return 35;
-        case InlineStyle::SyntaxOperator: return 30;
-        case InlineStyle::SyntaxPunctuation: return 20;
+int PriorityForRole(SyntaxRole role) {
+    switch (role) {
+        case SyntaxRole::Comment: return 90;
+        case SyntaxRole::String: return 80;
+        case SyntaxRole::Keyword: return 70;
+        case SyntaxRole::Function: return 60;
+        case SyntaxRole::Type: return 55;
+        case SyntaxRole::Number: return 50;
+        case SyntaxRole::Constant: return 45;
+        case SyntaxRole::Variable: return 35;
+        case SyntaxRole::Operator: return 30;
+        case SyntaxRole::Punctuation: return 20;
         default: return 0;
     }
 }
@@ -292,7 +292,7 @@ bool QueryProgressCallback(TSQueryCursorState* state) {
 size_t EstimateCacheEntrySize(const CacheKey& key, const HighlightResult& result) {
     size_t size = (key.language.size() + key.source.size()) * 2U;
     for (const auto& run : result.runs) {
-        size += run.text.size() + run.url.size() + sizeof(InlineRun);
+        size += run.text.size() + run.imageSource.size() + run.linkTarget.size() + sizeof(InlineRun);
     }
     return size;
 }
@@ -412,8 +412,8 @@ RangeCollection CollectHighlightRanges(
             query.get(),
             capture.index,
             &captureNameLength);
-        const InlineStyle style = StyleForCapture(std::string_view(captureName, captureNameLength));
-        if (style == InlineStyle::Plain) {
+        const SyntaxRole role = RoleForCapture(std::string_view(captureName, captureNameLength));
+        if (role == SyntaxRole::None) {
             continue;
         }
 
@@ -423,7 +423,7 @@ RangeCollection CollectHighlightRanges(
             continue;
         }
 
-        collection.ranges.push_back({start, end, style, PriorityForStyle(style)});
+        collection.ranges.push_back({start, end, role, PriorityForRole(role)});
     }
     if (deadline.timedOut) {
         collection.status = CollectionStatus::TimedOut;
@@ -451,15 +451,23 @@ RangeCollection CollectHighlightRanges(
     return collection;
 }
 
-void AppendRun(std::vector<InlineRun>& runs, InlineStyle style, std::string_view text) {
+void AppendRun(std::vector<InlineRun>& runs, SyntaxRole role, std::string_view text) {
     if (text.empty()) {
         return;
     }
-    if (!runs.empty() && runs.back().style == style && runs.back().url.empty()) {
+    if (!runs.empty() &&
+        runs.back().kind == InlineKind::Text &&
+        runs.back().formatting == InlineFormatting::None &&
+        runs.back().syntaxRole == role &&
+        runs.back().imageSource.empty() &&
+        runs.back().linkTarget.empty()) {
         runs.back().text.append(text);
         return;
     }
-    runs.push_back({style, std::string(text), ""});
+    runs.push_back(InlineRun{
+        .syntaxRole = role,
+        .text = std::string(text),
+    });
 }
 
 } // namespace
@@ -507,19 +515,19 @@ HighlightResult HighlightCodeBlock(
             if (cursor < range.start) {
                 AppendRun(
                     highlightedRuns,
-                    InlineStyle::Plain,
+                    SyntaxRole::None,
                     std::string_view(text.data() + cursor, range.start - cursor));
             }
             AppendRun(
                 highlightedRuns,
-                range.style,
+                range.role,
                 std::string_view(text.data() + range.start, range.end - range.start));
             cursor = range.end;
         }
         if (cursor < text.size()) {
             AppendRun(
                 highlightedRuns,
-                InlineStyle::Plain,
+                SyntaxRole::None,
                 std::string_view(text.data() + cursor, text.size() - cursor));
         }
 

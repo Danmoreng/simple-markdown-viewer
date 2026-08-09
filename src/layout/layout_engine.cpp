@@ -105,6 +105,8 @@ public:
             float fontSize = GetBlockFontSize(block.type, baseFontSize);
 
             font.setSize(fontSize);
+            font.setEmbolden(false);
+            font.setSkewX(0.0f);
             SkFontMetrics metrics;
             font.getMetrics(&metrics);
             float lineHeight = metrics.fDescent - metrics.fAscent + metrics.fLeading;
@@ -229,16 +231,24 @@ private:
         float currentLineWidth = 0.0f;
         wrapWidth = std::max(wrapWidth, 1.0f);
 
-        const bool isSingleImageBlock = (runs.size() == 1 && runs[0].style == InlineStyle::Image);
+        const bool isSingleImageBlock = (runs.size() == 1 && runs[0].kind == InlineKind::Image);
 
         for (const auto& run : runs) {
-            ConfigureInlineFont(blockType, run.style);
-            if (run.style == InlineStyle::Image) {
+            ConfigureInlineFont(blockType, run.formatting);
+            if (run.kind == InlineKind::HardBreak) {
+                plainText.push_back('\n');
+                currentTextOffset += 1;
+                PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
+                currentX = 0.0f;
+                currentLineWidth = 0.0f;
+                continue;
+            }
+            if (run.kind == InlineKind::Image) {
                 float imgDisplayW, imgDisplayH;
                 float actualW = 0.0f, actualH = 0.0f;
                 bool hasActualSize = false;
                 if (imageSizeProvider) {
-                    auto size = imageSizeProvider(run.url);
+                    auto size = imageSizeProvider(run.imageSource);
                     if (size.first > 0 && size.second > 0) {
                         actualW = size.first;
                         actualH = size.second;
@@ -266,8 +276,17 @@ private:
                     currentLineWidth = 0.0f;
                 }
 
-                RunLayout rl = {run.style, run.text, run.url, currentTextOffset, imgDisplayW, imgDisplayH};
-                rl.linkUrl = run.linkUrl;
+                RunLayout rl{
+                    .formatting = run.formatting,
+                    .kind = InlineKind::Image,
+                    .syntaxRole = run.syntaxRole,
+                    .text = run.text,
+                    .imageSource = run.imageSource,
+                    .textStart = currentTextOffset,
+                    .imageWidth = imgDisplayW,
+                    .imageHeight = imgDisplayH,
+                    .linkTarget = run.linkTarget,
+                };
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.height = std::max(currentLine.height, imgDisplayH + 4.0f);
                 currentLineWidth = currentX + imgDisplayW;
@@ -275,8 +294,9 @@ private:
                 continue;
             }
 
-            const char* textPtr = run.text.c_str();
-            const char* endPtr = textPtr + run.text.size();
+            const char softBreakText[] = " ";
+            const char* textPtr = run.kind == InlineKind::SoftBreak ? softBreakText : run.text.c_str();
+            const char* endPtr = textPtr + (run.kind == InlineKind::SoftBreak ? 1 : run.text.size());
 
             while (textPtr < endPtr) {
                 if (*textPtr == '\n') {
@@ -308,8 +328,14 @@ private:
                     bytesConsumed = remainingLength;
                 }
 
-                RunLayout rl = {run.style, std::string(textPtr, bytesConsumed), run.url, currentTextOffset};
-                rl.linkUrl = run.linkUrl;
+                RunLayout rl{
+                    .formatting = run.formatting,
+                    .kind = InlineKind::Text,
+                    .syntaxRole = run.syntaxRole,
+                    .text = std::string(textPtr, bytesConsumed),
+                    .textStart = currentTextOffset,
+                    .linkTarget = run.linkTarget,
+                };
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.textLength += bytesConsumed;
                 plainText.append(textPtr, bytesConsumed);
@@ -389,16 +415,22 @@ private:
         return wordEnd > 0 ? wordEnd : best;
     }
 
-    void ConfigureInlineFont(BlockType blockType, InlineStyle inlineStyle) {
-        const BlockType fontBlockType = inlineStyle == InlineStyle::Code ? BlockType::CodeBlock : blockType;
+    void ConfigureInlineFont(BlockType blockType, InlineFormatting formatting) {
+        const BlockType fontBlockType = HasFormatting(formatting, InlineFormatting::Code)
+            ? BlockType::CodeBlock
+            : blockType;
         font.setSize(GetBlockFontSize(fontBlockType, baseFontSize));
+        font.setEmbolden(HasFormatting(formatting, InlineFormatting::Strong));
+        font.setSkewX(HasFormatting(formatting, InlineFormatting::Emphasis) ? -0.18f : 0.0f);
     }
 
     void AddHeadingAnchor(const Block& block, float y) {
         std::string text;
         for (const auto& run : block.inlineRuns) {
-            if (run.style != InlineStyle::Image) {
+            if (run.kind == InlineKind::Text) {
                 text += run.text;
+            } else if (run.kind == InlineKind::SoftBreak || run.kind == InlineKind::HardBreak) {
+                text += ' ';
             }
         }
 
@@ -428,8 +460,8 @@ private:
         });
     }
 
-    float GetLineHeight(BlockType blockType, InlineStyle inlineStyle = InlineStyle::Plain) {
-        ConfigureInlineFont(blockType, inlineStyle);
+    float GetLineHeight(BlockType blockType, InlineFormatting formatting = InlineFormatting::None) {
+        ConfigureInlineFont(blockType, formatting);
         SkFontMetrics metrics;
         font.getMetrics(&metrics);
         return metrics.fDescent - metrics.fAscent + metrics.fLeading;
@@ -451,19 +483,29 @@ private:
 
     float MeasureInlineRunsWidth(const std::vector<InlineRun>& runs, BlockType blockType) {
         float width = 0.0f;
+        float maxWidth = 0.0f;
         for (const auto& run : runs) {
-            if (run.style == InlineStyle::Image) {
+            if (run.kind == InlineKind::HardBreak) {
+                maxWidth = std::max(maxWidth, width);
+                width = 0.0f;
+                continue;
+            }
+            if (run.kind == InlineKind::Image) {
                 if (imageSizeProvider) {
-                    const auto size = imageSizeProvider(run.url);
+                    const auto size = imageSizeProvider(run.imageSource);
                     width += std::max(size.first, 0.0f);
                 }
                 continue;
             }
 
-            ConfigureInlineFont(blockType, run.style);
-            width += font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+            ConfigureInlineFont(blockType, run.formatting);
+            if (run.kind == InlineKind::SoftBreak) {
+                width += font.measureText(" ", 1, SkTextEncoding::kUTF8);
+            } else {
+                width += font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+            }
         }
-        return width;
+        return std::max(maxWidth, width);
     }
 
     std::vector<float> ComputeTableColumnWidths(
@@ -585,7 +627,9 @@ private:
                 cellLayout.align = cellAlign;
                 cellLayout.textStart = currentTextOffset;
 
-                const float lineHeight = GetLineHeight(cellType, isHeaderCell ? InlineStyle::Strong : InlineStyle::Plain);
+                const float lineHeight = GetLineHeight(
+                    cellType,
+                    isHeaderCell ? InlineFormatting::Strong : InlineFormatting::None);
                 float contentHeight = 0.0f;
                 if (cell != nullptr) {
                     contentHeight = LayoutRuns(

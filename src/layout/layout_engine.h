@@ -12,13 +12,15 @@ class SkTypeface;
 namespace mdviewer {
 
 struct RunLayout {
-    InlineStyle style;
+    InlineFormatting formatting = InlineFormatting::None;
+    InlineKind kind = InlineKind::Text;
+    SyntaxRole syntaxRole = SyntaxRole::None;
     std::string text;
-    std::string url;
+    std::string imageSource;
     size_t textStart = 0;
     float imageWidth = 0.0f;
     float imageHeight = 0.0f;
-    std::string linkUrl;
+    std::string linkTarget;
 };
 
 struct LineLayout {

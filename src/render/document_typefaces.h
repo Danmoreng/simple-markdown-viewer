@@ -26,7 +26,6 @@ public:
     SkTypeface* GetRegularTypeface() const;
     SkTypeface* GetUiTypeface() const;
     SkTypeface* GetOrCreateTypeface(const std::string& familyNameUtf8, SkFontStyle style);
-    SkTypeface* GetOrCreateTypeface(const std::string& familyNameUtf8, InlineStyle style);
 
 private:
     sk_sp<SkTypeface> CreateDocumentTypeface(SkFontStyle style) const;

@@ -49,9 +49,14 @@ void ConfigureDocumentFont(
     SkFont& font,
     const DocumentTypefaceSet& typefaces,
     BlockType blockType,
-    InlineStyle inlineStyle,
+    InlineFormatting formatting,
     float baseFontSize);
-SkColor GetDocumentTextColor(const ThemePalette& palette, BlockType blockType, InlineStyle inlineStyle);
+SkColor GetDocumentTextColor(
+    const ThemePalette& palette,
+    BlockType blockType,
+    InlineFormatting formatting,
+    SyntaxRole syntaxRole,
+    bool isLink);
 float GetDocumentContentX(const BlockLayout& block);
 
 void RenderDocumentScene(const DocumentSceneParams& params);
