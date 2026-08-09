@@ -815,6 +815,13 @@ void MenuLayoutHitTesting() {
 void SyntaxHighlightingCacheAndFallback() {
     using mdviewer::syntax::HighlightStatus;
 
+    const auto findRoleForText = [](const std::vector<mdviewer::InlineRun>& runs, const std::string& text) {
+        const auto found = std::find_if(runs.begin(), runs.end(), [&](const auto& run) {
+            return run.text.find(text) != std::string::npos;
+        });
+        return found == runs.end() ? mdviewer::SyntaxRole::None : found->syntaxRole;
+    };
+
     mdviewer::syntax::ClearHighlightCache();
     const std::vector<mdviewer::InlineRun> codeRuns = {
         mdviewer::InlineRun{.text = "class Widget { public: Widget(); };\n"},
@@ -843,12 +850,29 @@ void SyntaxHighlightingCacheAndFallback() {
         }),
         "syntax roles should not replace formatting or content-kind metadata");
 
+    const std::vector<mdviewer::InlineRun> ordinaryCppRuns = {
+        mdviewer::InlineRun{
+            .text =
+                "#include <vector>\n\n"
+                "void update(int* pointer) {\n"
+                "    *pointer = 42;\n"
+                "    // comment\n"
+                "}\n"},
+    };
+    const auto ordinaryCpp = mdviewer::syntax::HighlightCodeBlock("cpp", ordinaryCppRuns, generousOptions);
+    Require(ordinaryCpp.status == HighlightStatus::Highlighted, "ordinary C++ code should inherit the base C highlights");
+    Require(findRoleForText(ordinaryCpp.runs, "#include") == mdviewer::SyntaxRole::Keyword, "C++ preprocessor directives should be highlighted");
+    Require(findRoleForText(ordinaryCpp.runs, "<vector>") == mdviewer::SyntaxRole::String, "C++ system include paths should be highlighted");
+    Require(findRoleForText(ordinaryCpp.runs, "void") == mdviewer::SyntaxRole::Type, "C++ primitive types should be highlighted");
+    Require(findRoleForText(ordinaryCpp.runs, "update") == mdviewer::SyntaxRole::Function, "C++ function declarations should be highlighted");
+    Require(findRoleForText(ordinaryCpp.runs, "// comment") == mdviewer::SyntaxRole::Comment, "C++ comments should be highlighted");
+
     const auto second = mdviewer::syntax::HighlightCodeBlock("c++", codeRuns, generousOptions);
     Require(second.status == HighlightStatus::Highlighted, "language aliases should reuse highlighted output");
     const auto cacheStats = mdviewer::syntax::GetHighlightCacheStats();
-    RequireEqual(cacheStats.misses, static_cast<size_t>(1), "first highlight should miss the cache");
+    RequireEqual(cacheStats.misses, static_cast<size_t>(2), "the two distinct C++ snippets should miss the cache once each");
     RequireEqual(cacheStats.hits, static_cast<size_t>(1), "equivalent language alias should hit the cache");
-    RequireEqual(cacheStats.entries, static_cast<size_t>(1), "cache should store one canonical result");
+    RequireEqual(cacheStats.entries, static_cast<size_t>(2), "cache should store both canonical C++ results");
 
     mdviewer::syntax::HighlightOptions immediateTimeout;
     immediateTimeout.timeBudget = std::chrono::milliseconds(0);

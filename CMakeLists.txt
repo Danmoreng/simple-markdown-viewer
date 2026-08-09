@@ -140,12 +140,14 @@ file(WRITE "${TREE_SITTER_QUERY_SOURCE}"
     "#include \"render/syntax/tree_sitter_queries.h\"\n\n"
     "namespace mdviewer::syntax {\n\n")
 
-function(append_tree_sitter_query function_name query_path)
-    if(EXISTS "${query_path}")
-        file(READ "${query_path}" query_text)
-    else()
-        set(query_text "")
-    endif()
+function(append_tree_sitter_query function_name)
+    set(query_text "")
+    foreach(query_path IN ITEMS ${ARGN})
+        if(EXISTS "${query_path}")
+            file(READ "${query_path}" query_fragment)
+            string(APPEND query_text "${query_fragment}\n")
+        endif()
+    endforeach()
     file(APPEND "${TREE_SITTER_QUERY_SOURCE}"
         "const char* ${function_name}() {\n"
         "    return R\"mdvquery(${query_text})mdvquery\";\n"
@@ -153,7 +155,11 @@ function(append_tree_sitter_query function_name query_path)
 endfunction()
 
 append_tree_sitter_query(GetTreeSitterCQuery "${tree_sitter_c_SOURCE_DIR}/queries/highlights.scm")
-append_tree_sitter_query(GetTreeSitterCppQuery "${tree_sitter_cpp_SOURCE_DIR}/queries/highlights.scm")
+# tree-sitter-cpp's highlights query contains only C++-specific additions and
+# relies on the host query loader to inherit the base C highlights.
+append_tree_sitter_query(GetTreeSitterCppQuery
+    "${tree_sitter_c_SOURCE_DIR}/queries/highlights.scm"
+    "${tree_sitter_cpp_SOURCE_DIR}/queries/highlights.scm")
 append_tree_sitter_query(GetTreeSitterJavaScriptQuery "${tree_sitter_javascript_SOURCE_DIR}/queries/highlights.scm")
 append_tree_sitter_query(GetTreeSitterTypeScriptQuery "${tree_sitter_typescript_SOURCE_DIR}/queries/highlights.scm")
 append_tree_sitter_query(GetTreeSitterTsxQuery "${tree_sitter_typescript_SOURCE_DIR}/queries/highlights.scm")
