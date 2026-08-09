@@ -215,6 +215,7 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
         .imageSource = docHit.imageSource,
         .tableTsv = docHit.tableTsv,
         .tableCsv = docHit.tableCsv,
+        .detailsToggleId = docHit.detailsToggleId,
     };
 }
 
@@ -711,6 +712,13 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                 }
                 return;
             }
+        }
+        if (hit.detailsToggleId != 0 && ToggleDetailsBlock(appState.docModel, hit.detailsToggleId)) {
+            appState.selectionAnchor = appState.selectionFocus;
+            RelayoutCurrentDocument(window, app->GetHostContext());
+            RebuildSearchMatches(appState);
+            appState.needsRepaint = true;
+            return;
         }
         const auto thumbRect = GetScrollbarThumbRect(window, app->GetHostContext());
         if (thumbRect && thumbRect->contains(static_cast<float>(xpos), static_cast<float>(ypos))) {

@@ -50,7 +50,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - tables with horizontal scrolling when their useful column widths exceed the viewport
   - combinable emphasis, strong text, strikethrough, inline code, and links
   - CommonMark soft breaks as flowing whitespace and explicit hard breaks as visible line breaks
-  - a browser-free HTML allowlist for GitHub-style centered paragraphs/headings, links, local images, and `<br>`; unsupported or unsafe HTML remains visible as source
+  - a browser-free HTML allowlist for GitHub-style centered paragraphs/headings, links, local images, `<br>`, keyboard keys, subscript/superscript, and native collapsible details; unsupported or unsafe HTML remains visible as source
   - GitHub-style note, tip, important, warning, and caution alerts with native colors and icons
   - decoded Markdown entities
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size; SVG HTML `<foreignObject>` content is not supported
@@ -72,7 +72,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - middle-mouse auto-scroll on Windows
 - Responsive document margins that reclaim reading width in narrow windows
 - Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
-- Remote images are not fetched automatically; HTML badges and other remote images use labeled placeholders
+- Remote images are not fetched inside the app; HTML badges and other remote images use labeled placeholders and can still be opened explicitly
 - Mouse text selection and `Ctrl+C` copy
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`

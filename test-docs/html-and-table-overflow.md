@@ -16,6 +16,31 @@
 
 The remote badge images above are deliberately not downloaded. They should appear as compact labeled placeholders, and the linked badge remains clickable.
 
+## Native inline HTML
+
+Use <kbd>Ctrl</kbd>+<kbd>F</kbd> to search. Water is H<sub>2</sub>O, and a square can be written as x<sup>2</sup>.
+
+<p>These tags also work inside an allowlisted HTML paragraph: <kbd>Enter</kbd>, CO<sub>2</sub>, and 2<sup>10</sup>.</p>
+
+## Native details
+
+<details>
+<summary>Collapsed details</summary>
+
+This content starts hidden and should appear after clicking the summary. It contains **formatted Markdown**, a [local link](../README.md), and a list:
+
+- First nested item
+- Second nested item
+
+</details>
+
+<details open>
+<summary>Initially open details</summary>
+
+This content starts visible because the safe `open` attribute is present.
+
+</details>
+
 ## GitHub alerts
 
 > [!NOTE]

@@ -18,6 +18,7 @@ struct InteractionTextHit {
     std::string imageSource;
     std::string tableTsv;
     std::string tableCsv;
+    size_t detailsToggleId = 0;
 };
 
 enum class InteractionKey {
@@ -78,6 +79,7 @@ void ClearRelayoutScrollAnchor(AppState& appState);
 void RestoreScrollAnchor(AppState& appState, const ScrollAnchor& anchor, float viewportHeight, float maxScroll);
 
 void ClearPendingLinkState(AppState& appState);
+bool ToggleDetailsBlock(DocumentModel& document, size_t detailsId);
 void OpenSearch(AppState& appState);
 void CloseSearch(AppState& appState);
 void InsertSearchText(AppState& appState, const std::string& text);

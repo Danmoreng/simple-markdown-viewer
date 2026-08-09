@@ -17,6 +17,7 @@ struct DocumentTextHit {
     std::string imageSource;
     std::string tableTsv;
     std::string tableCsv;
+    size_t detailsToggleId = 0;
 };
 
 struct HitTestCallbacks {

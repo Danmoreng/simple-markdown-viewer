@@ -459,12 +459,18 @@ struct ParserContext {
         std::string source;
     };
     std::vector<ImageContext> imageStack;
+    struct InlineHtmlContext {
+        std::string tagName;
+        InlineFormatting formatting = InlineFormatting::None;
+    };
+    std::vector<InlineHtmlContext> inlineHtmlStack;
     bool failed = false;
 
     ParserContext() {
         formattingStack.push_back(InlineFormatting::None);
         linkTargetStack.push_back("");
         imageStack.push_back({});
+        inlineHtmlStack.push_back({});
     }
 
     Block* CurrentBlock() {
@@ -681,6 +687,9 @@ static int LeaveBlockImpl(MD_BLOCKTYPE type, void* detail, void* userdata) {
     if (!ctx->emittedBlockStack.empty()) {
         ctx->emittedBlockStack.pop_back();
     }
+    if (ctx->inlineHtmlStack.size() > 1) {
+        ctx->inlineHtmlStack.resize(1);
+    }
     return 0;
 }
 
@@ -894,6 +903,40 @@ static bool HasOnlyAttributes(const HtmlTag& tag, std::initializer_list<std::str
     return true;
 }
 
+static InlineFormatting FormattingForSafeHtmlTag(std::string_view name) {
+    if (name == "kbd") return InlineFormatting::Keyboard;
+    if (name == "sub") return InlineFormatting::Subscript;
+    if (name == "sup") return InlineFormatting::Superscript;
+    return InlineFormatting::None;
+}
+
+static bool HandleSafeInlineHtmlTag(ParserContext& ctx, std::string_view html) {
+    const auto tag = ParseHtmlTag(html, 0);
+    if (!tag || tag->end != html.size() || tag->selfClosing || !HasOnlyAttributes(*tag, {})) {
+        return false;
+    }
+    const InlineFormatting addedFormatting = FormattingForSafeHtmlTag(tag->name);
+    if (addedFormatting == InlineFormatting::None) {
+        return false;
+    }
+    if (tag->closing) {
+        if (ctx.inlineHtmlStack.size() <= 1 || ctx.inlineHtmlStack.back().tagName != tag->name) {
+            return false;
+        }
+        ctx.inlineHtmlStack.pop_back();
+        return true;
+    }
+    if (ctx.inlineHtmlStack.size() >= kMaxMarkdownNestingDepth) {
+        ctx.failed = true;
+        return true;
+    }
+    ctx.inlineHtmlStack.push_back(ParserContext::InlineHtmlContext{
+        .tagName = tag->name,
+        .formatting = ctx.inlineHtmlStack.back().formatting | addedFormatting,
+    });
+    return true;
+}
+
 static void AppendHtmlRun(Block& block, InlineRun run) {
     if (run.kind == InlineKind::Text && run.text.empty()) {
         return;
@@ -929,12 +972,16 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
     position = root->end;
 
     std::vector<std::string> linkStack(1);
+    std::vector<std::pair<std::string, InlineFormatting>> formattingStack{
+        {std::string{}, InlineFormatting::None},
+    };
     bool closedRoot = false;
     while (position < html.size()) {
         if (html[position] != '<') {
             const size_t tagStart = html.find('<', position);
             const size_t textEnd = tagStart == std::string_view::npos ? html.size() : tagStart;
             AppendHtmlRun(block, InlineRun{
+                .formatting = formattingStack.back().second,
                 .text = DecodeHtmlText(html.substr(position, textEnd - position)),
                 .linkTarget = linkStack.back(),
             });
@@ -945,7 +992,7 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
         const auto tag = ParseHtmlTag(html, position);
         if (!tag) return std::nullopt;
         position = tag->end;
-        if (tag->closing && tag->name == root->name && linkStack.size() == 1) {
+        if (tag->closing && tag->name == root->name && linkStack.size() == 1 && formattingStack.size() == 1) {
             closedRoot = true;
             break;
         }
@@ -961,6 +1008,16 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
             }
             continue;
         }
+        const InlineFormatting addedFormatting = FormattingForSafeHtmlTag(tag->name);
+        if (addedFormatting != InlineFormatting::None && HasOnlyAttributes(*tag, {}) && !tag->selfClosing) {
+            if (tag->closing) {
+                if (formattingStack.size() <= 1 || formattingStack.back().first != tag->name) return std::nullopt;
+                formattingStack.pop_back();
+            } else {
+                formattingStack.push_back({tag->name, formattingStack.back().second | addedFormatting});
+            }
+            continue;
+        }
         if (!tag->closing && tag->name == "br" && HasOnlyAttributes(*tag, {})) {
             AppendHtmlRun(block, InlineRun{.kind = InlineKind::HardBreak});
             continue;
@@ -970,6 +1027,7 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
             if (source == tag->attributes.end() || !IsSafeHtmlReference(source->second, true)) return std::nullopt;
             const auto alt = tag->attributes.find("alt");
             AppendHtmlRun(block, InlineRun{
+                .formatting = formattingStack.back().second,
                 .kind = InlineKind::Image,
                 .text = alt == tag->attributes.end() ? std::string{} : DecodeHtmlText(alt->second),
                 .imageSource = source->second,
@@ -983,7 +1041,7 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
     }
 
     SkipHtmlWhitespace(html, position);
-    if (!closedRoot || position != html.size() || linkStack.size() != 1) {
+    if (!closedRoot || position != html.size() || linkStack.size() != 1 || formattingStack.size() != 1) {
         return std::nullopt;
     }
     if (!block.inlineRuns.empty() && block.inlineRuns.front().kind == InlineKind::Text) {
@@ -999,17 +1057,124 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
     return block;
 }
 
-static void ExpandSafeHtmlBlocks(std::vector<Block>& blocks) {
-    for (auto& block : blocks) {
+struct DetailsOpening {
+    std::vector<InlineRun> summaryRuns;
+    bool open = false;
+};
+
+static std::optional<DetailsOpening> ParseDetailsOpening(std::string_view html) {
+    size_t position = 0;
+    SkipHtmlWhitespace(html, position);
+    const auto details = ParseHtmlTag(html, position);
+    if (!details || details->closing || details->selfClosing || details->name != "details" ||
+        !HasOnlyAttributes(*details, {"open"})) {
+        return std::nullopt;
+    }
+    position = details->end;
+    SkipHtmlWhitespace(html, position);
+    const auto summary = ParseHtmlTag(html, position);
+    if (!summary || summary->closing || summary->selfClosing || summary->name != "summary" ||
+        !HasOnlyAttributes(*summary, {})) {
+        return std::nullopt;
+    }
+
+    const size_t summaryContentStart = summary->end;
+    const std::string loweredTail = LowerAscii(html.substr(summaryContentStart));
+    const size_t relativeClosingStart = loweredTail.find("</summary");
+    if (relativeClosingStart == std::string::npos) {
+        return std::nullopt;
+    }
+    const size_t closingStart = summaryContentStart + relativeClosingStart;
+    const auto closingSummary = ParseHtmlTag(html, closingStart);
+    if (!closingSummary || !closingSummary->closing || closingSummary->name != "summary" ||
+        !HasOnlyAttributes(*closingSummary, {})) {
+        return std::nullopt;
+    }
+    position = closingSummary->end;
+    SkipHtmlWhitespace(html, position);
+    if (position != html.size()) {
+        return std::nullopt;
+    }
+
+    const std::string summaryHtml = "<p>" +
+        std::string(html.substr(summaryContentStart, closingStart - summaryContentStart)) +
+        "</p>";
+    auto summaryBlock = ParseSafeHtmlBlock(summaryHtml);
+    if (!summaryBlock) {
+        return std::nullopt;
+    }
+    if (summaryBlock->inlineRuns.empty()) {
+        summaryBlock->inlineRuns.push_back(InlineRun{.text = "Details"});
+    }
+    for (auto& run : summaryBlock->inlineRuns) {
+        run.formatting |= InlineFormatting::Strong;
+    }
+    return DetailsOpening{
+        .summaryRuns = std::move(summaryBlock->inlineRuns),
+        .open = details->attributes.contains("open"),
+    };
+}
+
+static bool IsDetailsClosing(std::string_view html) {
+    size_t position = 0;
+    SkipHtmlWhitespace(html, position);
+    const auto tag = ParseHtmlTag(html, position);
+    if (!tag || !tag->closing || tag->name != "details" || !HasOnlyAttributes(*tag, {})) {
+        return false;
+    }
+    position = tag->end;
+    SkipHtmlWhitespace(html, position);
+    return position == html.size();
+}
+
+static void ExpandSafeHtmlBlocks(std::vector<Block>& blocks, size_t& nextDetailsId) {
+    for (size_t index = 0; index < blocks.size();) {
+        if (blocks[index].type == BlockType::RawHtml) {
+            if (auto opening = ParseDetailsOpening(blocks[index].rawHtml)) {
+                size_t depth = 1;
+                size_t closingIndex = index + 1;
+                for (; closingIndex < blocks.size(); ++closingIndex) {
+                    if (blocks[closingIndex].type != BlockType::RawHtml) {
+                        continue;
+                    }
+                    if (ParseDetailsOpening(blocks[closingIndex].rawHtml)) {
+                        ++depth;
+                    } else if (IsDetailsClosing(blocks[closingIndex].rawHtml) && --depth == 0) {
+                        break;
+                    }
+                }
+                if (closingIndex < blocks.size()) {
+                    Block details;
+                    details.type = BlockType::Details;
+                    details.inlineRuns = std::move(opening->summaryRuns);
+                    details.detailsId = nextDetailsId++;
+                    details.detailsOpen = opening->open;
+                    details.children.reserve(closingIndex - index - 1);
+                    for (size_t childIndex = index + 1; childIndex < closingIndex; ++childIndex) {
+                        details.children.push_back(std::move(blocks[childIndex]));
+                    }
+                    ExpandSafeHtmlBlocks(details.children, nextDetailsId);
+                    blocks.erase(blocks.begin() + static_cast<std::ptrdiff_t>(index),
+                                 blocks.begin() + static_cast<std::ptrdiff_t>(closingIndex + 1));
+                    blocks.insert(blocks.begin() + static_cast<std::ptrdiff_t>(index), std::move(details));
+                    ++index;
+                    continue;
+                }
+            }
+        }
+
+        Block& block = blocks[index];
         if (!block.children.empty()) {
-            ExpandSafeHtmlBlocks(block.children);
+            ExpandSafeHtmlBlocks(block.children, nextDetailsId);
         }
-        if (block.type != BlockType::RawHtml) continue;
-        if (auto parsed = ParseSafeHtmlBlock(block.rawHtml)) {
-            block = std::move(*parsed);
-        } else {
-            block.inlineRuns = {InlineRun{.text = block.rawHtml}};
+        if (block.type == BlockType::RawHtml) {
+            if (auto parsed = ParseSafeHtmlBlock(block.rawHtml)) {
+                block = std::move(*parsed);
+            } else {
+                block.inlineRuns = {InlineRun{.text = block.rawHtml}};
+            }
         }
+        ++index;
     }
 }
 
@@ -1113,6 +1278,8 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
             const std::string lowered = LowerAscii(std::string_view(text, size));
             if (lowered == "<br>" || lowered == "<br/>" || lowered == "<br />") {
                 kind = InlineKind::HardBreak;
+            } else if (HandleSafeInlineHtmlTag(*ctx, std::string_view(text, size))) {
+                return ctx->failed ? 1 : 0;
             } else {
                 str.assign(text, size);
             }
@@ -1131,7 +1298,8 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
     if (!currentBlock->inlineRuns.empty() &&
         kind != InlineKind::SoftBreak &&
         kind != InlineKind::HardBreak &&
-        currentBlock->inlineRuns.back().formatting == ctx->formattingStack.back() &&
+        currentBlock->inlineRuns.back().formatting ==
+            (ctx->formattingStack.back() | ctx->inlineHtmlStack.back().formatting) &&
         currentBlock->inlineRuns.back().kind == kind &&
         currentBlock->inlineRuns.back().syntaxRole == SyntaxRole::None &&
         currentBlock->inlineRuns.back().imageSource == (image.active ? image.source : std::string{}) &&
@@ -1139,7 +1307,7 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
         currentBlock->inlineRuns.back().text += str;
     } else {
         currentBlock->inlineRuns.push_back(InlineRun{
-            .formatting = ctx->formattingStack.back(),
+            .formatting = ctx->formattingStack.back() | ctx->inlineHtmlStack.back().formatting,
             .kind = kind,
             .syntaxRole = SyntaxRole::None,
             .text = std::move(str),
@@ -1206,7 +1374,8 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
         return {};
     }
 
-    ExpandSafeHtmlBlocks(ctx.doc.blocks);
+    size_t nextDetailsId = 1;
+    ExpandSafeHtmlBlocks(ctx.doc.blocks, nextDetailsId);
     ExpandGithubAlerts(ctx.doc.blocks);
     if (frontMatter) {
         Block metadata = MakeMetadataBlock(*frontMatter);

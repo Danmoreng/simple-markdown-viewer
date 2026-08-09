@@ -43,6 +43,8 @@ struct BlockLayout {
     char orderedListDelimiter = '.';
     std::string codeLanguage;
     std::string metadataFormat;
+    size_t detailsId = 0;
+    bool detailsOpen = false;
     syntax::HighlightStatus codeHighlightStatus = syntax::HighlightStatus::NotRequested;
     float codeContentWidth = 0.0f;
     float codeViewportWidth = 0.0f;

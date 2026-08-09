@@ -32,6 +32,7 @@ enum class BlockType {
     TableHeaderCell,
     TableCell,
     Metadata,
+    Details,
     RawHtml
 };
 
@@ -41,6 +42,9 @@ enum class InlineFormatting : uint8_t {
     Strong = 1 << 1,
     Code = 1 << 2,
     Strikethrough = 1 << 3,
+    Keyboard = 1 << 4,
+    Subscript = 1 << 5,
+    Superscript = 1 << 6,
 };
 
 constexpr InlineFormatting operator|(InlineFormatting left, InlineFormatting right) {
@@ -121,6 +125,8 @@ struct Block {
     char orderedListDelimiter = '.';
     std::string codeLanguage;
     std::string metadataFormat;
+    size_t detailsId = 0;
+    bool detailsOpen = false;
     std::string rawHtml;
     std::vector<InlineRun> inlineRuns;
     std::vector<Block> children; // For nested blocks like lists

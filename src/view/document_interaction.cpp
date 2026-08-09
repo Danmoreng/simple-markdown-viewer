@@ -7,6 +7,19 @@
 namespace mdviewer {
 namespace {
 
+bool ToggleDetailsInBlocks(std::vector<Block>& blocks, size_t detailsId) {
+    for (auto& block : blocks) {
+        if (block.type == BlockType::Details && block.detailsId == detailsId) {
+            block.detailsOpen = !block.detailsOpen;
+            return true;
+        }
+        if (ToggleDetailsInBlocks(block.children, detailsId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string ToLowerAscii(std::string text) {
     for (char& ch : text) {
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -123,6 +136,10 @@ void FindLineForTextPosition(
 }
 
 } // namespace
+
+bool ToggleDetailsBlock(DocumentModel& document, size_t detailsId) {
+    return detailsId != 0 && ToggleDetailsInBlocks(document.blocks, detailsId);
+}
 
 size_t GetSelectionStart(const AppState& appState) {
     return std::min(appState.selectionAnchor, appState.selectionFocus);

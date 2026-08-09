@@ -295,28 +295,28 @@ Currently supported image behavior:
 SVG rendering uses Skia's browser-free SVG module and does not load external
 resources. Embedded HTML/CSS through SVG `<foreignObject>` is not supported;
 exports from tools such as tldraw should convert text to SVG paths/text or use a
-raster README image. Remote images are not loaded.
-
-Future image features may include opening or copying an image, revealing its
-path, and a single-window lightbox.
+raster README image. Remote images are not loaded. Users can open an image
+explicitly through its context action, but an in-app lightbox and opt-in remote
+fetching are intentionally out of scope.
 
 Security and privacy considerations:
 
-- Remote image loading can leak network information. A read-only viewer should offer a clear setting for remote content.
+- Remote image loading can leak network information, so the viewer retains native placeholders instead of adding an internal network setting.
 - SVG can contain active or external content depending on renderer behavior. Treat it carefully.
 
 ### 5.8 Raw HTML in Markdown
 
 Many Markdown files contain embedded HTML. The viewer implements a small native
 allowlist rather than browser-compatible HTML. Centered paragraphs and headings,
-links, local images with width/height hints, and `<br>` are translated into the
-same document model used by Markdown. Unknown or unsafe fragments remain visible
-as source.
+links, local images with width/height hints, `<br>`, `<kbd>`, `<sub>`, `<sup>`,
+and interactive `<details>` / `<summary>` blocks are translated into the same
+document model used by Markdown. Unknown or unsafe fragments remain visible as
+source.
 
 Planned user-facing behavior:
 
-- Already render `<br>`, `<a>`, and `<img>` plus aligned `<p>` and `<h1>`-`<h6>` blocks.
-- Consider `<kbd>`, `<sub>`, `<sup>`, `<details>`, and `<summary>` as later allowlist extensions.
+- Render `<br>`, `<a>`, and `<img>` plus aligned `<p>` and `<h1>`-`<h6>` blocks.
+- Render `<kbd>`, `<sub>`, and `<sup>` inline and native collapsible `<details>` / `<summary>` blocks, including the safe `open` attribute.
 - Render common block tags such as `<table>` only if safe and consistent.
 - Never execute scripts, event handlers, iframes, external embeds, or unsafe
   attributes.
@@ -351,8 +351,10 @@ This is easy to miss because many viewers are tested mostly with README files, w
 
 Footnotes are common in documentation and writing workflows.
 
-Footnotes are not currently supported and remain a high-value GitHub
-compatibility addition.
+Footnotes are not currently supported. The pinned md4c parser has no footnote
+extension, and the viewer deliberately avoids a separate source-preprocessing
+dialect that could misread fenced code or nested Markdown. Revisit this only if
+the parser gains suitable native support or the parser strategy changes.
 
 Desired features:
 
@@ -925,7 +927,8 @@ code. The most important remaining quality work is:
    scrolling, and safely wrap long unbroken tokens.
 4. Completed for the common GitHub header pattern: implement a strict native
    HTML subset for aligned paragraphs/headings, links, images, and line breaks.
-5. GitHub alerts are complete; add front matter and footnotes.
+5. Completed: GitHub alerts and front matter. Footnotes are explicitly deferred
+   until suitable parser support exists.
 6. Treat math and diagrams as optional enhancements with source fallback.
 
 ## 16. Highest-Value Usability Perks
@@ -935,8 +938,7 @@ copy, internal local links, link hover previews, recent files, runtime fonts,
 reader zoom, themes, PDF export, and Windows live reload/printing.
 
 The highest-value remaining usability work is Linux runtime validation and parity,
-remaining HTML extensions, remembered per-file scroll positions, manual reload,
-broken-resource feedback, keyboard focus/accessibility, system/high-contrast themes,
+keyboard focus/accessibility, system/high-contrast themes, search refinements,
 and print/export polish.
 
 ## 17. Easy-to-Miss Features and Edge Cases

@@ -134,6 +134,7 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
     hit.imageSource = hitTest.imageSource;
     hit.tableTsv = hitTest.tableTsv;
     hit.tableCsv = hitTest.tableCsv;
+    hit.detailsToggleId = hitTest.detailsToggleId;
     return hit;
 }
 
@@ -147,6 +148,7 @@ InteractionTextHit ToInteractionHit(const DocumentTextHit& hit) {
         .imageSource = hit.imageSource,
         .tableTsv = hit.tableTsv,
         .tableCsv = hit.tableCsv,
+        .detailsToggleId = hit.detailsToggleId,
     };
 }
 
@@ -509,6 +511,27 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
                 SetTimer(hwnd, context.copiedFeedbackTimerId, 2000, nullptr);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
+            return true;
+        }
+    }
+
+    if (hit.detailsToggleId != 0) {
+        bool toggled = false;
+        {
+            std::lock_guard<std::mutex> detailsLock(GetAppState(context.host).mtx);
+            AppState& appState = GetAppState(context.host);
+            toggled = ToggleDetailsBlock(appState.docModel, hit.detailsToggleId);
+            if (toggled) {
+                appState.selectionAnchor = appState.selectionFocus;
+            }
+        }
+        if (toggled) {
+            RelayoutCurrentDocument(hwnd, context.host);
+            {
+                std::lock_guard<std::mutex> detailsLock(GetAppState(context.host).mtx);
+                RebuildSearchMatches(GetAppState(context.host));
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
             return true;
         }
     }

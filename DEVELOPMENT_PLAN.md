@@ -105,6 +105,8 @@ Goal: make link behavior predictable, inspectable, and safer.
 
 Goal: improve fidelity for real-world documentation without turning the app into a browser.
 
+Status: complete.
+
 - [x] Pass original Markdown bytes to md4c without a preprocessing pass that can mutate fenced code.
 - [x] Represent emphasis, strong, inline code, and strikethrough as combinable flags independent of links, images, and syntax roles.
 - [x] Preserve soft and hard breaks separately; render/copy/search soft breaks as whitespace and hard breaks as explicit newlines.
@@ -113,15 +115,17 @@ Goal: improve fidelity for real-world documentation without turning the app into
 - [x] Decide whether front matter is shown, collapsed, or hidden by default: show title, author, date, and tags in a compact bar; hide other raw fields.
 - [x] Add a deliberate raw HTML policy: render a narrow browser-free allowlist and retain unsupported input as visible source.
 - [x] Support GitHub-style `<p>` and `<h1>`-`<h6>` alignment plus native `<a>`, `<img>`, and `<br>` rendering, including requested image dimensions.
-- [ ] Extend the safe subset where useful with `<kbd>`, `<sub>`, `<sup>`, `<details>`, and `<summary>`.
+- [x] Extend the safe subset with native `<kbd>`, `<sub>`, `<sup>`, and interactive `<details>` / `<summary>` rendering.
 - [x] Show unsupported or unsafe HTML such as scripts, event handlers, iframes, arbitrary attributes, and external embeds as source without executing it.
-- [ ] Add footnote rendering and reference/back-reference navigation if the parser support is sufficient.
+- [x] Decide footnote support: defer it because the pinned md4c parser has no footnote extension; do not add a fragile source-preprocessing dialect.
 - [x] Render GitHub-style `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and `[!CAUTION]` alerts with native colors, titles, and icons.
 - [x] Expand recognized Markdown-related extensions with `.mdown` and `.mkd`; defer `.mdx` until an explicit partial/fallback mode is designed.
 
 ## Milestone 5: Tables, Images, and Copy Fidelity
 
 Goal: polish the most visible rendering and copy edge cases.
+
+Status: complete.
 
 - [x] Keep fenced-code source lines intact, clip them to the block, and provide per-block horizontal scrollbars plus Shift+wheel/touchpad scrolling.
 - [x] Reduce document-side padding responsively below a 900 px content viewport, reaching compact 12 px margins at 480 px and below.
@@ -130,9 +134,9 @@ Goal: polish the most visible rendering and copy edge cases.
 - [x] Add table context actions for copying as TSV or CSV.
 - [x] Wrap very long unbroken strings and URLs at valid UTF-8 boundaries instead of letting them escape the document viewport.
 - [x] Add image context menu actions for open image, copy image path, and open image in the file manager.
-- [ ] Add an image zoom or lightbox view if it can stay within the single-window viewer model.
+- [x] Decide image lightbox support: out of scope; rendered images already expose explicit open-image behavior without another in-app viewing mode.
 - [x] Decide remote image policy: never fetch remote images automatically; show a labeled native placeholder instead.
-- [ ] Optionally support opt-in remote image loading behind a clear setting.
+- [x] Decide opt-in remote image loading: out of scope; retain privacy-preserving placeholders and explicit external open-image actions.
 - [x] Render constrained local SVG through Skia without external resources; document that embedded HTML `<foreignObject>` content is unsupported.
 
 ## Milestone 6: Search and Keyboard Usability

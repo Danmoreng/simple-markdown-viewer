@@ -1029,6 +1029,87 @@ void SafeHtmlSubset() {
 
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+
+    const mdviewer::DocumentModel inlineSemantics = mdviewer::MarkdownParser::Parse(
+        "Press <kbd>Ctrl</kbd>+<kbd>K</kbd>; H<sub>2</sub>O and x<sup>2</sup>.\n\n"
+        "<p>Block HTML also supports <kbd>Enter</kbd>, H<sub>2</sub>O, and x<sup>2</sup>.</p>\n");
+    RequireEqual(inlineSemantics.blocks.size(), static_cast<size_t>(2),
+                 "safe inline HTML semantics should work in Markdown and allowlisted HTML blocks");
+    const auto hasFormatting = [](const mdviewer::Block& block, mdviewer::InlineFormatting formatting) {
+        return std::any_of(block.inlineRuns.begin(), block.inlineRuns.end(), [&](const auto& run) {
+            return mdviewer::HasFormatting(run.formatting, formatting);
+        });
+    };
+    for (const auto& block : inlineSemantics.blocks) {
+        Require(hasFormatting(block, mdviewer::InlineFormatting::Keyboard), "kbd should become native keyboard formatting");
+        Require(hasFormatting(block, mdviewer::InlineFormatting::Subscript), "sub should become native subscript formatting");
+        Require(hasFormatting(block, mdviewer::InlineFormatting::Superscript), "sup should become native superscript formatting");
+    }
+    const mdviewer::DocumentModel unsafeInline = mdviewer::MarkdownParser::Parse(
+        "Unsafe <kbd onclick=\"run()\">key</kbd> remains source.\n");
+    Require(MergeInlineRunText(unsafeInline.blocks[0].inlineRuns).find("onclick") != std::string::npos,
+            "attributes on safe inline tags should keep the unsupported source visible");
+
+    mdviewer::DocumentModel details = mdviewer::MarkdownParser::Parse(
+        "<details>\n"
+        "<summary>Advanced details</summary>\n\n"
+        "Hidden **content**.\n\n"
+        "</details>\n\n"
+        "<details open>\n"
+        "<summary>Visible section</summary>\n\n"
+        "Visible body.\n\n"
+        "</details>\n");
+    RequireEqual(details.blocks.size(), static_cast<size_t>(2), "details containers should become native blocks");
+    Require(details.blocks[0].type == mdviewer::BlockType::Details && !details.blocks[0].detailsOpen,
+            "details without open should start collapsed");
+    Require(details.blocks[1].type == mdviewer::BlockType::Details && details.blocks[1].detailsOpen,
+            "the safe open attribute should expand details by default");
+    Require(details.blocks[0].detailsId != 0 && details.blocks[0].detailsId != details.blocks[1].detailsId,
+            "details blocks should receive stable per-document interaction IDs");
+    Require(!details.blocks[0].children.empty() && !details.blocks[1].children.empty(),
+            "Markdown inside details should remain native child blocks");
+
+    const auto closedDetailsLayout = mdviewer::LayoutEngine::ComputeLayout(
+        details, 700.0f, typeface.get(), 17.0f);
+    Require(closedDetailsLayout.plainText.find("Hidden content") == std::string::npos,
+            "collapsed details content should not participate in search and copy text");
+    Require(closedDetailsLayout.plainText.find("Visible body") != std::string::npos,
+            "open details content should participate in search and copy text");
+    Require(closedDetailsLayout.blocks[0].children.empty(),
+            "collapsed details should omit child layout");
+    Require(!closedDetailsLayout.blocks[1].children.empty(),
+            "open details should retain child layout");
+
+    const size_t collapsedId = details.blocks[0].detailsId;
+    Require(mdviewer::ToggleDetailsBlock(details, collapsedId), "details should toggle through the shared interaction helper");
+    const auto openedDetailsLayout = mdviewer::LayoutEngine::ComputeLayout(
+        details, 700.0f, typeface.get(), 17.0f);
+    Require(openedDetailsLayout.plainText.find("Hidden content") != std::string::npos,
+            "opening details should expose its native child content");
+    const auto& detailsLayoutBlock = openedDetailsLayout.blocks[0];
+    const float detailsSummaryBottom = detailsLayoutBlock.lines.back().y +
+        detailsLayoutBlock.lines.back().height + 5.0f;
+    Require(detailsLayoutBlock.children.front().bounds.top() - detailsSummaryBottom >= 12.0f,
+            "open details should leave clear padding between summary and body content");
+    Require(detailsLayoutBlock.bounds.bottom() - detailsLayoutBlock.children.back().bounds.bottom() >= 15.0f,
+            "open details card should include bottom padding below its body content");
+    mdviewer::HitTestCallbacks detailsCallbacks;
+    detailsCallbacks.get_run_visual_width = [](const auto&, const auto&, const auto& run) {
+        return run.visualWidth > 0.0f ? run.visualWidth : 120.0f;
+    };
+    detailsCallbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) {
+        return run.textStart;
+    };
+    const auto detailsHit = mdviewer::HitTestDocument(
+        openedDetailsLayout,
+        0.0f,
+        30.0f,
+        detailsLayoutBlock.bounds.left() + 8.0f,
+        detailsLayoutBlock.bounds.top() + 35.0f,
+        detailsCallbacks);
+    RequireEqual(detailsHit.detailsToggleId, collapsedId,
+                 "clicking a details summary should expose its toggle ID through shared hit testing");
+
     const auto layout = mdviewer::LayoutEngine::ComputeLayout(
         document,
         900.0f,

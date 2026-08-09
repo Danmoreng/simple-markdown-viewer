@@ -19,6 +19,7 @@
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
+#include "include/core/SkRRect.h"
 #include "include/core/SkSamplingOptions.h"
 #pragma warning(pop)
 
@@ -406,7 +407,8 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
         const size_t highlightStart = std::max(selectionStart, runStart) - runStart;
         const size_t highlightEnd = std::min(selectionEnd, runEnd) - runStart;
         const bool isCodeText = block.type == BlockType::CodeBlock ||
-            HasFormatting(run.formatting, InlineFormatting::Code);
+            HasFormatting(run.formatting, InlineFormatting::Code) ||
+            HasFormatting(run.formatting, InlineFormatting::Keyboard);
         const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
         const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
         const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
@@ -445,6 +447,24 @@ void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams&
                 4.0f,
                 chipPaint);
         }
+        if (HasFormatting(run.formatting, InlineFormatting::Keyboard) && !run.text.empty()) {
+            const SkRect keyRect = SkRect::MakeLTRB(
+                currentX - 3.0f,
+                line.y + 2.0f,
+                currentX + advance + 3.0f,
+                line.y + line.height - 2.0f);
+            SkPaint keyPaint;
+            keyPaint.setAntiAlias(true);
+            keyPaint.setColor(params.palette.codeInlineBackground);
+            ctx.canvas->drawRoundRect(keyRect, 3.0f, 3.0f, keyPaint);
+
+            SkPaint keyBorderPaint;
+            keyBorderPaint.setAntiAlias(true);
+            keyBorderPaint.setStyle(SkPaint::kStroke_Style);
+            keyBorderPaint.setStrokeWidth(1.0f);
+            keyBorderPaint.setColor(params.palette.tableBorder);
+            ctx.canvas->drawRoundRect(keyRect, 3.0f, 3.0f, keyBorderPaint);
+        }
 
         currentX += advance;
     }
@@ -481,7 +501,8 @@ void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, co
             }
 
             const bool isCodeText = block.type == BlockType::CodeBlock ||
-                HasFormatting(run.formatting, InlineFormatting::Code);
+                HasFormatting(run.formatting, InlineFormatting::Code) ||
+                HasFormatting(run.formatting, InlineFormatting::Keyboard);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
             const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
             const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
@@ -534,7 +555,8 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
             }
 
             const bool isCodeText = block.type == BlockType::CodeBlock ||
-                HasFormatting(run.formatting, InlineFormatting::Code);
+                HasFormatting(run.formatting, InlineFormatting::Code) ||
+                HasFormatting(run.formatting, InlineFormatting::Keyboard);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
             const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
             const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
@@ -564,6 +586,72 @@ void DrawBlockDecoration(
     unsigned parentOrderedListStart,
     char parentOrderedListDelimiter,
     size_t siblingIndex) {
+    if (block.type == BlockType::Details && !block.lines.empty()) {
+        const float summaryBottom = block.lines.back().y + block.lines.back().height + 5.0f;
+        const SkRect cardRect = block.bounds;
+        const SkRect summaryRect = SkRect::MakeLTRB(
+            block.bounds.left(),
+            block.bounds.top(),
+            block.bounds.right(),
+            summaryBottom);
+
+        SkPaint cardPaint;
+        cardPaint.setAntiAlias(true);
+        cardPaint.setColor(params.palette.tableCellBackground);
+        ctx.canvas->drawRoundRect(cardRect, 6.0f, 6.0f, cardPaint);
+
+        SkPaint summaryPaint;
+        summaryPaint.setAntiAlias(true);
+        summaryPaint.setColor(params.palette.menuSelectedBackground);
+        summaryPaint.setAlphaf(0.52f);
+        if (block.detailsOpen) {
+            const SkVector radii[] = {
+                {6.0f, 6.0f},
+                {6.0f, 6.0f},
+                {0.0f, 0.0f},
+                {0.0f, 0.0f},
+            };
+            SkRRect summaryShape;
+            summaryShape.setRectRadii(summaryRect, radii);
+            ctx.canvas->drawRRect(summaryShape, summaryPaint);
+        } else {
+            ctx.canvas->drawRoundRect(summaryRect, 6.0f, 6.0f, summaryPaint);
+        }
+
+        SkPaint cardBorderPaint;
+        cardBorderPaint.setAntiAlias(true);
+        cardBorderPaint.setStyle(SkPaint::kStroke_Style);
+        cardBorderPaint.setStrokeWidth(1.0f);
+        cardBorderPaint.setColor(params.palette.tableBorder);
+        ctx.canvas->drawRoundRect(cardRect, 6.0f, 6.0f, cardBorderPaint);
+        if (block.detailsOpen) {
+            ctx.canvas->drawLine(
+                summaryRect.left(),
+                summaryRect.bottom() - 0.5f,
+                summaryRect.right(),
+                summaryRect.bottom() - 0.5f,
+                cardBorderPaint);
+        }
+
+        SkPaint chevronPaint;
+        chevronPaint.setAntiAlias(true);
+        chevronPaint.setColor(params.palette.bodyText);
+        chevronPaint.setStyle(SkPaint::kStroke_Style);
+        chevronPaint.setStrokeWidth(2.0f);
+        chevronPaint.setStrokeCap(SkPaint::kRound_Cap);
+        chevronPaint.setStrokeJoin(SkPaint::kRound_Join);
+        const float centerX = block.bounds.left() + 14.0f;
+        const float centerY = summaryRect.centerY();
+        if (block.detailsOpen) {
+            ctx.canvas->drawLine(centerX - 4.0f, centerY - 2.0f, centerX, centerY + 2.0f, chevronPaint);
+            ctx.canvas->drawLine(centerX, centerY + 2.0f, centerX + 4.0f, centerY - 2.0f, chevronPaint);
+        } else {
+            ctx.canvas->drawLine(centerX - 2.0f, centerY - 4.0f, centerX + 2.0f, centerY, chevronPaint);
+            ctx.canvas->drawLine(centerX + 2.0f, centerY, centerX - 2.0f, centerY + 4.0f, chevronPaint);
+        }
+        return;
+    }
+
     if (block.type == BlockType::Metadata) {
         SkPaint rulePaint;
         rulePaint.setAntiAlias(true);
@@ -754,7 +842,12 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
 
         const float textAdvance = MeasureTextWithFallback(params.typefaces, ctx.font, run.text.c_str(), run.text.size());
         const float advance = run.visualWidth > 0.0f ? run.visualWidth : textAdvance;
-        const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
+        float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
+        if (HasFormatting(run.formatting, InlineFormatting::Superscript)) {
+            baselineY -= ctx.font.getSize() * 0.38f;
+        } else if (HasFormatting(run.formatting, InlineFormatting::Subscript)) {
+            baselineY += ctx.font.getSize() * 0.2f;
+        }
 
         if (run.kind == InlineKind::Image && !run.imageSource.empty()) {
             const float displayW = run.imageWidth;
@@ -1516,7 +1609,8 @@ void ConfigureDocumentFont(
     InlineFormatting formatting,
     float baseFontSize) {
     const bool isCode = blockType == BlockType::CodeBlock ||
-        HasFormatting(formatting, InlineFormatting::Code);
+        HasFormatting(formatting, InlineFormatting::Code) ||
+        HasFormatting(formatting, InlineFormatting::Keyboard);
     const bool isHeading = IsHeadingBlock(blockType);
     const bool isStrong = HasFormatting(formatting, InlineFormatting::Strong) ||
         blockType == BlockType::TableHeaderCell;
@@ -1526,6 +1620,13 @@ void ConfigureDocumentFont(
         isCode
             ? GetBlockFontSize(BlockType::CodeBlock, baseFontSize)
             : GetBlockFontSize(blockType, baseFontSize));
+    if (HasFormatting(formatting, InlineFormatting::Keyboard)) {
+        font.setSize(font.getSize() * 0.9f);
+    }
+    if (HasFormatting(formatting, InlineFormatting::Subscript) ||
+        HasFormatting(formatting, InlineFormatting::Superscript)) {
+        font.setSize(font.getSize() * 0.78f);
+    }
     font.setSubpixel(!isHeading);
     font.setHinting(SkFontHinting::kSlight);
     font.setEdging(isHeading ? SkFont::Edging::kAntiAlias : SkFont::Edging::kSubpixelAntiAlias);
@@ -1556,7 +1657,8 @@ SkColor GetDocumentTextColor(
         case SyntaxRole::Punctuation: return palette.syntaxPunctuation;
         default: break;
     }
-    if (HasFormatting(formatting, InlineFormatting::Code)) {
+    if (HasFormatting(formatting, InlineFormatting::Code) ||
+        HasFormatting(formatting, InlineFormatting::Keyboard)) {
         return palette.codeText;
     }
     if (isLink) {

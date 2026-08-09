@@ -47,6 +47,11 @@ constexpr float kMetadataTagPaddingX = 8.0f;
 constexpr float kMetadataTagGap = 6.0f;
 constexpr float kMetadataSeparatorPaddingX = 9.0f;
 constexpr float kMetadataDividerWidth = 18.0f;
+constexpr float kDetailsSummaryPaddingY = 5.0f;
+constexpr float kDetailsSummaryIndent = 28.0f;
+constexpr float kDetailsContentIndent = 20.0f;
+constexpr float kDetailsContentPaddingTop = 18.0f;
+constexpr float kDetailsContentPaddingBottom = 8.0f;
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
@@ -224,6 +229,8 @@ public:
             bl.orderedListDelimiter = block.orderedListDelimiter;
             bl.codeLanguage = block.codeLanguage;
             bl.metadataFormat = block.metadataFormat;
+            bl.detailsId = block.detailsId;
+            bl.detailsOpen = block.detailsOpen;
             bl.textStart = currentTextOffset;
 
             float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
@@ -263,6 +270,10 @@ public:
                 contentWidth = std::max(contentWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
             } else if (block.type == BlockType::Metadata) {
                 currentY += kMetadataPaddingY;
+            } else if (block.type == BlockType::Details) {
+                currentY += kDetailsSummaryPaddingY;
+                contentLeft += kDetailsSummaryIndent;
+                contentWidth = std::max(contentWidth - kDetailsSummaryIndent, 1.0f);
             }
 
             if (IsHeading(block.type)) {
@@ -308,8 +319,18 @@ public:
                     bl.horizontalScrollOwnerTextStart = bl.textStart;
                 }
 
-                if (!block.children.empty()) {
-                    LayoutBlocks(block.children, bl.children, blockIndent + 20.0f, bl.alertKind);
+                if (!block.children.empty() && (block.type != BlockType::Details || block.detailsOpen)) {
+                    if (block.type == BlockType::Details) {
+                        currentY += kDetailsContentPaddingTop;
+                        if (currentTextOffset > bl.textStart && !plainText.empty() && plainText.back() != '\n') {
+                            AppendPlainTextSeparator('\n');
+                        }
+                    }
+                    LayoutBlocks(
+                        block.children,
+                        bl.children,
+                        blockIndent + (block.type == BlockType::Details ? kDetailsContentIndent : 20.0f),
+                        bl.alertKind);
                 }
             }
 
@@ -320,6 +341,10 @@ public:
                 if (currentTextOffset > bl.textStart && !plainText.empty() && plainText.back() != '\n') {
                     AppendPlainTextSeparator('\n');
                 }
+            } else if (block.type == BlockType::Details) {
+                currentY += block.detailsOpen
+                    ? kDetailsContentPaddingBottom
+                    : kDetailsSummaryPaddingY;
             }
 
             bl.bounds = SkRect::MakeXYWH(blockLeft, blockTop, blockWidth, currentY - blockTop);
@@ -675,10 +700,18 @@ private:
     }
 
     void ConfigureInlineFont(BlockType blockType, InlineFormatting formatting) {
-        const BlockType fontBlockType = HasFormatting(formatting, InlineFormatting::Code)
+        const BlockType fontBlockType = HasFormatting(formatting, InlineFormatting::Code) ||
+            HasFormatting(formatting, InlineFormatting::Keyboard)
             ? BlockType::CodeBlock
             : blockType;
         font.setSize(GetBlockFontSize(fontBlockType, baseFontSize) * activeFontScale);
+        if (HasFormatting(formatting, InlineFormatting::Keyboard)) {
+            font.setSize(font.getSize() * 0.9f);
+        }
+        if (HasFormatting(formatting, InlineFormatting::Subscript) ||
+            HasFormatting(formatting, InlineFormatting::Superscript)) {
+            font.setSize(font.getSize() * 0.78f);
+        }
         font.setEmbolden(HasFormatting(formatting, InlineFormatting::Strong));
         font.setSkewX(HasFormatting(formatting, InlineFormatting::Emphasis) ? -0.18f : 0.0f);
     }

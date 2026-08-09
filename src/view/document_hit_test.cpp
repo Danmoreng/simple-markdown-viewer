@@ -61,6 +61,25 @@ const BlockLayout* FindTableAtPoint(
     return nullptr;
 }
 
+size_t FindDetailsToggleAtPoint(
+    const std::vector<BlockLayout>& blocks,
+    float x,
+    float documentY) {
+    for (const auto& block : blocks) {
+        if (block.type == BlockType::Details && block.detailsId != 0 && !block.lines.empty()) {
+            const float summaryBottom = block.lines.back().y + block.lines.back().height + 5.0f;
+            if (x >= block.bounds.left() && x <= block.bounds.right() &&
+                documentY >= block.bounds.top() && documentY <= summaryBottom) {
+                return block.detailsId;
+            }
+        }
+        if (const size_t nested = FindDetailsToggleAtPoint(block.children, x, documentY); nested != 0) {
+            return nested;
+        }
+    }
+    return 0;
+}
+
 DocumentTextHit HitTestLine(
     const BlockLayout& block,
     const LineLayout& line,
@@ -127,6 +146,7 @@ DocumentTextHit HitTestDocument(
 
     const float documentY = (viewportY - contentTopInset) + scrollOffset;
     const BlockLayout* table = FindTableAtPoint(layout.blocks, x, documentY);
+    const size_t detailsToggleId = FindDetailsToggleAtPoint(layout.blocks, x, documentY);
     ClosestLine closest;
     FindClosestLine(layout.blocks, documentY, closest);
     if (closest.block == nullptr || closest.line == nullptr) {
@@ -142,6 +162,7 @@ DocumentTextHit HitTestDocument(
         hit.tableTsv = table->tableTsv;
         hit.tableCsv = table->tableCsv;
     }
+    hit.detailsToggleId = detailsToggleId;
     return hit;
 }
 
