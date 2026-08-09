@@ -243,7 +243,14 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
                 hwnd,
                 app.Interaction(),
                 GET_WHEEL_DELTA_WPARAM(wParam),
-                (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0);
+                (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0,
+                (GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) != 0);
+            return 0;
+        case WM_MOUSEHWHEEL:
+            HandleHorizontalMouseWheel(
+                hwnd,
+                app.Interaction(),
+                GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
         case WM_KEYDOWN:
             if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && wParam == 'P') {

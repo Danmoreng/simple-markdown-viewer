@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -13,6 +14,14 @@
 #include "view/scroll_anchor.h"
 
 namespace mdviewer {
+
+struct CodeBlockScrollbarRegion {
+    SkRect viewportRect = SkRect::MakeEmpty();
+    SkRect trackRect = SkRect::MakeEmpty();
+    SkRect thumbRect = SkRect::MakeEmpty();
+    size_t blockTextStart = 0;
+    float maxScroll = 0.0f;
+};
 
 struct AppState {
     std::filesystem::path currentFilePath;
@@ -65,6 +74,11 @@ struct AppState {
     
     // Maps code block button regions to the range of text in that code block
     std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;
+    std::unordered_map<size_t, float> codeBlockScrollOffsets;
+    std::vector<CodeBlockScrollbarRegion> codeBlockScrollbars;
+    bool isDraggingCodeBlockScrollbar = false;
+    size_t draggingCodeBlockTextStart = 0;
+    float codeBlockScrollbarDragOffset = 0.0f;
 
     mutable std::mutex mtx;
 
@@ -140,6 +154,11 @@ struct AppState {
         pendingLinkPressY = 0;
         pendingLinkUrl.clear();
         codeBlockButtons.clear();
+        codeBlockScrollOffsets.clear();
+        codeBlockScrollbars.clear();
+        isDraggingCodeBlockScrollbar = false;
+        draggingCodeBlockTextStart = 0;
+        codeBlockScrollbarDragOffset = 0.0f;
     }
 };
 

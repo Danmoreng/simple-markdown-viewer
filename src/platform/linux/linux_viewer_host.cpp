@@ -162,8 +162,12 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
     params.addCodeBlockButton = [&appState](const SkRect& rect, size_t start, size_t end) {
         appState.codeBlockButtons.push_back({rect, {start, end}});
     };
+    params.addCodeBlockScrollbar = [&appState](const CodeBlockScrollbarRegion& region) {
+        appState.codeBlockScrollbars.push_back(region);
+    };
 
     appState.codeBlockButtons.clear();
+    appState.codeBlockScrollbars.clear();
     SyncOutlineScrollToDocument(appState, static_cast<float>(height), GetContentTopInset());
     RenderDocumentScene(params);
 

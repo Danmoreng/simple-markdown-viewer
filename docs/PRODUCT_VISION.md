@@ -231,10 +231,10 @@ Currently supported code block features:
 - Supported aliases for C, C++, JavaScript, TypeScript, TSX, JSON, Python, Bash,
   Rust, Go, and C#.
 - Graceful fallback for unknown languages.
+- Preserved source lines with clipped, per-block horizontal scrolling for long code.
 
-Remaining work includes a deliberate long-line overflow strategy, caching and
-size limits for highlighting, additional grammars only where justified, and
-optional line numbers if they do not compromise copy fidelity.
+Remaining work includes additional grammars only where justified and optional
+line numbers if they do not compromise copy fidelity.
 
 Code block usability matters because many Markdown files are README files, runbooks, changelogs, design docs, or API documentation.
 
@@ -913,9 +913,10 @@ code. The most important remaining quality work is:
 1. Prevent crashes and unbounded resource use for images, large files, deep
    nesting, large tables, and large code blocks.
 2. Completed: correct fenced-code mutation, nested inline styles, and soft line
-   breaks; additional heading-anchor compatibility remains separate follow-up work.
-3. Add explicit overflow behavior for tables, long code lines, and unbroken
-   tokens.
+   breaks. Heading anchors cover the common cases, with duplicate suffix numbering
+   and non-ASCII case folding retained as explicit follow-up work.
+3. Completed for fenced code: preserve source lines and provide per-block
+   horizontal scrolling. Table overflow and safe long-token breaking remain.
 4. Implement a small safe native HTML subset.
 5. Add front matter, footnotes, and GitHub alerts.
 6. Treat math and diagrams as optional enhancements with source fallback.
@@ -926,10 +927,10 @@ The viewer already includes an outline, in-document search, file history, code
 copy, internal local links, link hover previews, recent files, runtime fonts,
 reader zoom, themes, PDF export, and Windows live reload/printing.
 
-The highest-value remaining usability work is Linux parity and stability,
-remembered per-file scroll positions, manual reload, broken-resource feedback,
-keyboard focus/accessibility, system/high-contrast themes, table overflow, and
-print/export polish.
+The highest-value remaining usability work is Linux runtime validation and parity,
+safe raw HTML, table overflow, remembered per-file scroll positions, manual reload,
+broken-resource feedback, keyboard focus/accessibility, system/high-contrast themes,
+and print/export polish.
 
 ## 17. Easy-to-Miss Features and Edge Cases
 

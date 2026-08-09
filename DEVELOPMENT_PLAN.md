@@ -9,12 +9,12 @@ The durable product scope and target experience are documented in
 
 The product remains:
 
-- [ ] single-window
-- [ ] read-only
-- [ ] native desktop
-- [ ] Skia-rendered
-- [ ] browser-free
-- [ ] focused on Markdown viewing, navigation, search, and safe file/link handling
+- [x] single-window
+- [x] read-only
+- [x] native desktop
+- [x] Skia-rendered
+- [x] browser-free
+- [x] focused on Markdown viewing, navigation, search, and safe file/link handling
 
 ## Current Baseline
 
@@ -59,6 +59,7 @@ Goal: make the current behavior safer to change before adding larger user-facing
 - [x] Add tests for layout-sensitive behavior around tables, code blocks, images, and zoom relayout.
 - [x] Keep platform menu cleanup separate from product feature work unless a feature directly touches command routing.
 - [x] Tighten menu/top-bar ownership so shared code owns platform-neutral menu layout, drawing, and hit-test behavior, while hosts own native popup/dropdown integration, command dispatch, and event translation.
+- [x] Keep Win32 mouse-capture transitions outside the app-state mutex so synchronous `WM_CAPTURECHANGED` re-entry cannot terminate the app.
 
 ## Milestone 1a: Config, Theme, and Zoom Follow-ups
 
@@ -83,20 +84,21 @@ Goal: make long documents substantially easier to navigate.
 - [x] Add keyboard navigation for the outline.
 - [x] Add a command and shortcut to show/hide the outline.
 - [x] Decide Back/Forward behavior for internal heading jumps: keep Back/Forward file-only; heading jumps do not enter history.
-- [x] Improve heading anchor compatibility with common GitHub-style expectations, including duplicate headings, Unicode headings, emoji, punctuation, and percent-decoded fragments.
+- [x] Support duplicate headings, Unicode headings, emoji, punctuation, and percent-decoded heading fragments.
+- [ ] Close the remaining GitHub-anchor gaps in duplicate suffix numbering and non-ASCII case folding.
 - [x] Decide copy-heading-link support: out of scope for now.
 
 ## Milestone 3: Safer Links and Better File Context
 
 Goal: make link behavior predictable, inspectable, and safer.
 
-- [ ] Add explicit handling for suspicious or unsupported URL schemes such as `javascript:`, custom app protocols, and shell-like targets.
+- [x] Reject suspicious or unsupported URL schemes such as `javascript:`, custom app protocols, and shell-like targets instead of passing them to the platform shell.
 - [ ] Warn before opening executable local files or clearly external local paths.
 - [ ] Show clear feedback for broken local links.
 - [ ] Add document/background context menu actions for reload, copy document path, and reveal in file manager.
 - [ ] Add link context menu actions for reveal target in file manager when the target is local.
 - [ ] Add a manual reload command and shortcut.
-- [ ] Preserve scroll position after manual or automatic reload when practical.
+- [x] Preserve scroll position after manual or automatic reload when practical.
 - [ ] Add remembered scroll position per recent file.
 
 ## Milestone 4: Markdown Compatibility Improvements
@@ -120,6 +122,8 @@ Goal: improve fidelity for real-world documentation without turning the app into
 
 Goal: polish the most visible rendering and copy edge cases.
 
+- [x] Keep fenced-code source lines intact, clip them to the block, and provide per-block horizontal scrollbars plus Shift+wheel/touchpad scrolling.
+- [x] Reduce document-side padding responsively below a 900 px content viewport, reaching compact 12 px margins at 480 px and below.
 - [ ] Add wide-table horizontal scrolling or another clear overflow strategy.
 - [ ] Preserve column alignment and wrapping for narrow or long-cell tables.
 - [ ] Add copy table as plain text or TSV.

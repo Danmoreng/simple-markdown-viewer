@@ -52,6 +52,9 @@ DocumentTextHit HitTestLine(
     float x,
     const HitTestCallbacks& callbacks) {
     DocumentTextHit hit;
+    if (callbacks.get_block_horizontal_scroll) {
+        x += callbacks.get_block_horizontal_scroll(block);
+    }
     if (line.runs.empty()) {
         hit.position = line.textStart;
         hit.valid = true;

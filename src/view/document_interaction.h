@@ -81,6 +81,10 @@ void MoveSearchMatch(AppState& appState, int direction);
 void RebuildSearchMatches(AppState& appState);
 bool ScrollToCurrentSearchMatch(AppState& appState, float viewportHeight, float maxScroll);
 void BeginScrollbarDrag(AppState& appState, float dragOffset);
+bool BeginCodeBlockScrollbarInteraction(AppState& appState, float documentX, float documentY);
+bool UpdateCodeBlockScrollbarDrag(AppState& appState, float documentX);
+void EndCodeBlockScrollbarDrag(AppState& appState);
+bool ScrollCodeBlockAtPoint(AppState& appState, float documentX, float documentY, float delta);
 void BeginSelection(AppState& appState, const InteractionTextHit& hit, bool forceExternal, int pressX, int pressY);
 
 bool UpdateHoveredUrl(AppState& appState, const InteractionTextHit& hit);

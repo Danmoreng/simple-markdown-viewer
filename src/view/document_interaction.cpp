@@ -300,13 +300,97 @@ void ClearPendingLinkState(AppState& appState) {
 void BeginScrollbarDrag(AppState& appState, float dragOffset) {
     appState.isDraggingScrollbar = true;
     appState.isSelecting = false;
+    EndCodeBlockScrollbarDrag(appState);
     appState.scrollbarDragOffset = dragOffset;
     ClearPendingLinkState(appState);
+}
+
+bool BeginCodeBlockScrollbarInteraction(AppState& appState, float documentX, float documentY) {
+    for (auto region = appState.codeBlockScrollbars.rbegin(); region != appState.codeBlockScrollbars.rend(); ++region) {
+        SkRect hitRect = region->trackRect;
+        hitRect.outset(0.0f, 4.0f);
+        if (!hitRect.contains(documentX, documentY)) {
+            continue;
+        }
+
+        appState.isDraggingCodeBlockScrollbar = true;
+        appState.draggingCodeBlockTextStart = region->blockTextStart;
+        appState.isSelecting = false;
+        appState.isDraggingScrollbar = false;
+        ClearPendingLinkState(appState);
+
+        if (region->thumbRect.contains(documentX, documentY)) {
+            appState.codeBlockScrollbarDragOffset = documentX - region->thumbRect.left();
+        } else {
+            appState.codeBlockScrollbarDragOffset = region->thumbRect.width() * 0.5f;
+            UpdateCodeBlockScrollbarDrag(appState, documentX);
+        }
+        appState.needsRepaint = true;
+        return true;
+    }
+    return false;
+}
+
+bool UpdateCodeBlockScrollbarDrag(AppState& appState, float documentX) {
+    if (!appState.isDraggingCodeBlockScrollbar) {
+        return false;
+    }
+
+    const auto region = std::find_if(
+        appState.codeBlockScrollbars.begin(),
+        appState.codeBlockScrollbars.end(),
+        [&](const auto& candidate) {
+            return candidate.blockTextStart == appState.draggingCodeBlockTextStart;
+        });
+    if (region == appState.codeBlockScrollbars.end()) {
+        EndCodeBlockScrollbarDrag(appState);
+        return false;
+    }
+
+    const float thumbTravel = std::max(region->trackRect.width() - region->thumbRect.width(), 0.0f);
+    const float thumbLeft = std::clamp(
+        documentX - appState.codeBlockScrollbarDragOffset,
+        region->trackRect.left(),
+        region->trackRect.left() + thumbTravel);
+    const float normalized = thumbTravel > 0.0f
+        ? (thumbLeft - region->trackRect.left()) / thumbTravel
+        : 0.0f;
+    const float nextOffset = normalized * region->maxScroll;
+    float& offset = appState.codeBlockScrollOffsets[region->blockTextStart];
+    if (std::abs(offset - nextOffset) <= 0.01f) {
+        return false;
+    }
+    offset = nextOffset;
+    appState.needsRepaint = true;
+    return true;
+}
+
+void EndCodeBlockScrollbarDrag(AppState& appState) {
+    appState.isDraggingCodeBlockScrollbar = false;
+    appState.draggingCodeBlockTextStart = 0;
+    appState.codeBlockScrollbarDragOffset = 0.0f;
+}
+
+bool ScrollCodeBlockAtPoint(AppState& appState, float documentX, float documentY, float delta) {
+    for (auto region = appState.codeBlockScrollbars.rbegin(); region != appState.codeBlockScrollbars.rend(); ++region) {
+        if (!region->viewportRect.contains(documentX, documentY)) {
+            continue;
+        }
+        float& offset = appState.codeBlockScrollOffsets[region->blockTextStart];
+        const float nextOffset = std::clamp(offset + delta, 0.0f, region->maxScroll);
+        if (std::abs(nextOffset - offset) > 0.01f) {
+            offset = nextOffset;
+            appState.needsRepaint = true;
+        }
+        return true;
+    }
+    return false;
 }
 
 void BeginSelection(AppState& appState, const InteractionTextHit& hit, bool forceExternal, int pressX, int pressY) {
     appState.isSelecting = true;
     appState.isDraggingScrollbar = false;
+    EndCodeBlockScrollbarDrag(appState);
     if (hit.valid) {
         appState.selectionAnchor = hit.position;
         appState.selectionFocus = hit.position;
@@ -394,6 +478,7 @@ void StartAutoScrollState(AppState& appState, float x, float y) {
     appState.isAutoScrolling = true;
     appState.isSelecting = false;
     appState.isDraggingScrollbar = false;
+    EndCodeBlockScrollbarDrag(appState);
     appState.autoScrollOriginX = x;
     appState.autoScrollOriginY = y;
     appState.autoScrollCursorX = x;

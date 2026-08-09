@@ -246,15 +246,17 @@ explicit repository context.
 
 ## Recommended Implementation Order
 
-1. Add Linux CI and a reproducible sanitizer build mode.
-2. Fix or conditionally disable Linux PDF support.
-3. Add exception boundaries and phase-aware crash diagnostics.
-4. Harden image dimensions, decoding, and cache lifetime.
-5. Add size, nesting, table, and code-highlight budgets.
+1. Completed: add Linux CI and a reproducible sanitizer build mode.
+2. Completed: make Linux PDF support explicit and keep non-PDF builds linkable.
+3. Exception boundaries are complete; richer phase-aware crash diagnostics remain.
+4. Completed: harden image dimensions, decoding, and cache lifetime.
+5. File, image, nesting, and code-highlight safeguards are complete; table and
+   broader content-complexity thresholds remain.
 6. Add minimized crash fixtures and parser/layout fuzz or property tests.
 7. Completed: correct Markdown normalization, nested inline semantics, and soft/hard breaks.
 8. Implement the safe HTML allowlist.
-9. Add footnotes, alerts, front matter, and overflow improvements.
+9. Code-block overflow is complete; footnotes, alerts, front matter, table
+   overflow, and long-token handling remain.
 
 ## Suggested Linux Crash Capture
 

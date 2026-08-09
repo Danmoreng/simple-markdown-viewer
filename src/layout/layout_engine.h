@@ -40,6 +40,8 @@ struct BlockLayout {
     char orderedListDelimiter = '.';
     std::string codeLanguage;
     syntax::HighlightStatus codeHighlightStatus = syntax::HighlightStatus::NotRequested;
+    float codeContentWidth = 0.0f;
+    float codeViewportWidth = 0.0f;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;
@@ -61,6 +63,13 @@ struct DocumentLayout {
     std::unordered_map<std::string, float> anchors;
     std::vector<HeadingOutlineItem> outline;
 };
+
+struct DocumentHorizontalInsets {
+    float left = 0.0f;
+    float right = 0.0f;
+};
+
+DocumentHorizontalInsets GetDocumentHorizontalInsets(float viewportWidth);
 
 class LayoutEngine {
 public:

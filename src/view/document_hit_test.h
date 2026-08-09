@@ -18,6 +18,7 @@ struct DocumentTextHit {
 struct HitTestCallbacks {
     std::function<float(const BlockLayout& block, const LineLayout& line, const RunLayout& run)> get_run_visual_width;
     std::function<size_t(const BlockLayout& block, const LineLayout& line, const RunLayout& run, float x_in_run)> find_text_position_in_run;
+    std::function<float(const BlockLayout& block)> get_block_horizontal_scroll;
 };
 
 DocumentTextHit HitTestDocument(

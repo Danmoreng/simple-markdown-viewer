@@ -44,7 +44,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - unordered and ordered lists
   - GitHub-style task lists
   - blockquotes
-  - fenced code blocks with **one-click copy** and Tree-sitter syntax highlighting
+  - fenced code blocks with **one-click copy**, Tree-sitter syntax highlighting, and per-block horizontal scrolling for long source lines
   - thematic breaks
   - tables
   - combinable emphasis, strong text, strikethrough, inline code, and links
@@ -65,6 +65,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - mouse wheel
   - custom scrollbar
   - middle-mouse auto-scroll on Windows
+- Responsive document margins that reclaim reading width in narrow windows
 - Mouse text selection and `Ctrl+C` copy
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
@@ -234,6 +235,7 @@ If the Release application has already been built, use `./package-linux.sh --ski
 - drag and drop: open a file
 - mouse wheel: scroll
 - `Ctrl` + mouse wheel: zoom document text in and out
+- Code blocks: drag the horizontal scrollbar, use a horizontal touchpad gesture, or hold `Shift` while using the mouse wheel
 - middle mouse button: auto-scroll mode on Windows
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text

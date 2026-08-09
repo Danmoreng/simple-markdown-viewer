@@ -28,6 +28,9 @@ constexpr float kDocumentTopPadding = 20.0f;
 constexpr float kDocumentBottomPadding = 20.0f;
 constexpr float kDocumentLeftMargin = 40.0f;
 constexpr float kDocumentRightMargin = 104.0f;
+constexpr float kCompactDocumentMargin = 12.0f;
+constexpr float kCompactViewportWidth = 480.0f;
+constexpr float kFullMarginViewportWidth = 900.0f;
 constexpr float kBlockSpacing = 10.0f;
 constexpr float kCodeBlockOuterMarginY = 16.0f;
 constexpr float kCodeBlockPaddingX = 8.0f;
@@ -63,11 +66,23 @@ int HeadingLevel(BlockType type) {
 
 } // namespace
 
+DocumentHorizontalInsets GetDocumentHorizontalInsets(float viewportWidth) {
+    const float interpolation = std::clamp(
+        (viewportWidth - kCompactViewportWidth) /
+            (kFullMarginViewportWidth - kCompactViewportWidth),
+        0.0f,
+        1.0f);
+    return {
+        kCompactDocumentMargin + ((kDocumentLeftMargin - kCompactDocumentMargin) * interpolation),
+        kCompactDocumentMargin + ((kDocumentRightMargin - kCompactDocumentMargin) * interpolation),
+    };
+}
+
 class LayoutContext {
 public:
     float currentY = kDocumentTopPadding;
-    float leftMargin = kDocumentLeftMargin;
-    float rightMargin = kDocumentRightMargin;
+    float leftMargin;
+    float rightMargin;
     float availableWidth;
     size_t currentTextOffset = 0;
     std::string plainText;
@@ -78,7 +93,9 @@ public:
     LayoutEngine::ImageSizeProvider imageSizeProvider;
 
     LayoutContext(float width, SkTypeface* typeface, float documentBaseFontSize, LayoutEngine::ImageSizeProvider provider)
-        : availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)),
+        : leftMargin(GetDocumentHorizontalInsets(width).left),
+          rightMargin(GetDocumentHorizontalInsets(width).right),
+          availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)),
           baseFontSize(ClampBaseFontSize(documentBaseFontSize)),
           imageSizeProvider(provider) {
         if (typeface) {
@@ -147,6 +164,7 @@ public:
                 const std::vector<InlineRun>& layoutRuns = block.type == BlockType::CodeBlock
                     ? highlightedCodeRuns
                     : block.inlineRuns;
+                float laidOutContentWidth = 0.0f;
                 const float inlineHeight = LayoutRuns(
                     layoutRuns,
                     bl.lines,
@@ -155,8 +173,14 @@ public:
                     contentWidth,
                     lineHeight,
                     block.type,
-                    block.align);
+                    block.align,
+                    block.type == BlockType::CodeBlock,
+                    &laidOutContentWidth);
                 currentY = inlineTop + inlineHeight;
+                if (block.type == BlockType::CodeBlock) {
+                    bl.codeContentWidth = laidOutContentWidth;
+                    bl.codeViewportWidth = contentWidth;
+                }
 
                 if (!block.children.empty()) {
                     LayoutBlocks(block.children, bl.children, blockIndent + 20.0f);
@@ -220,7 +244,9 @@ private:
         float wrapWidth,
         float lineHeight,
         BlockType blockType,
-        TextAlign align) {
+        TextAlign align,
+        bool preserveSourceLines = false,
+        float* laidOutContentWidth = nullptr) {
         LineLayout currentLine;
         currentLine.x = contentLeft;
         currentLine.y = startY;
@@ -229,6 +255,7 @@ private:
         float lineY = startY;
         float currentX = 0.0f;
         float currentLineWidth = 0.0f;
+        float maxContentWidth = 0.0f;
         wrapWidth = std::max(wrapWidth, 1.0f);
 
         const bool isSingleImageBlock = (runs.size() == 1 && runs[0].kind == InlineKind::Image);
@@ -238,6 +265,7 @@ private:
             if (run.kind == InlineKind::HardBreak) {
                 plainText.push_back('\n');
                 currentTextOffset += 1;
+                maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                 PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
                 currentX = 0.0f;
                 currentLineWidth = 0.0f;
@@ -271,6 +299,7 @@ private:
                 }
 
                 if (currentX + imgDisplayW > wrapWidth && currentX > 0.0f) {
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                     PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
                     currentX = 0.0f;
                     currentLineWidth = 0.0f;
@@ -291,6 +320,7 @@ private:
                 currentLine.height = std::max(currentLine.height, imgDisplayH + 4.0f);
                 currentLineWidth = currentX + imgDisplayW;
                 currentX = currentLineWidth + 4.0f;
+                maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                 continue;
             }
 
@@ -302,6 +332,7 @@ private:
                 if (*textPtr == '\n') {
                     plainText.push_back('\n');
                     currentTextOffset += 1;
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                     PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
                     currentX = 0.0f;
                     currentLineWidth = 0.0f;
@@ -311,13 +342,16 @@ private:
 
                 const char* newlinePtr = std::find(textPtr, endPtr, '\n');
                 const size_t remainingLength = static_cast<size_t>(newlinePtr - textPtr);
-                size_t bytesConsumed = FindBreakPoint(
-                    textPtr,
-                    remainingLength,
-                    wrapWidth - currentX,
-                    currentX <= 0.0f);
+                size_t bytesConsumed = preserveSourceLines
+                    ? remainingLength
+                    : FindBreakPoint(
+                          textPtr,
+                          remainingLength,
+                          wrapWidth - currentX,
+                          currentX <= 0.0f);
                 
                 if (bytesConsumed == 0 && currentX > 0) {
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                     PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
                     currentX = 0.0f;
                     currentLineWidth = 0.0f;
@@ -344,9 +378,11 @@ private:
                 float advance = font.measureText(textPtr, bytesConsumed, SkTextEncoding::kUTF8);
                 currentLineWidth = currentX + advance;
                 currentX = currentLineWidth;
+                maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                 textPtr += bytesConsumed;
 
-                if (currentX >= wrapWidth - 1.0f && textPtr < endPtr) {
+                if (!preserveSourceLines && currentX >= wrapWidth - 1.0f && textPtr < endPtr) {
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
                     PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
                     currentX = 0.0f;
                     currentLineWidth = 0.0f;
@@ -355,9 +391,13 @@ private:
         }
 
         if (!currentLine.runs.empty()) {
+            maxContentWidth = std::max(maxContentWidth, currentLineWidth);
             currentLine.x = ResolveLineX(contentLeft, wrapWidth, currentLineWidth, align);
             lines.push_back(std::move(currentLine));
             lineY += lines.back().height;
+        }
+        if (laidOutContentWidth != nullptr) {
+            *laidOutContentWidth = maxContentWidth;
         }
         return lineY - startY;
     }

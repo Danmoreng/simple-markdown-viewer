@@ -28,7 +28,8 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
 bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX, int screenY);
 bool HandleMiddleButtonDown(HWND hwnd, ViewerInteractionContext& context, int x, int y);
 bool HandleXButtonDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wParam);
-bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, bool ctrlDown);
+bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, bool ctrlDown, bool shiftDown);
+bool HandleHorizontalMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta);
 bool HandleKeyDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wParam);
 bool HandleTextInput(HWND hwnd, ViewerInteractionContext& context, wchar_t ch);
 bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId);

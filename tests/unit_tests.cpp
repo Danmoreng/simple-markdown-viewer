@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,7 @@
 #include "view/document_outline.h"
 
 #include "include/core/SkPixmap.h"
+#include "include/core/SkSurface.h"
 
 namespace {
 
@@ -717,6 +719,85 @@ void LayoutSensitiveBehavior() {
     const auto& normalTable = FirstBlockOfType(normal, mdviewer::BlockType::Table);
     const auto& narrowTable = FirstBlockOfType(narrow, mdviewer::BlockType::Table);
     Require(narrowTable.bounds.width() < normalTable.bounds.width(), "table width should relayout with viewport width");
+
+    const auto wideInsets = mdviewer::GetDocumentHorizontalInsets(900.0f);
+    const auto compactInsets = mdviewer::GetDocumentHorizontalInsets(480.0f);
+    RequireNear(wideInsets.left, 40.0f, 0.001f, "wide documents should retain the established left margin");
+    RequireNear(wideInsets.right, 104.0f, 0.001f, "wide documents should retain the established right margin");
+    RequireNear(compactInsets.left, 12.0f, 0.001f, "compact documents should reduce their left margin");
+    RequireNear(compactInsets.right, 12.0f, 0.001f, "compact documents should reduce their right margin");
+    RequireNear(narrow.blocks.front().bounds.left(), compactInsets.left, 0.001f, "compact layout should apply its responsive left margin");
+    RequireNear(
+        480.0f - narrow.blocks.front().bounds.right(),
+        compactInsets.right,
+        0.001f,
+        "compact layout should apply its responsive right margin");
+
+    const auto overflowingCodeLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "```cpp\n"
+            "const std::string message = \"This deliberately long C++ source line must remain on one visual code line\";\n"
+            "```\n"),
+        320.0f,
+        typefacePtr,
+        17.0f);
+    const auto& overflowingCode = FirstBlockOfType(overflowingCodeLayout, mdviewer::BlockType::CodeBlock);
+    RequireEqual(overflowingCode.lines.size(), static_cast<size_t>(1), "overflowing code should preserve source lines instead of wrapping");
+    Require(
+        overflowingCode.codeContentWidth > overflowingCode.codeViewportWidth,
+        "overflowing code should record a horizontal scroll range");
+
+    mdviewer::AppState codeScrollState;
+    codeScrollState.codeBlockScrollbars.push_back(mdviewer::CodeBlockScrollbarRegion{
+        .viewportRect = SkRect::MakeXYWH(10.0f, 20.0f, 200.0f, 100.0f),
+        .trackRect = SkRect::MakeXYWH(10.0f, 110.0f, 200.0f, 6.0f),
+        .thumbRect = SkRect::MakeXYWH(10.0f, 110.0f, 50.0f, 6.0f),
+        .blockTextStart = 42,
+        .maxScroll = 600.0f,
+    });
+    Require(
+        mdviewer::BeginCodeBlockScrollbarInteraction(codeScrollState, 20.0f, 112.0f),
+        "code scrollbar thumb should begin a drag");
+    Require(mdviewer::UpdateCodeBlockScrollbarDrag(codeScrollState, 160.0f), "dragging a code scrollbar should change its offset");
+    Require(codeScrollState.codeBlockScrollOffsets[42] > 0.0f, "code scrollbar drag should move the selected block horizontally");
+    mdviewer::EndCodeBlockScrollbarDrag(codeScrollState);
+    Require(!codeScrollState.isDraggingCodeBlockScrollbar, "code scrollbar drag should end cleanly");
+    const float draggedOffset = codeScrollState.codeBlockScrollOffsets[42];
+    Require(
+        mdviewer::ScrollCodeBlockAtPoint(codeScrollState, 50.0f, 50.0f, 40.0f),
+        "horizontal wheel input over a code block should be consumed");
+    Require(codeScrollState.codeBlockScrollOffsets[42] > draggedOffset, "horizontal wheel input should advance that code block only");
+
+    mdviewer::AppState renderedCodeState;
+    renderedCodeState.sourceText = "long code";
+    renderedCodeState.docLayout = overflowingCodeLayout;
+    renderedCodeState.outlineCollapsed = true;
+    const int renderHeight = static_cast<int>(std::ceil(overflowingCodeLayout.totalHeight + 40.0f));
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(320, renderHeight));
+    Require(surface != nullptr, "code scrollbar regression should create a raster surface");
+    std::vector<mdviewer::CodeBlockScrollbarRegion> renderedScrollbars;
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = surface->getCanvas(),
+        .appState = &renderedCodeState,
+        .palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark),
+        .typefaces = mdviewer::DocumentTypefaceSet{
+            .fontMgr = fontMgr.get(),
+            .regular = typefacePtr,
+            .bold = typefacePtr,
+            .heading = typefacePtr,
+            .code = typefacePtr,
+        },
+        .baseFontSize = 17.0f,
+        .viewportHeight = static_cast<float>(renderHeight),
+        .surfaceWidth = 320.0f,
+        .surfaceHeight = static_cast<float>(renderHeight),
+        .visibleDocumentBottom = overflowingCodeLayout.totalHeight,
+        .addCodeBlockScrollbar = [&](const auto& region) { renderedScrollbars.push_back(region); },
+    });
+    RequireEqual(renderedScrollbars.size(), static_cast<size_t>(1), "renderer should expose one scrollbar for one overflowing code block");
+    Require(
+        renderedScrollbars[0].thumbRect.width() < renderedScrollbars[0].trackRect.width(),
+        "overflowing code scrollbar should have movable thumb geometry");
 }
 
 void PdfExportWritesFile() {

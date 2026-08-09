@@ -106,6 +106,13 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
 
                 return run.textStart + bestOffset;
             },
+            .get_block_horizontal_scroll = [&](const BlockLayout& block) {
+                if (block.type != BlockType::CodeBlock) {
+                    return 0.0f;
+                }
+                const auto found = appState.codeBlockScrollOffsets.find(block.textStart);
+                return found == appState.codeBlockScrollOffsets.end() ? 0.0f : found->second;
+            },
         });
 
     hit.position = hitTest.position;
@@ -438,6 +445,23 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         return true;
     }
 
+    bool startedCodeBlockScroll = false;
+    {
+        std::lock_guard<std::mutex> codeScrollLock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        const float documentX = static_cast<float>(x) -
+            (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+        const float documentY = static_cast<float>(y) - GetContentTopInset() + appState.scrollOffset;
+        startedCodeBlockScroll = BeginCodeBlockScrollbarInteraction(appState, documentX, documentY);
+    }
+    if (startedCodeBlockScroll) {
+        StopAutoScroll(hwnd, context);
+        SetFocus(hwnd);
+        SetCapture(hwnd);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    }
+
     const auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
 
     {
@@ -548,6 +572,18 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
     }
 
     {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        if (appState.isDraggingCodeBlockScrollbar) {
+            const float documentX = static_cast<float>(x) -
+                (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+            UpdateCodeBlockScrollbarDrag(appState, documentX);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+    }
+
+    {
         auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         if (UpdateHoveredUrl(GetAppState(context.host), ToInteractionHit(hit))) {
@@ -608,6 +644,24 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
         if (endedOutlineResize) {
             context.host.controller.SaveConfig();
         }
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    }
+
+    bool endedCodeBlockScroll = false;
+    {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        if (appState.isDraggingCodeBlockScrollbar) {
+            EndCodeBlockScrollbarDrag(appState);
+            appState.needsRepaint = true;
+            endedCodeBlockScroll = true;
+        }
+    }
+    if (endedCodeBlockScroll) {
+        // ReleaseCapture synchronously dispatches WM_CAPTURECHANGED. Keep it
+        // outside AppState::mtx so the re-entrant handler can take the lock.
+        ReleaseCapture();
         InvalidateRect(hwnd, nullptr, FALSE);
         return true;
     }
@@ -720,7 +774,7 @@ bool HandleXButtonDown(HWND hwnd, ViewerInteractionContext& context, WPARAM wPar
     return true;
 }
 
-bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, bool ctrlDown) {
+bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, bool ctrlDown, bool shiftDown) {
     if (ctrlDown) {
         if (delta > 0) {
             AdjustBaseFontSize(hwnd, context.host, 1.0f);
@@ -755,6 +809,19 @@ bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, b
             InvalidateRect(hwnd, nullptr, FALSE);
             return true;
         }
+        if (shiftDown) {
+            const float documentX = static_cast<float>(cursorPoint.x) -
+                (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+            const float documentY = static_cast<float>(cursorPoint.y) - GetContentTopInset() + appState.scrollOffset;
+            if (ScrollCodeBlockAtPoint(
+                    appState,
+                    documentX,
+                    documentY,
+                    -static_cast<float>(delta) * 0.5f)) {
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return true;
+            }
+        }
     }
 
     {
@@ -762,6 +829,26 @@ bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, b
         ApplyWheelScroll(GetAppState(context.host), static_cast<float>(delta), GetMaxScroll(hwnd, context.host));
     }
     InvalidateRect(hwnd, nullptr, FALSE);
+    return true;
+}
+
+bool HandleHorizontalMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta) {
+    POINT cursorPoint = {};
+    GetCursorPos(&cursorPoint);
+    ScreenToClient(hwnd, &cursorPoint);
+
+    std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+    AppState& appState = GetAppState(context.host);
+    const float documentX = static_cast<float>(cursorPoint.x) -
+        (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+    const float documentY = static_cast<float>(cursorPoint.y) - GetContentTopInset() + appState.scrollOffset;
+    if (ScrollCodeBlockAtPoint(
+            appState,
+            documentX,
+            documentY,
+            static_cast<float>(delta) * 0.5f)) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
     return true;
 }
 
@@ -836,6 +923,7 @@ bool HandleCaptureChanged(HWND hwnd, ViewerInteractionContext& context, LPARAM c
             AppState& appState = GetAppState(context.host);
             endedOutlineResize = appState.isResizingOutline;
             EndOutlinePointerDrag(appState);
+            EndCodeBlockScrollbarDrag(appState);
             ClearPendingLinkState(appState);
         }
         if (endedOutlineResize) {

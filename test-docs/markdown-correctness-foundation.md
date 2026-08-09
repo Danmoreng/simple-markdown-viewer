@@ -20,8 +20,13 @@ as written:
 void update(int* pointer) {
     *pointer = 42;
     // >literal and #not-a-heading stay literal too.
+    const std::string long_line = "Resize the window: this source line stays intact and the code block gets its own horizontal scrollbar.";
 }
 ```
+
+On a narrow window, the deliberately long `long_line` statement must stay on
+one code line. Use the scrollbar below the block, a horizontal touchpad gesture,
+or `Shift` + mouse wheel while pointing at the block.
 
 The same regression is covered inside an indented list container:
 
