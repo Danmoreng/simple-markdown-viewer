@@ -78,12 +78,12 @@ Current behavior:
 
 - `.md`
 - `.markdown`
-- known text formats and extensionless files that pass the text probe
-
-Planned compatibility additions:
-
 - `.mdown`
 - `.mkd`
+- known text formats and extensionless files that pass the text probe
+
+Deferred compatibility addition:
+
 - `.mdx` only as an explicit partial/fallback mode; JSX or JavaScript must never
   execute
 
@@ -336,12 +336,12 @@ Easy-to-miss HTML features:
 
 Markdown files often include YAML, TOML, or JSON front matter.
 
-Front matter is not currently detected and remains planned work.
+Current behavior:
 
-Desirable behavior:
-
-- Detect front matter at the beginning of the file.
-- Render it in a visually distinct metadata block, collapse it, or hide it based on user preference.
+- Detect YAML and TOML front matter at the beginning of the file.
+- Detect a leading JSON object conservatively when it contains typical metadata keys.
+- Render common title, author, date, and tag values in a compact metadata bar.
+- Keep uncommon fields and raw front-matter source hidden for now; a future disclosure control may expose them.
 - Avoid treating front matter as a thematic break by mistake.
 - Provide copy support.
 

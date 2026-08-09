@@ -13,6 +13,10 @@ struct DocumentTextHit {
     std::string url;
     InlineFormatting formatting = InlineFormatting::None;
     InlineKind kind = InlineKind::Text;
+    std::string linkTarget;
+    std::string imageSource;
+    std::string tableTsv;
+    std::string tableCsv;
 };
 
 struct HitTestCallbacks {

@@ -1,0 +1,11 @@
+{
+  "title": "JSON Front Matter Fixture",
+  "author": "Simple Markdown Viewer",
+  "date": "2026-08-09",
+  "tags": ["markdown", "metadata"]
+}
+
+# JSON Front Matter Body
+
+This `.mdown` file should open as Markdown. Because the leading JSON object has
+typical metadata keys, its common values should render in the compact metadata bar.

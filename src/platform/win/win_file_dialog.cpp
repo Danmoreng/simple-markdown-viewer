@@ -33,7 +33,7 @@ std::optional<std::filesystem::path> ShowOpenFileDialog(HWND hwnd) {
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = hwnd;
     dialog.lpstrFilter =
-        L"Markdown Files (*.md;*.markdown;*.txt)\0*.md;*.markdown;*.txt\0"
+        L"Markdown Files (*.md;*.markdown;*.mdown;*.mkd;*.txt)\0*.md;*.markdown;*.mdown;*.mkd;*.txt\0"
         L"All Files (*.*)\0*.*\0";
     dialog.lpstrFile = fileBuffer.data();
     dialog.nMaxFile = static_cast<DWORD>(fileBuffer.size());

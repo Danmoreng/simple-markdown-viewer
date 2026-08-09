@@ -56,6 +56,7 @@ struct AppState {
     uint64_t zoomFeedbackTimeout = 0;
     float zoomFeedbackFontSize = 17.0f;
     bool outlineCollapsed = false;
+    bool outlineToggleHovered = false;
     bool outlineFocused = false;
     size_t focusedOutlineIndex = 0;
     bool searchActive = false;
@@ -140,6 +141,7 @@ struct AppState {
         copiedFeedbackTimeout = 0;
         zoomFeedbackTimeout = 0;
         zoomFeedbackFontSize = baseFontSize;
+        outlineToggleHovered = false;
         outlineFocused = false;
         focusedOutlineIndex = 0;
         searchActive = false;

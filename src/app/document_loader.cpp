@@ -12,7 +12,7 @@ namespace mdviewer {
 bool IsMarkdownFile(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return ext == ".md" || ext == ".markdown";
+    return ext == ".md" || ext == ".markdown" || ext == ".mdown" || ext == ".mkd";
 }
 
 bool IsDefinitelyTextFile(const std::filesystem::path& path) {

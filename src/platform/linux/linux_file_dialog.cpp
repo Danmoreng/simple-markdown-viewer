@@ -58,6 +58,8 @@ std::optional<std::filesystem::path> ShowOpenFileDialog() {
     gtk_file_filter_set_name(filter, "Markdown files");
     gtk_file_filter_add_pattern(filter, "*.md");
     gtk_file_filter_add_pattern(filter, "*.markdown");
+    gtk_file_filter_add_pattern(filter, "*.mdown");
+    gtk_file_filter_add_pattern(filter, "*.mkd");
     gtk_file_filter_add_pattern(filter, "*.txt");
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
 

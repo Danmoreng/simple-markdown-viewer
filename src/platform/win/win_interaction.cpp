@@ -65,6 +65,9 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
                 if (run.kind == InlineKind::Image) {
                     return run.imageWidth;
                 }
+                if (run.visualWidth > 0.0f) {
+                    return run.visualWidth;
+                }
 
                 ConfigureDocumentFont(
                     renderContext.font,
@@ -127,6 +130,10 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
     hit.url = hitTest.url;
     hit.formatting = hitTest.formatting;
     hit.kind = hitTest.kind;
+    hit.linkTarget = hitTest.linkTarget;
+    hit.imageSource = hitTest.imageSource;
+    hit.tableTsv = hitTest.tableTsv;
+    hit.tableCsv = hitTest.tableCsv;
     return hit;
 }
 
@@ -135,6 +142,11 @@ InteractionTextHit ToInteractionHit(const DocumentTextHit& hit) {
         .position = hit.position,
         .valid = hit.valid,
         .url = hit.url,
+        .kind = hit.kind,
+        .linkTarget = hit.linkTarget,
+        .imageSource = hit.imageSource,
+        .tableTsv = hit.tableTsv,
+        .tableCsv = hit.tableCsv,
     };
 }
 
@@ -399,7 +411,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
             thumbHitRect.outset(kOutlineScrollbarMargin, 0.0f);
             const bool inTrack = static_cast<float>(x) >= thumbHitRect.left() &&
                 static_cast<float>(x) <= thumbHitRect.right() &&
-                static_cast<float>(y) >= GetContentTopInset() + kOutlineHeaderHeight + kOutlineTopPadding &&
+                static_cast<float>(y) >= GetContentTopInset() + kOutlineTopPadding &&
                 static_cast<float>(y) <= surfaceHeight - kOutlineBottomPadding;
             if (thumbHitRect.contains(static_cast<float>(x), static_cast<float>(y))) {
                 BeginOutlineScrollbarDrag(appState, static_cast<float>(y) - outlineThumb->top());
@@ -418,6 +430,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
                 surfaceWidth,
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
+            appState.outlineToggleHovered = false;
             appState.outlineFocused = true;
             appState.outlineLastDocumentScrollOffset = -1.0f;
             appState.needsRepaint = true;
@@ -541,6 +554,7 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
     bool handledOutlineDrag = false;
     bool hoverOutlineResize = false;
     bool activeOutlineResize = false;
+    bool outlineHoverChanged = false;
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
@@ -566,12 +580,28 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
                 surfaceHeight,
                 GetContentTopInset());
         }
+        const bool toggleHovered = !appState.isResizingOutline &&
+            !appState.isDraggingOutlineScrollbar &&
+            HitTestOutlineToggle(
+                appState,
+                static_cast<float>(x),
+                static_cast<float>(y),
+                surfaceWidth,
+                GetContentTopInset());
+        if (appState.outlineToggleHovered != toggleHovered) {
+            appState.outlineToggleHovered = toggleHovered;
+            appState.needsRepaint = true;
+            outlineHoverChanged = true;
+        }
     }
     SetCursor(LoadCursorW(nullptr, hoverOutlineResize || activeOutlineResize
         ? IDC_SIZEWE
         : IDC_ARROW));
     if (resizedOutline) {
         RelayoutCurrentDocument(hwnd, context.host);
+    }
+    if (outlineHoverChanged) {
+        InvalidateRect(hwnd, nullptr, FALSE);
     }
     if (handledOutlineDrag) {
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -745,6 +775,17 @@ bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX
             CopySelection(hwnd, context);
             break;
         }
+        case DocumentContextCommand::OpenImage:
+            HandleLinkClick(hwnd, context.host, menu.imageSource, true);
+            break;
+        case DocumentContextCommand::CopyImagePath:
+            CopyUtf8TextToClipboard(hwnd, menu.imageCopyText);
+            break;
+        case DocumentContextCommand::RevealImage:
+            if (!RevealInFileManager(menu.localImagePath)) {
+                ShowErrorMessage(hwnd, "Open in File Manager failed", "The image could not be opened in File Explorer.");
+            }
+            break;
         case DocumentContextCommand::OpenLink:
             HandleLinkClick(hwnd, context.host, menu.linkUrl, false);
             break;
@@ -755,6 +796,12 @@ bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX
             if (!RevealInFileManager(menu.localLinkPath)) {
                 ShowErrorMessage(hwnd, "Open in File Manager failed", "The link target could not be opened in File Explorer.");
             }
+            break;
+        case DocumentContextCommand::CopyTableTsv:
+            CopyUtf8TextToClipboard(hwnd, menu.tableTsv);
+            break;
+        case DocumentContextCommand::CopyTableCsv:
+            CopyUtf8TextToClipboard(hwnd, menu.tableCsv);
             break;
         case DocumentContextCommand::ReloadDocument:
             if (!ReloadCurrentFile(hwnd, context.host, true)) {

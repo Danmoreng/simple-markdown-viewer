@@ -135,6 +135,7 @@ bool ViewerController::SetOutlineSide(OutlineSide side) {
     }
 
     appState_.outlineSide = side;
+    appState_.outlineToggleHovered = false;
     appState_.needsRepaint = true;
     return true;
 }
@@ -142,6 +143,7 @@ bool ViewerController::SetOutlineSide(OutlineSide side) {
 bool ViewerController::ToggleOutlineCollapsed() {
     std::lock_guard<std::mutex> lock(appState_.mtx);
     appState_.outlineCollapsed = !appState_.outlineCollapsed;
+    appState_.outlineToggleHovered = false;
     appState_.outlineFocused = true;
     appState_.outlineLastDocumentScrollOffset = -1.0f;
     appState_.needsRepaint = true;

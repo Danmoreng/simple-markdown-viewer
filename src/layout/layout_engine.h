@@ -14,12 +14,14 @@ namespace mdviewer {
 struct RunLayout {
     InlineFormatting formatting = InlineFormatting::None;
     InlineKind kind = InlineKind::Text;
+    MetadataRunRole metadataRole = MetadataRunRole::None;
     SyntaxRole syntaxRole = SyntaxRole::None;
     std::string text;
     std::string imageSource;
     size_t textStart = 0;
     float imageWidth = 0.0f;
     float imageHeight = 0.0f;
+    float visualWidth = 0.0f;
     std::string linkTarget;
 };
 
@@ -40,6 +42,7 @@ struct BlockLayout {
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;
+    std::string metadataFormat;
     syntax::HighlightStatus codeHighlightStatus = syntax::HighlightStatus::NotRequested;
     float codeContentWidth = 0.0f;
     float codeViewportWidth = 0.0f;
@@ -51,6 +54,8 @@ struct BlockLayout {
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;
+    std::string tableTsv;
+    std::string tableCsv;
     std::vector<LineLayout> lines;
     std::vector<BlockLayout> children;
 };

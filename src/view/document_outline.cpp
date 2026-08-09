@@ -22,8 +22,22 @@ float GetOutlineX(const AppState& appState, float surfaceWidth) {
     return std::max(surfaceWidth - width, 0.0f);
 }
 
+float GetOutlineDividerX(const AppState& appState, float surfaceWidth) {
+    return appState.outlineSide == OutlineSide::Left
+        ? GetOutlineSidebarWidth(appState)
+        : GetOutlineX(appState, surfaceWidth);
+}
+
+SkRect GetOutlineToggleRect(const AppState& appState, float surfaceWidth, float contentTopInset) {
+    return SkRect::MakeXYWH(
+        GetOutlineDividerX(appState, surfaceWidth) - (kOutlineToggleSize * 0.5f),
+        contentTopInset + kOutlineToggleTopPadding,
+        kOutlineToggleSize,
+        kOutlineToggleSize);
+}
+
 float GetOutlineViewportHeight(float surfaceHeight, float contentTopInset) {
-    const float contentTop = contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    const float contentTop = contentTopInset + kOutlineTopPadding;
     return std::max(surfaceHeight - contentTop - kOutlineBottomPadding, 0.0f);
 }
 
@@ -54,10 +68,11 @@ bool HitTestOutlineResizeHandle(
         y < contentTopInset || y >= surfaceHeight) {
         return false;
     }
+    if (GetOutlineToggleRect(appState, surfaceWidth, contentTopInset).contains(x, y)) {
+        return false;
+    }
 
-    const float dividerX = appState.outlineSide == OutlineSide::Left
-        ? GetOutlineSidebarWidth(appState)
-        : GetOutlineX(appState, surfaceWidth);
+    const float dividerX = GetOutlineDividerX(appState, surfaceWidth);
     return std::abs(x - dividerX) <= kOutlineResizeHandleWidth * 0.5f;
 }
 
@@ -153,7 +168,7 @@ std::optional<SkRect> GetOutlineScrollbarThumbRect(
         return std::nullopt;
     }
 
-    const float trackTop = contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    const float trackTop = contentTopInset + kOutlineTopPadding;
     const float thumbHeight = std::min(
         std::max(viewportHeight * (viewportHeight / contentHeight), 24.0f),
         viewportHeight);
@@ -190,7 +205,7 @@ bool UpdateOutlineScrollFromThumb(
         return false;
     }
 
-    const float trackTop = contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    const float trackTop = contentTopInset + kOutlineTopPadding;
     const float thumbTop = std::clamp(
         pointerY - appState.outlineScrollbarDragOffset - trackTop,
         0.0f,
@@ -259,16 +274,10 @@ bool HitTestOutlineToggle(
     float y,
     float surfaceWidth,
     float contentTopInset) {
-    const float width = GetOutlineSidebarWidth(appState);
-    if (width <= 0.0f || y < contentTopInset + 5.0f || y >= contentTopInset + 29.0f) {
+    if (GetOutlineSidebarWidth(appState) <= 0.0f) {
         return false;
     }
-
-    const float outlineX = GetOutlineX(appState, surfaceWidth);
-    const float localX = x - outlineX;
-    const float expandedToggleX = appState.outlineSide == OutlineSide::Right ? 6.0f : std::max(width - 30.0f, 6.0f);
-    const float toggleX = appState.outlineCollapsed ? 5.0f : expandedToggleX;
-    return localX >= toggleX && localX < toggleX + 24.0f;
+    return GetOutlineToggleRect(appState, surfaceWidth, contentTopInset).contains(x, y);
 }
 
 std::optional<size_t> HitTestOutlineSidebar(
@@ -287,7 +296,7 @@ std::optional<size_t> HitTestOutlineSidebar(
         return std::nullopt;
     }
 
-    const float localY = y - contentTopInset - kOutlineHeaderHeight - kOutlineTopPadding +
+    const float localY = y - contentTopInset - kOutlineTopPadding +
         appState.outlineScrollOffset;
     if (localY < 0.0f) {
         return std::nullopt;

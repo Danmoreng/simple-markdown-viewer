@@ -1,0 +1,11 @@
++++
+title = "TOML Front Matter Fixture"
+author = "Simple Markdown Viewer"
+date = "2026-08-09"
+tags = ["markdown", "metadata"]
++++
+
+# TOML Front Matter Body
+
+This `.mkd` file should open as Markdown, with the common TOML values rendered
+in the compact metadata bar.

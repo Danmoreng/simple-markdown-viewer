@@ -46,6 +46,21 @@ void FindClosestLine(
     }
 }
 
+const BlockLayout* FindTableAtPoint(
+    const std::vector<BlockLayout>& blocks,
+    float x,
+    float documentY) {
+    for (const auto& block : blocks) {
+        if (block.type == BlockType::Table && block.bounds.contains(x, documentY)) {
+            return &block;
+        }
+        if (const BlockLayout* nested = FindTableAtPoint(block.children, x, documentY)) {
+            return nested;
+        }
+    }
+    return nullptr;
+}
+
 DocumentTextHit HitTestLine(
     const BlockLayout& block,
     const LineLayout& line,
@@ -75,6 +90,18 @@ DocumentTextHit HitTestLine(
             hit.url = run.linkTarget.empty() ? run.imageSource : run.linkTarget;
             hit.formatting = run.formatting;
             hit.kind = run.kind;
+            hit.linkTarget = run.linkTarget;
+            if (run.kind == InlineKind::Image) {
+                float imageX = currentX;
+                if (run.imageWidth > block.bounds.width() * 0.8f) {
+                    imageX = block.bounds.left() + (block.bounds.width() - run.imageWidth) * 0.5f;
+                }
+                if (x >= imageX && x <= imageX + run.imageWidth) {
+                    hit.imageSource = run.imageSource;
+                } else {
+                    hit.kind = InlineKind::Text;
+                }
+            }
             return hit;
         }
         currentX = runEndX;
@@ -99,13 +126,23 @@ DocumentTextHit HitTestDocument(
     }
 
     const float documentY = (viewportY - contentTopInset) + scrollOffset;
+    const BlockLayout* table = FindTableAtPoint(layout.blocks, x, documentY);
     ClosestLine closest;
     FindClosestLine(layout.blocks, documentY, closest);
     if (closest.block == nullptr || closest.line == nullptr) {
         return {};
     }
 
-    return HitTestLine(*closest.block, *closest.line, x, callbacks);
+    DocumentTextHit hit = HitTestLine(*closest.block, *closest.line, x, callbacks);
+    if (closest.distance > 0.0f && hit.kind == InlineKind::Image) {
+        hit.kind = InlineKind::Text;
+        hit.imageSource.clear();
+    }
+    if (table != nullptr) {
+        hit.tableTsv = table->tableTsv;
+        hit.tableCsv = table->tableCsv;
+    }
+    return hit;
 }
 
 } // namespace mdviewer

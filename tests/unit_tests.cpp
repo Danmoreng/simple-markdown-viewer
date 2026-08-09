@@ -440,6 +440,42 @@ void LinkResolution() {
     Require(!hasContextCommand(mdviewer::DocumentContextCommand::RevealDocument), "link context menu should not duplicate the document file-manager action");
     RequireEqual(contextMenu.localLinkPath.lexically_normal(), sibling.lexically_normal(), "context menu should retain resolved local link path");
 
+    const mdviewer::InteractionTextHit imageHit{
+        .position = 0,
+        .valid = true,
+        .url = "diagram.svg",
+        .kind = mdviewer::InlineKind::Image,
+        .linkTarget = "diagram.svg",
+        .imageSource = "diagram.svg",
+    };
+    const auto imageContextMenu = mdviewer::BuildDocumentContextMenu(contextState, imageHit);
+    const auto hasImageCommand = [&](mdviewer::DocumentContextCommand command) {
+        return std::any_of(imageContextMenu.items.begin(), imageContextMenu.items.end(), [&](const auto& item) {
+            return item.command == command;
+        });
+    };
+    Require(hasImageCommand(mdviewer::DocumentContextCommand::OpenImage), "image context menu should offer open image");
+    Require(hasImageCommand(mdviewer::DocumentContextCommand::CopyImagePath), "image context menu should offer copy image path");
+    Require(hasImageCommand(mdviewer::DocumentContextCommand::RevealImage), "local image context menu should offer the file-manager action");
+    Require(!hasImageCommand(mdviewer::DocumentContextCommand::RevealLinkTarget),
+            "an image linked to itself should not duplicate the file-manager action");
+    RequireEqual(imageContextMenu.localImagePath.lexically_normal(), svg.lexically_normal(),
+                 "image context menu should retain the resolved local image path");
+
+    const mdviewer::InteractionTextHit tableHit{
+        .position = 0,
+        .valid = true,
+        .tableTsv = "Name\tValue\r\nAlpha\t1",
+        .tableCsv = "Name,Value\r\nAlpha,1",
+    };
+    const auto tableContextMenu = mdviewer::BuildDocumentContextMenu(contextState, tableHit);
+    Require(std::any_of(tableContextMenu.items.begin(), tableContextMenu.items.end(), [](const auto& item) {
+        return item.command == mdviewer::DocumentContextCommand::CopyTableTsv;
+    }), "table context menu should offer TSV copy");
+    Require(std::any_of(tableContextMenu.items.begin(), tableContextMenu.items.end(), [](const auto& item) {
+        return item.command == mdviewer::DocumentContextCommand::CopyTableCsv;
+    }), "table context menu should offer CSV copy");
+
     const mdviewer::InteractionTextHit backgroundHit{};
     const auto backgroundContextMenu = mdviewer::BuildDocumentContextMenu(contextState, backgroundHit);
     Require(
@@ -567,23 +603,33 @@ void HeadingAnchors() {
     mdviewer::AppState appState;
     appState.docLayout = layout;
     RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineSidebarWidth, 0.001f, "headings should enable outline sidebar");
-    Require(mdviewer::HitTestOutlineToggle(appState, mdviewer::kOutlineSidebarWidth - 18.0f, 42.0f, 900.0f, 30.0f), "outline toggle should hit the fixed top-right button");
-    const auto firstOutlineHit = mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 900.0f, 30.0f);
+    RequireNear(mdviewer::GetOutlineToggleRect(appState, 900.0f, 30.0f).centerX(), mdviewer::kOutlineSidebarWidth, 0.001f,
+                "the left outline toggle should be centered over the document divider");
+    Require(mdviewer::HitTestOutlineToggle(appState, mdviewer::kOutlineSidebarWidth, 42.0f, 900.0f, 30.0f),
+            "outline toggle should hit on the divider");
+    Require(!mdviewer::HitTestOutlineResizeHandle(appState, mdviewer::kOutlineSidebarWidth, 42.0f, 900.0f, 600.0f, 30.0f),
+            "the divider resize handle should yield to the overlapping toggle");
+    const auto firstOutlineHit = mdviewer::HitTestOutlineSidebar(appState, 24.0f, 54.0f, 900.0f, 30.0f);
     Require(firstOutlineHit.has_value() && *firstOutlineHit == 0, "outline hit test should identify the first row");
-    const auto outsideOutlineHit = mdviewer::HitTestOutlineSidebar(appState, mdviewer::kOutlineSidebarWidth + 1.0f, 74.0f, 900.0f, 30.0f);
+    const auto outsideOutlineHit = mdviewer::HitTestOutlineSidebar(appState, mdviewer::kOutlineSidebarWidth + 1.0f, 54.0f, 900.0f, 30.0f);
     Require(!outsideOutlineHit.has_value(), "outline hit test should ignore points outside the sidebar");
     Require(mdviewer::FocusOutlineItem(appState, 1, 10000.0f), "outline item should be focusable");
     RequireEqual(appState.focusedOutlineIndex, static_cast<size_t>(1), "focused outline index should update");
     Require(mdviewer::MoveOutlineFocus(appState, 1, 10000.0f), "outline focus should move down");
     RequireEqual(appState.focusedOutlineIndex, static_cast<size_t>(2), "outline focus should move to the next item");
     appState.outlineCollapsed = true;
-    RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineCollapsedWidth, 0.001f, "collapsed outline should keep a narrow rail");
+    RequireNear(mdviewer::GetOutlineSidebarWidth(appState), mdviewer::kOutlineToggleSize * 0.5f, 0.001f,
+                "collapsed outline should reserve only half the overlaid toggle width");
+    Require(mdviewer::HitTestOutlineToggle(appState, mdviewer::kOutlineCollapsedWidth, 42.0f, 900.0f, 30.0f),
+            "collapsed outline toggle should remain fully clickable on the document edge");
     Require(!mdviewer::HitTestOutlineSidebar(appState, 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "collapsed outline should not hit rows");
     appState.outlineCollapsed = false;
     appState.outlineSide = mdviewer::OutlineSide::Right;
     RequireNear(mdviewer::GetOutlineX(appState, 900.0f), 900.0f - mdviewer::kOutlineSidebarWidth, 0.001f, "right outline should be placed at the right edge");
-    Require(mdviewer::HitTestOutlineToggle(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 18.0f, 42.0f, 900.0f, 30.0f), "right outline toggle should hit at the inner left edge");
-    Require(mdviewer::HitTestOutlineSidebar(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "right outline rows should hit inside the right sidebar");
+    Require(mdviewer::HitTestOutlineToggle(appState, 900.0f - mdviewer::kOutlineSidebarWidth, 42.0f, 900.0f, 30.0f),
+            "right outline toggle should hit while centered on the inner divider");
+    Require(mdviewer::HitTestOutlineSidebar(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 40.0f, 54.0f, 900.0f, 30.0f).has_value(),
+            "right outline rows should start at the top beside the toggle");
 
     appState.outlineSide = mdviewer::OutlineSide::Left;
     appState.outlineWidth = 340.0f;
@@ -606,7 +652,7 @@ void HeadingAnchors() {
     Require(longOutlineState.outlineScrollOffset > 0.0f, "outline should follow the active heading in a long document");
     const auto initialThumb = mdviewer::GetOutlineScrollbarThumbRect(longOutlineState, 900.0f, 300.0f, 30.0f);
     Require(initialThumb.has_value(), "overflowing outline should expose a scrollbar thumb");
-    const auto visibleOutlineHit = mdviewer::HitTestOutlineSidebar(longOutlineState, 24.0f, 74.0f, 900.0f, 30.0f);
+    const auto visibleOutlineHit = mdviewer::HitTestOutlineSidebar(longOutlineState, 24.0f, 54.0f, 900.0f, 30.0f);
     const size_t expectedVisibleIndex = static_cast<size_t>(longOutlineState.outlineScrollOffset / mdviewer::kOutlineItemHeight);
     Require(
         visibleOutlineHit.has_value() && *visibleOutlineHit == expectedVisibleIndex,
@@ -711,6 +757,123 @@ void DocumentSizeLimit() {
     const auto result = mdviewer::LoadDocumentFromPath(oversizedPath);
     Require(result.status == mdviewer::DocumentLoadStatus::FileTooLarge,
             "documents above the hard size limit should be rejected before reading");
+}
+
+void FrontMatterAndMarkdownExtensions() {
+    Require(mdviewer::IsMarkdownFile("document.mdown"), ".mdown should be recognized as Markdown");
+    Require(mdviewer::IsMarkdownFile("document.MKD"), ".mkd recognition should be case-insensitive");
+    Require(!mdviewer::IsMarkdownFile("document.mdx"), ".mdx should remain an explicit future fallback mode");
+
+    TempDir temp;
+    const fs::path mdownPath = temp.Path() / "document.mdown";
+    const fs::path mkdPath = temp.Path() / "document.mkd";
+    WriteText(mdownPath, "# MDown\n");
+    WriteText(mkdPath, "# MKD\n");
+    Require(mdviewer::LoadDocumentFromPath(mdownPath).status == mdviewer::DocumentLoadStatus::Success,
+            ".mdown files should load through the Markdown parser");
+    Require(mdviewer::LoadDocumentFromPath(mkdPath).status == mdviewer::DocumentLoadStatus::Success,
+            ".mkd files should load through the Markdown parser");
+
+    const mdviewer::DocumentModel yaml = mdviewer::MarkdownParser::Parse(
+        "---\n"
+        "title: Example Document\n"
+        "author: Ada Lovelace\n"
+        "tags:\n"
+        "  - docs\n"
+        "---\n"
+        "# Body\n");
+    Require(yaml.blocks.size() >= 2, "YAML front matter should precede the Markdown body");
+    Require(yaml.blocks.front().type == mdviewer::BlockType::Metadata, "YAML front matter should become a metadata block");
+    RequireEqual(yaml.blocks.front().metadataFormat, std::string("YAML"), "YAML metadata format should be retained");
+    const std::string yamlMetadataText = MergeInlineRunText(yaml.blocks.front().inlineRuns);
+    Require(yamlMetadataText.find("Example Document") != std::string::npos,
+            "YAML title should remain visible without a field label");
+    Require(yamlMetadataText.find("Ada Lovelace") != std::string::npos,
+            "common metadata should use the compact unlabeled row");
+    Require(yamlMetadataText.find("docs") != std::string::npos,
+            "YAML list metadata should be flattened into tag pills");
+    Require(yamlMetadataText.find("Title") == std::string::npos &&
+                yamlMetadataText.find("Author") == std::string::npos &&
+                yamlMetadataText.find("Tags") == std::string::npos,
+            "the metadata row should not repeat field labels");
+    Require(yaml.blocks.front().inlineRuns.front().formatting == mdviewer::InlineFormatting::Strong,
+            "the metadata title should be emphasized");
+    Require(std::any_of(yaml.blocks.front().inlineRuns.begin(), yaml.blocks.front().inlineRuns.end(), [](const auto& run) {
+        return run.metadataRole == mdviewer::MetadataRunRole::DotSeparator;
+    }), "title and author should be separated by a centered dot");
+    Require(std::any_of(yaml.blocks.front().inlineRuns.begin(), yaml.blocks.front().inlineRuns.end(), [](const auto& run) {
+        return run.metadataRole == mdviewer::MetadataRunRole::Tag;
+    }), "metadata tags should retain their pill role");
+    Require(yaml.blocks[1].type == mdviewer::BlockType::Heading1, "Markdown after YAML front matter should parse normally");
+
+    const mdviewer::DocumentModel toml = mdviewer::MarkdownParser::Parse(
+        "+++\n"
+        "title = \"TOML Document\"\n"
+        "author = \"Grace Hopper\"\n"
+        "+++\n"
+        "Body text.\n");
+    Require(!toml.blocks.empty() && toml.blocks.front().type == mdviewer::BlockType::Metadata,
+            "TOML front matter should become a metadata block");
+    RequireEqual(toml.blocks.front().metadataFormat, std::string("TOML"), "TOML metadata format should be retained");
+
+    const mdviewer::DocumentModel json = mdviewer::MarkdownParser::Parse(
+        "{\n"
+        "  \"title\": \"JSON Document\",\n"
+        "  \"author\": \"Margaret Hamilton\",\n"
+        "  \"extra\": {\"enabled\": true}\n"
+        "}\n"
+        "# JSON Body\n");
+    Require(json.blocks.size() >= 2 && json.blocks.front().type == mdviewer::BlockType::Metadata,
+            "JSON with typical metadata keys should become a metadata block");
+    RequireEqual(json.blocks.front().metadataFormat, std::string("JSON"), "JSON metadata format should be retained");
+    Require(json.blocks[1].type == mdviewer::BlockType::Heading1, "Markdown after JSON front matter should parse normally");
+    Require(MergeInlineRunText(json.blocks.front().inlineRuns).find("extra") == std::string::npos,
+            "non-common JSON metadata should stay hidden from the compact bar");
+
+    const mdviewer::DocumentModel ordinaryJson = mdviewer::MarkdownParser::Parse(
+        "{\"payload\": {\"value\": 42}}\n\nFollowing text.\n");
+    Require(ordinaryJson.blocks.empty() || ordinaryJson.blocks.front().type != mdviewer::BlockType::Metadata,
+            "an arbitrary leading JSON object should not be mistaken for metadata");
+
+    const mdviewer::DocumentModel thematicBreak = mdviewer::MarkdownParser::Parse(
+        "---\n\nOrdinary document after a thematic break.\n");
+    Require(thematicBreak.blocks.empty() || thematicBreak.blocks.front().type != mdviewer::BlockType::Metadata,
+            "an ordinary opening thematic break should remain Markdown");
+
+    const mdviewer::DocumentModel hiddenOnly = mdviewer::MarkdownParser::Parse(
+        "---\n"
+        "description: Internal metadata only\n"
+        "custom_build_flag: true\n"
+        "---\n"
+        "# Visible Body\n");
+    Require(!hiddenOnly.blocks.empty() && hiddenOnly.blocks.front().type == mdviewer::BlockType::Heading1,
+            "front matter without common fields should be hidden while the body remains visible");
+
+    const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    const auto layout = mdviewer::LayoutEngine::ComputeLayout(yaml, 700.0f, typeface.get(), 17.0f);
+    Require(!layout.blocks.empty() && layout.blocks.front().type == mdviewer::BlockType::Metadata,
+            "metadata should have a dedicated layout block");
+    Require(layout.blocks.front().bounds.height() > 30.0f, "metadata layout should reserve room for its compact contents");
+    RequireNear(layout.blocks.front().lines.front().x, layout.blocks.front().bounds.left(), 0.001f,
+                "metadata should align with the document body instead of using inset card padding");
+    Require(std::any_of(layout.blocks.front().lines.front().runs.begin(), layout.blocks.front().lines.front().runs.end(), [](const auto& run) {
+        return run.metadataRole == mdviewer::MetadataRunRole::Tag && run.visualWidth > 0.0f;
+    }), "tag pills should expose their full visual width to rendering and hit testing");
+
+    const auto narrowLayout = mdviewer::LayoutEngine::ComputeLayout(yaml, 260.0f, typeface.get(), 17.0f);
+    Require(narrowLayout.blocks.front().lines.size() > 1,
+            "the metadata row should wrap when the viewport is narrow");
+    for (const auto& line : narrowLayout.blocks.front().lines) {
+        if (!line.runs.empty()) {
+            Require(line.runs.front().metadataRole != mdviewer::MetadataRunRole::DotSeparator &&
+                        line.runs.front().metadataRole != mdviewer::MetadataRunRole::Divider,
+                    "wrapped metadata lines should not begin with a separator");
+            Require(line.runs.back().metadataRole != mdviewer::MetadataRunRole::DotSeparator &&
+                        line.runs.back().metadataRole != mdviewer::MetadataRunRole::Divider,
+                    "wrapped metadata lines should not end with a separator");
+        }
+    }
 }
 
 void MarkdownCorrectnessFoundation() {
@@ -984,7 +1147,54 @@ void LayoutSensitiveBehavior() {
 
     const auto& normalTable = FirstBlockOfType(normal, mdviewer::BlockType::Table);
     const auto& narrowTable = FirstBlockOfType(narrow, mdviewer::BlockType::Table);
+    RequireEqual(normalTable.tableTsv, std::string("A\tB\r\nleft\tright"), "tables should expose TSV clipboard text");
+    RequireEqual(normalTable.tableCsv, std::string("A,B\r\nleft,right"), "tables should expose CSV clipboard text");
     Require(narrowTable.bounds.width() < normalTable.bounds.width(), "table width should relayout with viewport width");
+
+    mdviewer::HitTestCallbacks contextHitCallbacks;
+    contextHitCallbacks.get_run_visual_width = [](const auto&, const auto&, const auto& run) {
+        return run.kind == mdviewer::InlineKind::Image ? run.imageWidth : 120.0f;
+    };
+    contextHitCallbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) {
+        return run.textStart;
+    };
+    const auto tableHit = mdviewer::HitTestDocument(
+        normal,
+        0.0f,
+        30.0f,
+        normalTable.bounds.left() + 8.0f,
+        normalTable.bounds.top() + 38.0f,
+        contextHitCallbacks);
+    RequireEqual(tableHit.tableTsv, normalTable.tableTsv, "hit testing inside a table should expose TSV data");
+    RequireEqual(tableHit.tableCsv, normalTable.tableCsv, "hit testing inside a table should expose CSV data");
+
+    const auto& imageRun = imageBlock.lines[0].runs[0];
+    const float imageX = imageRun.imageWidth > imageBlock.bounds.width() * 0.8f
+        ? imageBlock.bounds.left() + (imageBlock.bounds.width() - imageRun.imageWidth) * 0.5f
+        : imageBlock.lines[0].x;
+    const auto imageHit = mdviewer::HitTestDocument(
+        normal,
+        0.0f,
+        30.0f,
+        imageX + (imageRun.imageWidth * 0.5f),
+        imageBlock.lines[0].y + 30.0f + (imageBlock.lines[0].height * 0.5f),
+        contextHitCallbacks);
+    Require(imageHit.kind == mdviewer::InlineKind::Image, "hit testing an image should retain image semantics");
+    RequireEqual(imageHit.imageSource, std::string("diagram.png"), "image hit testing should expose the image source separately");
+
+    const auto csvLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "| Name | Note |\n"
+            "| - | - |\n"
+            "| Alpha | hello, \"world\" |\n"),
+        700.0f,
+        typefacePtr,
+        17.0f);
+    const auto& csvTable = FirstBlockOfType(csvLayout, mdviewer::BlockType::Table);
+    RequireEqual(
+        csvTable.tableCsv,
+        std::string("Name,Note\r\nAlpha,\"hello, \"\"world\"\"\""),
+        "CSV table copy should quote commas and embedded quotes");
 
     const auto wideInsets = mdviewer::GetDocumentHorizontalInsets(900.0f);
     const auto compactInsets = mdviewer::GetDocumentHorizontalInsets(480.0f);
@@ -1410,6 +1620,7 @@ int main() {
         {"Utf8Boundaries", Utf8Boundaries},
         {"MarkdownSafetyLimits", MarkdownSafetyLimits},
         {"DocumentSizeLimit", DocumentSizeLimit},
+        {"FrontMatterAndMarkdownExtensions", FrontMatterAndMarkdownExtensions},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},

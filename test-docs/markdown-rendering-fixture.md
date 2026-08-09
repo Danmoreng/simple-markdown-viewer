@@ -196,6 +196,8 @@ public static class Program
 
 ## Tables
 
+Right-click inside the table to test **Copy Table as TSV** and **Copy Table as CSV**.
+
 | Left aligned | Center aligned | Right aligned |
 |:-------------|:--------------:|--------------:|
 | Alpha        | Beta           | Gamma         |

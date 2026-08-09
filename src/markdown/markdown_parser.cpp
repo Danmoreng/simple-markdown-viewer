@@ -8,12 +8,444 @@
 #include <stack>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace mdviewer {
 
 namespace {
 constexpr size_t kMaxMarkdownNestingDepth = 256;
+
+struct FrontMatter {
+    std::string format;
+    std::string content;
+    size_t bodyOffset = 0;
+};
+
+std::string_view TrimAscii(std::string_view value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.remove_suffix(1);
+    }
+    return value;
+}
+
+std::pair<std::string_view, size_t> ReadLine(std::string_view source, size_t position) {
+    const size_t lineEnd = source.find('\n', position);
+    const size_t contentEnd = lineEnd == std::string_view::npos ? source.size() : lineEnd;
+    std::string_view line = source.substr(position, contentEnd - position);
+    if (!line.empty() && line.back() == '\r') {
+        line.remove_suffix(1);
+    }
+    return {line, lineEnd == std::string_view::npos ? source.size() : lineEnd + 1};
+}
+
+bool HasDelimitedMetadataKey(std::string_view content, char separator) {
+    size_t position = 0;
+    while (position < content.size()) {
+        const auto [rawLine, next] = ReadLine(content, position);
+        const std::string_view line = TrimAscii(rawLine);
+        position = next;
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        const size_t separatorPosition = line.find(separator);
+        if (separatorPosition == std::string_view::npos) {
+            continue;
+        }
+        const std::string_view key = TrimAscii(line.substr(0, separatorPosition));
+        if (key.empty() || (!std::isalpha(static_cast<unsigned char>(key.front())) && key.front() != '_')) {
+            continue;
+        }
+        if (std::all_of(key.begin() + 1, key.end(), [](unsigned char ch) {
+                return std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.';
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<FrontMatter> ExtractDelimitedFrontMatter(
+    std::string_view source,
+    size_t start,
+    std::string_view delimiter,
+    std::string format,
+    char keySeparator) {
+    const auto [firstLine, contentStart] = ReadLine(source, start);
+    if (TrimAscii(firstLine) != delimiter || contentStart >= source.size()) {
+        return std::nullopt;
+    }
+
+    size_t lineStart = contentStart;
+    while (lineStart < source.size()) {
+        const auto [line, next] = ReadLine(source, lineStart);
+        const std::string_view trimmed = TrimAscii(line);
+        const bool closesYaml = delimiter == "---" && trimmed == "...";
+        if (trimmed == delimiter || closesYaml) {
+            const std::string_view content = source.substr(contentStart, lineStart - contentStart);
+            if (!HasDelimitedMetadataKey(content, keySeparator)) {
+                return std::nullopt;
+            }
+            return FrontMatter{
+                .format = std::move(format),
+                .content = std::string(TrimAscii(content)),
+                .bodyOffset = next,
+            };
+        }
+        if (next <= lineStart) {
+            break;
+        }
+        lineStart = next;
+    }
+    return std::nullopt;
+}
+
+bool IsTypicalJsonMetadataKey(std::string_view key) {
+    static const std::unordered_set<std::string> keys = {
+        "author", "authors", "categories", "date", "description", "draft", "keywords",
+        "lang", "language", "layout", "slug", "summary", "tags", "title", "updated",
+    };
+    std::string normalized(key);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return keys.contains(normalized);
+}
+
+std::optional<FrontMatter> ExtractJsonFrontMatter(std::string_view source, size_t start) {
+    size_t position = start;
+    while (position < source.size() && (source[position] == ' ' || source[position] == '\t')) {
+        ++position;
+    }
+    if (position >= source.size() || source[position] != '{') {
+        return std::nullopt;
+    }
+
+    const size_t objectStart = position;
+    int objectDepth = 0;
+    bool foundMetadataKey = false;
+    size_t objectEnd = std::string_view::npos;
+    while (position < source.size()) {
+        const char ch = source[position];
+        if (ch == '{') {
+            ++objectDepth;
+            ++position;
+            continue;
+        }
+        if (ch == '}') {
+            --objectDepth;
+            ++position;
+            if (objectDepth == 0) {
+                objectEnd = position;
+                break;
+            }
+            if (objectDepth < 0) {
+                return std::nullopt;
+            }
+            continue;
+        }
+        if (ch != '"') {
+            ++position;
+            continue;
+        }
+
+        const size_t stringStart = ++position;
+        bool escaped = false;
+        while (position < source.size()) {
+            const char stringChar = source[position];
+            if (escaped) {
+                escaped = false;
+            } else if (stringChar == '\\') {
+                escaped = true;
+            } else if (stringChar == '"') {
+                break;
+            }
+            ++position;
+        }
+        if (position >= source.size()) {
+            return std::nullopt;
+        }
+        const std::string_view value = source.substr(stringStart, position - stringStart);
+        ++position;
+        size_t afterString = position;
+        while (afterString < source.size() && std::isspace(static_cast<unsigned char>(source[afterString]))) {
+            ++afterString;
+        }
+        if (objectDepth == 1 && afterString < source.size() && source[afterString] == ':' &&
+            IsTypicalJsonMetadataKey(value)) {
+            foundMetadataKey = true;
+        }
+    }
+
+    if (objectEnd == std::string_view::npos || !foundMetadataKey) {
+        return std::nullopt;
+    }
+
+    size_t bodyOffset = objectEnd;
+    while (bodyOffset < source.size() && (source[bodyOffset] == ' ' || source[bodyOffset] == '\t')) {
+        ++bodyOffset;
+    }
+    if (bodyOffset < source.size() && source[bodyOffset] == '\r') {
+        ++bodyOffset;
+    }
+    if (bodyOffset < source.size() && source[bodyOffset] == '\n') {
+        ++bodyOffset;
+    } else if (bodyOffset < source.size()) {
+        return std::nullopt;
+    }
+
+    return FrontMatter{
+        .format = "JSON",
+        .content = std::string(TrimAscii(source.substr(objectStart + 1, objectEnd - objectStart - 2))),
+        .bodyOffset = bodyOffset,
+    };
+}
+
+std::optional<FrontMatter> ExtractFrontMatter(std::string_view source) {
+    size_t start = 0;
+    if (source.size() >= 3 && source.substr(0, 3) == "\xEF\xBB\xBF") {
+        start = 3;
+    }
+    if (auto yaml = ExtractDelimitedFrontMatter(source, start, "---", "YAML", ':')) {
+        return yaml;
+    }
+    if (auto toml = ExtractDelimitedFrontMatter(source, start, "+++", "TOML", '=')) {
+        return toml;
+    }
+    return ExtractJsonFrontMatter(source, start);
+}
+
+std::string NormalizeMetadataKey(std::string_view key) {
+    key = TrimAscii(key);
+    if (key.size() >= 2 &&
+        ((key.front() == '"' && key.back() == '"') || (key.front() == '\'' && key.back() == '\''))) {
+        key.remove_prefix(1);
+        key.remove_suffix(1);
+    }
+    std::string normalized(key);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (normalized == "authors") return "author";
+    return normalized;
+}
+
+std::string UnquoteMetadataValue(std::string_view value) {
+    value = TrimAscii(value);
+    while (!value.empty() && value.back() == ',') {
+        value.remove_suffix(1);
+        value = TrimAscii(value);
+    }
+    if (value.size() >= 2 &&
+        ((value.front() == '"' && value.back() == '"') || (value.front() == '\'' && value.back() == '\''))) {
+        const char quote = value.front();
+        value.remove_prefix(1);
+        value.remove_suffix(1);
+        std::string unquoted;
+        unquoted.reserve(value.size());
+        bool escaped = false;
+        for (char ch : value) {
+            if (escaped) {
+                switch (ch) {
+                    case 'n': unquoted.push_back(' '); break;
+                    case 'r': break;
+                    case 't': unquoted.push_back(' '); break;
+                    default: unquoted.push_back(ch); break;
+                }
+                escaped = false;
+            } else if (ch == '\\' && quote == '"') {
+                escaped = true;
+            } else {
+                unquoted.push_back(ch);
+            }
+        }
+        if (escaped) {
+            unquoted.push_back('\\');
+        }
+        return unquoted;
+    }
+    return std::string(value);
+}
+
+std::string CleanMetadataValue(std::string_view value) {
+    value = TrimAscii(value);
+    while (!value.empty() && value.back() == ',') {
+        value.remove_suffix(1);
+        value = TrimAscii(value);
+    }
+    if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+        value.remove_prefix(1);
+        value.remove_suffix(1);
+        std::string joined;
+        size_t itemStart = 0;
+        char quote = '\0';
+        bool escaped = false;
+        for (size_t index = 0; index <= value.size(); ++index) {
+            const char ch = index < value.size() ? value[index] : ',';
+            if (quote != '\0') {
+                if (escaped) {
+                    escaped = false;
+                } else if (ch == '\\') {
+                    escaped = true;
+                } else if (ch == quote) {
+                    quote = '\0';
+                }
+            } else if (ch == '"' || ch == '\'') {
+                quote = ch;
+            } else if (ch == ',') {
+                const std::string item = UnquoteMetadataValue(value.substr(itemStart, index - itemStart));
+                if (!item.empty()) {
+                    if (!joined.empty()) joined += ", ";
+                    joined += item;
+                }
+                itemStart = index + 1;
+            }
+        }
+        return joined;
+    }
+    if (value == "|" || value == ">" || (!value.empty() && value.front() == '{')) {
+        return {};
+    }
+    return UnquoteMetadataValue(value);
+}
+
+bool IsVisibleMetadataKey(const std::string& key) {
+    return key == "title" || key == "author" || key == "date" || key == "tags";
+}
+
+std::unordered_map<std::string, std::string> ExtractVisibleMetadata(const FrontMatter& frontMatter) {
+    std::unordered_map<std::string, std::string> fields;
+    const char keySeparator = frontMatter.format == "TOML" ? '=' : ':';
+    std::string pendingListKey;
+    std::string pendingListValue;
+    size_t position = 0;
+    while (position < frontMatter.content.size()) {
+        const auto [rawLine, next] = ReadLine(frontMatter.content, position);
+        position = next;
+        std::string_view line = TrimAscii(rawLine);
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+
+        if (!pendingListKey.empty()) {
+            const bool startsNewKey = !rawLine.empty() &&
+                !std::isspace(static_cast<unsigned char>(rawLine.front())) &&
+                line.find(keySeparator) != std::string_view::npos;
+            if (startsNewKey) {
+                fields[pendingListKey] = pendingListValue;
+                pendingListKey.clear();
+                pendingListValue.clear();
+            } else {
+                if (line == "]" || line == "],") {
+                    fields[pendingListKey] = pendingListValue;
+                    pendingListKey.clear();
+                    pendingListValue.clear();
+                    continue;
+                }
+                if (line.front() == '-') {
+                    line.remove_prefix(1);
+                }
+                const std::string item = CleanMetadataValue(line);
+                if (!item.empty()) {
+                    if (!pendingListValue.empty()) pendingListValue += ", ";
+                    pendingListValue += item;
+                }
+                continue;
+            }
+        }
+
+        const size_t separatorPosition = line.find(keySeparator);
+        if (separatorPosition == std::string_view::npos) {
+            continue;
+        }
+        const std::string key = NormalizeMetadataKey(line.substr(0, separatorPosition));
+        if (!IsVisibleMetadataKey(key)) {
+            continue;
+        }
+        std::string_view rawValue = TrimAscii(line.substr(separatorPosition + 1));
+        const bool beginsList = !rawValue.empty() && rawValue.front() == '[';
+        const bool completeList = beginsList && rawValue.find(']') != std::string_view::npos;
+        if (rawValue.empty() || (beginsList && !completeList)) {
+            pendingListKey = key;
+            if (beginsList) {
+                rawValue.remove_prefix(1);
+                const std::string firstItem = CleanMetadataValue(rawValue);
+                if (!firstItem.empty()) pendingListValue = firstItem;
+            }
+            continue;
+        }
+        const std::string value = CleanMetadataValue(rawValue);
+        if (!value.empty()) {
+            fields[key] = value;
+        }
+    }
+    if (!pendingListKey.empty() && !pendingListValue.empty()) {
+        fields[pendingListKey] = pendingListValue;
+    }
+    return fields;
+}
+
+Block MakeMetadataBlock(const FrontMatter& frontMatter) {
+    Block block;
+    block.type = BlockType::Metadata;
+    block.metadataFormat = frontMatter.format;
+    const auto fields = ExtractVisibleMetadata(frontMatter);
+    const auto appendField = [&](std::string_view key, InlineFormatting formatting = InlineFormatting::None) {
+        const auto field = fields.find(std::string(key));
+        if (field == fields.end() || field->second.empty()) return false;
+        block.inlineRuns.push_back(InlineRun{
+            .formatting = formatting,
+            .text = field->second,
+        });
+        return true;
+    };
+    bool hasPrevious = appendField("title", InlineFormatting::Strong);
+    if (fields.contains("author") && !fields.at("author").empty()) {
+        if (hasPrevious) {
+            block.inlineRuns.push_back(InlineRun{
+                .metadataRole = MetadataRunRole::DotSeparator,
+                .text = "•",
+            });
+        }
+        hasPrevious = appendField("author") || hasPrevious;
+    }
+    if (fields.contains("date") && !fields.at("date").empty()) {
+        if (hasPrevious) {
+            block.inlineRuns.push_back(InlineRun{
+                .metadataRole = MetadataRunRole::Divider,
+                .text = " | ",
+            });
+        }
+        hasPrevious = appendField("date") || hasPrevious;
+    }
+    const auto tags = fields.find("tags");
+    if (tags != fields.end() && !tags->second.empty()) {
+        if (hasPrevious) {
+            block.inlineRuns.push_back(InlineRun{
+                .metadataRole = MetadataRunRole::Divider,
+                .text = " | ",
+            });
+        }
+        size_t start = 0;
+        while (start <= tags->second.size()) {
+            const size_t comma = tags->second.find(',', start);
+            const size_t end = comma == std::string::npos ? tags->second.size() : comma;
+            const std::string tag = std::string(TrimAscii(std::string_view(tags->second).substr(start, end - start)));
+            if (!tag.empty()) {
+                block.inlineRuns.push_back(InlineRun{
+                    .metadataRole = MetadataRunRole::Tag,
+                    .text = tag,
+                });
+            }
+            if (comma == std::string::npos) break;
+            start = comma + 1;
+        }
+    }
+    return block;
+}
 }
 
 struct ParserContext {
@@ -751,6 +1183,10 @@ static int TextCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, voi
 }
 
 DocumentModel MarkdownParser::Parse(const std::string& source) {
+    const std::optional<FrontMatter> frontMatter = ExtractFrontMatter(source);
+    const std::string_view markdownSource = frontMatter
+        ? std::string_view(source).substr(frontMatter->bodyOffset)
+        : std::string_view(source);
     ParserContext ctx;
     MD_PARSER parser = {0};
     parser.abi_version = 0;
@@ -762,8 +1198,8 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
     parser.text = TextCallback;
 
     const int parseStatus = md_parse(
-        source.c_str(),
-        static_cast<MD_SIZE>(source.size()),
+        markdownSource.data(),
+        static_cast<MD_SIZE>(markdownSource.size()),
         &parser,
         &ctx);
     if (parseStatus != 0 || ctx.failed) {
@@ -772,6 +1208,12 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
 
     ExpandSafeHtmlBlocks(ctx.doc.blocks);
     ExpandGithubAlerts(ctx.doc.blocks);
+    if (frontMatter) {
+        Block metadata = MakeMetadataBlock(*frontMatter);
+        if (!metadata.inlineRuns.empty()) {
+            ctx.doc.blocks.insert(ctx.doc.blocks.begin(), std::move(metadata));
+        }
+    }
     return std::move(ctx.doc);
 }
 

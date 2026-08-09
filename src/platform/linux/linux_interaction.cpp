@@ -159,6 +159,7 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     HitTestCallbacks callbacks;
     callbacks.get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
         if (run.kind == InlineKind::Image) return run.imageWidth;
+        if (run.visualWidth > 0.0f) return run.visualWidth;
         SkFont font;
         ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.formatting, appState.baseFontSize);
         return font.measureText(run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
@@ -205,7 +206,16 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
         static_cast<float>(x) - (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app.GetHostContext()) : 0.0f),
         static_cast<float>(y),
         callbacks);
-    return InteractionTextHit{docHit.position, docHit.valid, docHit.url};
+    return InteractionTextHit{
+        .position = docHit.position,
+        .valid = docHit.valid,
+        .url = docHit.url,
+        .kind = docHit.kind,
+        .linkTarget = docHit.linkTarget,
+        .imageSource = docHit.imageSource,
+        .tableTsv = docHit.tableTsv,
+        .tableCsv = docHit.tableCsv,
+    };
 }
 
 void ExecuteMenuCommand(
@@ -316,6 +326,19 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
     auto& appState = GetAppState(app->GetHostContext());
     const float surfaceWidth = GetLogicalWindowWidth(window);
     const float surfaceHeight = GetLogicalWindowHeight(window);
+
+    const bool toggleHovered = !appState.isResizingOutline &&
+        !appState.isDraggingOutlineScrollbar &&
+        HitTestOutlineToggle(
+            appState,
+            static_cast<float>(xpos),
+            static_cast<float>(ypos),
+            surfaceWidth,
+            GetContentTopInset());
+    if (appState.outlineToggleHovered != toggleHovered) {
+        appState.outlineToggleHovered = toggleHovered;
+        appState.needsRepaint = true;
+    }
 
     if (appState.isResizingOutline) {
         if (ResizeOutlineSidebar(appState, static_cast<float>(xpos), surfaceWidth)) {
@@ -456,6 +479,17 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                     appState.needsRepaint = true;
                 }
                 break;
+            case DocumentContextCommand::OpenImage:
+                HandleLinkClick(window, app->GetHostContext(), menu.imageSource, true);
+                break;
+            case DocumentContextCommand::CopyImagePath:
+                SetClipboardText(window, menu.imageCopyText);
+                break;
+            case DocumentContextCommand::RevealImage:
+                if (!RevealInFileManager(menu.localImagePath)) {
+                    ShowErrorMessage("Open in File Manager failed", "The image could not be opened in the file manager.");
+                }
+                break;
             case DocumentContextCommand::OpenLink:
                 HandleLinkClick(window, app->GetHostContext(), menu.linkUrl, false);
                 break;
@@ -466,6 +500,12 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                 if (!RevealInFileManager(menu.localLinkPath)) {
                     ShowErrorMessage("Open in File Manager failed", "The link target could not be opened in the file manager.");
                 }
+                break;
+            case DocumentContextCommand::CopyTableTsv:
+                SetClipboardText(window, menu.tableTsv);
+                break;
+            case DocumentContextCommand::CopyTableCsv:
+                SetClipboardText(window, menu.tableCsv);
                 break;
             case DocumentContextCommand::ReloadDocument:
                 if (!ReloadCurrentFile(window, app->GetHostContext(), true)) {
@@ -597,7 +637,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             thumbHitRect.outset(kOutlineScrollbarMargin, 0.0f);
             const bool inTrack = static_cast<float>(xpos) >= thumbHitRect.left() &&
                 static_cast<float>(xpos) <= thumbHitRect.right() &&
-                static_cast<float>(ypos) >= GetContentTopInset() + kOutlineHeaderHeight + kOutlineTopPadding &&
+                static_cast<float>(ypos) >= GetContentTopInset() + kOutlineTopPadding &&
                 static_cast<float>(ypos) <= surfaceHeight - kOutlineBottomPadding;
             if (thumbHitRect.contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
                 BeginOutlineScrollbarDrag(appState, static_cast<float>(ypos) - outlineThumb->top());
@@ -621,6 +661,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                 GetLogicalWindowWidth(window),
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
+            appState.outlineToggleHovered = false;
             appState.outlineFocused = true;
             appState.outlineLastDocumentScrollOffset = -1.0f;
             appState.needsRepaint = true;

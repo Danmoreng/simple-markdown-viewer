@@ -36,6 +36,9 @@ constexpr float kListMarkerGap = 16.0f;
 constexpr float kOrderedListMarkerTextGap = 10.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableBorderWidth = 1.0f;
+constexpr float kMetadataTagFontScale = 0.78f;
+constexpr float kMetadataTagPaddingX = 8.0f;
+constexpr float kMetadataTagGap = 6.0f;
 
 const char* GetAlertTitle(AlertKind kind) {
     switch (kind) {
@@ -179,6 +182,9 @@ float MeasureRunWidth(
     const RunLayout& run) {
     if (run.kind == InlineKind::Image) {
         return run.imageWidth;
+    }
+    if (run.visualWidth > 0.0f) {
+        return run.visualWidth;
     }
 
     ConfigureDocumentFont(ctx.font, typefaces, blockType, run.formatting, baseFontSize);
@@ -558,6 +564,20 @@ void DrawBlockDecoration(
     unsigned parentOrderedListStart,
     char parentOrderedListDelimiter,
     size_t siblingIndex) {
+    if (block.type == BlockType::Metadata) {
+        SkPaint rulePaint;
+        rulePaint.setAntiAlias(true);
+        rulePaint.setStrokeWidth(1.0f);
+        rulePaint.setColor(params.palette.tableBorder);
+        ctx.canvas->drawLine(
+            block.bounds.left(),
+            block.bounds.bottom() - 0.5f,
+            block.bounds.right(),
+            block.bounds.bottom() - 0.5f,
+            rulePaint);
+        return;
+    }
+
     if (block.type == BlockType::CodeBlock) {
         SkPaint backgroundPaint;
         backgroundPaint.setAntiAlias(true);
@@ -728,8 +748,12 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
 
     for (const auto& run : line.runs) {
         ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
+        if (run.metadataRole == MetadataRunRole::Tag) {
+            ctx.font.setSize(ctx.font.getSize() * kMetadataTagFontScale);
+        }
 
-        const float advance = MeasureTextWithFallback(params.typefaces, ctx.font, run.text.c_str(), run.text.size());
+        const float textAdvance = MeasureTextWithFallback(params.typefaces, ctx.font, run.text.c_str(), run.text.size());
+        const float advance = run.visualWidth > 0.0f ? run.visualWidth : textAdvance;
         const float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
 
         if (run.kind == InlineKind::Image && !run.imageSource.empty()) {
@@ -808,24 +832,83 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             continue;
         }
 
+        if (run.metadataRole == MetadataRunRole::Divider) {
+            SkPaint dividerPaint;
+            dividerPaint.setAntiAlias(true);
+            dividerPaint.setStrokeWidth(1.0f);
+            dividerPaint.setColor(params.palette.tableBorder);
+            const float dividerX = currentX + (advance * 0.5f);
+            const float halfHeight = std::min(line.height * 0.3f, 8.0f);
+            ctx.canvas->drawLine(
+                dividerX,
+                line.y + (line.height * 0.5f) - halfHeight,
+                dividerX,
+                line.y + (line.height * 0.5f) + halfHeight,
+                dividerPaint);
+            currentX += advance;
+            continue;
+        }
+
+        if (run.metadataRole == MetadataRunRole::Tag) {
+            const float pillWidth = std::max(advance - kMetadataTagGap, 1.0f);
+            const float pillHeight = std::min(std::max(ctx.font.getSize() + 6.0f, 18.0f), line.height - 2.0f);
+            const SkRect pillRect = SkRect::MakeXYWH(
+                currentX,
+                line.y + ((line.height - pillHeight) * 0.5f),
+                pillWidth,
+                pillHeight);
+            SkPaint pillPaint;
+            pillPaint.setAntiAlias(true);
+            pillPaint.setColor(params.palette.codeInlineBackground);
+            ctx.canvas->drawRoundRect(pillRect, pillHeight * 0.5f, pillHeight * 0.5f, pillPaint);
+
+            SkPaint pillBorder;
+            pillBorder.setAntiAlias(true);
+            pillBorder.setStyle(SkPaint::kStroke_Style);
+            pillBorder.setStrokeWidth(1.0f);
+            pillBorder.setColor(params.palette.tableBorder);
+            ctx.canvas->drawRoundRect(pillRect, pillHeight * 0.5f, pillHeight * 0.5f, pillBorder);
+
+            SkFontMetrics tagMetrics;
+            ctx.font.getMetrics(&tagMetrics);
+            const float tagBaselineY = pillRect.centerY() -
+                ((tagMetrics.fAscent + tagMetrics.fDescent) * 0.5f);
+            ctx.paint.setColor(params.palette.bodyText);
+            DrawTextWithFallback(
+                ctx.canvas,
+                params.typefaces,
+                run.text.c_str(),
+                run.text.size(),
+                currentX + kMetadataTagPaddingX,
+                tagBaselineY,
+                ctx.font,
+                ctx.paint);
+            currentX += advance;
+            continue;
+        }
+
         const bool isLink = !run.linkTarget.empty();
-        ctx.paint.setColor(GetDocumentTextColor(
-            params.palette,
-            block.type,
-            run.formatting,
-            run.syntaxRole,
-            isLink));
+        ctx.paint.setColor(run.metadataRole == MetadataRunRole::DotSeparator
+            ? params.palette.listMarker
+            : GetDocumentTextColor(
+                params.palette,
+                block.type,
+                run.formatting,
+                run.syntaxRole,
+                isLink));
         DrawTextWithFallback(
             ctx.canvas,
             params.typefaces,
             run.text.c_str(),
             run.text.size(),
-            currentX,
+            currentX + (run.metadataRole == MetadataRunRole::DotSeparator
+                ? std::max((advance - textAdvance) * 0.5f, 0.0f)
+                : 0.0f),
             baselineY,
             ctx.font,
             ctx.paint);
 
-        if (isLink && advance > 0.0f) {
+        if (isLink && textAdvance > 0.0f) {
             SkPaint underlinePaint;
             underlinePaint.setAntiAlias(true);
             underlinePaint.setStrokeWidth(1.0f);
@@ -835,10 +918,10 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 run.formatting,
                 run.syntaxRole,
                 true));
-            ctx.canvas->drawLine(currentX, baselineY + 2.0f, currentX + advance, baselineY + 2.0f, underlinePaint);
+            ctx.canvas->drawLine(currentX, baselineY + 2.0f, currentX + textAdvance, baselineY + 2.0f, underlinePaint);
         }
 
-        if (HasFormatting(run.formatting, InlineFormatting::Strikethrough) && advance > 0.0f) {
+        if (HasFormatting(run.formatting, InlineFormatting::Strikethrough) && textAdvance > 0.0f) {
             SkPaint strikePaint;
             strikePaint.setAntiAlias(true);
             strikePaint.setStrokeWidth(std::max(params.baseFontSize * block.fontScale * 0.07f, 1.0f));
@@ -849,7 +932,7 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 run.syntaxRole,
                 isLink));
             const float strikeY = baselineY - (ctx.font.getSize() * 0.32f);
-            ctx.canvas->drawLine(currentX, strikeY, currentX + advance, strikeY, strikePaint);
+            ctx.canvas->drawLine(currentX, strikeY, currentX + textAdvance, strikeY, strikePaint);
         }
 
         currentX += advance;
@@ -1230,12 +1313,13 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
     SkPaint borderPaint;
     borderPaint.setAntiAlias(false);
     borderPaint.setColor(params.palette.menuSeparator);
-    const float dividerX = params.appState->outlineSide == OutlineSide::Left
-        ? sidebarRect.right() - 1.0f
-        : sidebarRect.left();
+    const float dividerX = GetOutlineDividerX(*params.appState, params.surfaceWidth);
+    const float dividerDrawX = params.appState->outlineSide == OutlineSide::Left
+        ? dividerX - 1.0f
+        : dividerX;
     ctx.canvas->drawRect(
         SkRect::MakeXYWH(
-            dividerX,
+            dividerDrawX,
             params.contentTopInset,
             1.0f,
             sidebarRect.height()),
@@ -1246,7 +1330,7 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         handlePaint.setAlphaf(0.55f);
         ctx.canvas->drawRoundRect(
             SkRect::MakeXYWH(
-                dividerX - 1.0f,
+                dividerX - 1.5f,
                 params.contentTopInset + std::max((sidebarRect.height() - 44.0f) * 0.5f, 0.0f),
                 3.0f,
                 44.0f),
@@ -1255,9 +1339,6 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
             handlePaint);
     }
 
-    ctx.canvas->save();
-    ctx.canvas->clipRect(sidebarRect);
-
     const size_t currentIndex = GetCurrentOutlineIndex(params.appState->docLayout, params.visibleDocumentTop);
     const size_t focusedIndex = std::min(
         params.appState->focusedOutlineIndex,
@@ -1265,61 +1346,81 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
     ctx.font.setTypeface(sk_ref_sp(params.typefaces.regular));
     ctx.font.setSize(15.0f);
     ctx.font.setSubpixel(true);
+    const bool toggleHovered = params.showInteractiveElements && params.appState->outlineToggleHovered;
 
     auto drawSidebarToggleIcon = [&](const SkRect& rect, bool collapsed) {
         SkPaint iconPaint;
         iconPaint.setAntiAlias(true);
-        iconPaint.setColor(params.palette.menuText);
+        iconPaint.setColor(toggleHovered ? params.palette.menuSelectedText : params.palette.menuText);
         iconPaint.setStyle(SkPaint::kStroke_Style);
-        iconPaint.setStrokeWidth(2.0f);
+        iconPaint.setStrokeWidth(2.2f);
         iconPaint.setStrokeCap(SkPaint::kRound_Cap);
         iconPaint.setStrokeJoin(SkPaint::kRound_Join);
 
-        const float iconSize = 21.0f;
-        const float iconX = rect.left() + std::max((rect.width() - iconSize) * 0.5f, 0.0f);
-        const float iconY = rect.top() + std::max((rect.height() - iconSize) * 0.5f, 0.0f);
-        const SkRect outer = SkRect::MakeXYWH(iconX, iconY, iconSize, iconSize);
-        ctx.canvas->drawRoundRect(outer, 3.5f, 3.5f, iconPaint);
-
-        iconPaint.setStrokeWidth(2.4f);
-        const float caretCenterX = outer.centerX();
-        const float caretCenterY = outer.centerY();
+        const float caretCenterX = rect.centerX();
+        const float caretCenterY = rect.centerY();
         const bool pointsRight = params.appState->outlineSide == OutlineSide::Left ? collapsed : !collapsed;
         if (pointsRight) {
-            ctx.canvas->drawLine(caretCenterX - 2.5f, caretCenterY - 5.0f, caretCenterX + 2.5f, caretCenterY, iconPaint);
-            ctx.canvas->drawLine(caretCenterX + 2.5f, caretCenterY, caretCenterX - 2.5f, caretCenterY + 5.0f, iconPaint);
+            ctx.canvas->drawLine(caretCenterX - 2.5f, caretCenterY - 4.5f, caretCenterX + 2.0f, caretCenterY, iconPaint);
+            ctx.canvas->drawLine(caretCenterX + 2.0f, caretCenterY, caretCenterX - 2.5f, caretCenterY + 4.5f, iconPaint);
         } else {
-            ctx.canvas->drawLine(caretCenterX + 2.5f, caretCenterY - 5.0f, caretCenterX - 2.5f, caretCenterY, iconPaint);
-            ctx.canvas->drawLine(caretCenterX - 2.5f, caretCenterY, caretCenterX + 2.5f, caretCenterY + 5.0f, iconPaint);
+            ctx.canvas->drawLine(caretCenterX + 2.5f, caretCenterY - 4.5f, caretCenterX - 2.0f, caretCenterY, iconPaint);
+            ctx.canvas->drawLine(caretCenterX - 2.0f, caretCenterY, caretCenterX + 2.5f, caretCenterY + 4.5f, iconPaint);
         }
     };
 
-    const float toggleSize = 24.0f;
-    const float expandedToggleX = params.appState->outlineSide == OutlineSide::Right
-        ? 6.0f
-        : std::max(params.documentLeftInset - toggleSize - 6.0f, 6.0f);
-    const float toggleX = sidebarX + (params.appState->outlineCollapsed ? 5.0f : expandedToggleX);
-    const SkRect toggleRect = SkRect::MakeXYWH(toggleX, params.contentTopInset + 5.0f, toggleSize, toggleSize);
+    const SkRect toggleRect = GetOutlineToggleRect(
+        *params.appState,
+        params.surfaceWidth,
+        params.contentTopInset);
+    const SkColor toggleColor = toggleHovered
+        ? SkColorSetRGB(
+            static_cast<uint8_t>((SkColorGetR(params.palette.menuSelectedBackground) * 3 +
+                SkColorGetR(params.palette.menuSelectedText)) / 4),
+            static_cast<uint8_t>((SkColorGetG(params.palette.menuSelectedBackground) * 3 +
+                SkColorGetG(params.palette.menuSelectedText)) / 4),
+            static_cast<uint8_t>((SkColorGetB(params.palette.menuSelectedBackground) * 3 +
+                SkColorGetB(params.palette.menuSelectedText)) / 4))
+        : params.palette.menuSelectedBackground;
     SkPaint togglePaint;
     togglePaint.setAntiAlias(true);
-    togglePaint.setColor(params.palette.menuSelectedBackground);
-    togglePaint.setAlphaf(params.appState->outlineCollapsed ? 0.25f : 0.16f);
-    ctx.canvas->drawRoundRect(toggleRect, 5.0f, 5.0f, togglePaint);
+    togglePaint.setColor(toggleColor);
+    togglePaint.setAlphaf(toggleHovered ? 1.0f : 0.78f);
+    ctx.canvas->drawCircle(toggleRect.centerX(), toggleRect.centerY(), toggleRect.width() * 0.5f, togglePaint);
+
+    SkPaint toggleBorderPaint;
+    toggleBorderPaint.setAntiAlias(true);
+    toggleBorderPaint.setStyle(SkPaint::kStroke_Style);
+    toggleBorderPaint.setStrokeWidth(1.0f);
+    toggleBorderPaint.setColor(toggleHovered
+        ? params.palette.menuText
+        : params.palette.menuSeparator);
+    ctx.canvas->drawCircle(
+        toggleRect.centerX(),
+        toggleRect.centerY(),
+        (toggleRect.width() * 0.5f) - 0.5f,
+        toggleBorderPaint);
 
     drawSidebarToggleIcon(toggleRect, params.appState->outlineCollapsed);
 
     if (params.appState->outlineCollapsed) {
-        ctx.canvas->restore();
         return;
     }
 
     ctx.font.setSize(15.0f);
-    const float textTop = params.contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    const float textTop = params.contentTopInset + kOutlineTopPadding;
+    const float contentGap = 6.0f;
+    const float contentLeft = params.appState->outlineSide == OutlineSide::Right
+        ? std::max(sidebarRect.left() + 8.0f, toggleRect.right() + contentGap)
+        : sidebarRect.left() + 8.0f;
+    const float contentRight = params.appState->outlineSide == OutlineSide::Left
+        ? std::min(sidebarRect.right() - 8.0f, toggleRect.left() - contentGap)
+        : sidebarRect.right() - 8.0f;
     ctx.canvas->save();
     ctx.canvas->clipRect(SkRect::MakeLTRB(
-        sidebarRect.left(),
+        contentLeft,
         textTop,
-        sidebarRect.right(),
+        contentRight,
         params.surfaceHeight - kOutlineBottomPadding));
     for (size_t index = 0; index < params.appState->docLayout.outline.size(); ++index) {
         const HeadingOutlineItem& item = params.appState->docLayout.outline[index];
@@ -1332,9 +1433,9 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
             break;
         }
 
-        const float localIndent = 14.0f + (static_cast<float>(std::clamp(item.level, 1, 6) - 1) * 14.0f);
-        const float textX = sidebarX + localIndent;
-        const SkRect itemRect = SkRect::MakeXYWH(sidebarX + 8.0f, itemY, params.documentLeftInset - 16.0f, kOutlineItemHeight);
+        const float localIndent = 6.0f + (static_cast<float>(std::clamp(item.level, 1, 6) - 1) * 14.0f);
+        const float textX = contentLeft + localIndent;
+        const SkRect itemRect = SkRect::MakeLTRB(contentLeft, itemY, contentRight, itemY + kOutlineItemHeight);
         if (index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)) {
             SkPaint selectedPaint;
             selectedPaint.setAntiAlias(true);
@@ -1346,7 +1447,7 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         const std::string fallbackText = "(untitled)";
         const std::string& text = item.text.empty() ? fallbackText : item.text;
         const float maxTextWidth = std::max(
-            params.documentLeftInset - localIndent - kOutlineScrollbarMargin - kOutlineScrollbarWidth - 12.0f,
+            contentRight - textX - kOutlineScrollbarMargin - kOutlineScrollbarWidth,
             16.0f);
         const size_t bytesToDraw = FitUtf8TextBytes(params.typefaces, ctx.font, text, maxTextWidth);
 
@@ -1395,7 +1496,6 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
             thumbPaint);
     }
 
-    ctx.canvas->restore();
 }
 
 } // namespace
@@ -1497,8 +1597,6 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
     ctx.font.setHinting(SkFontHinting::kSlight);
     ctx.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
-    DrawOutlineSidebar(ctx, params);
-
     const float documentTranslateX = params.appState->outlineSide == OutlineSide::Left ? params.documentLeftInset : 0.0f;
     const float documentClipLeft = params.appState->outlineSide == OutlineSide::Left ? params.documentLeftInset : 0.0f;
     const float documentClipRight = params.appState->outlineSide == OutlineSide::Right
@@ -1548,6 +1646,11 @@ void RenderDocumentScene(const DocumentSceneParams& params) {
         ctx.paint.setColor(params.palette.scrollbarThumb);
         ctx.canvas->drawRoundRect(*params.scrollbarThumbRect, 5.0f, 5.0f, ctx.paint);
     }
+
+    // The outline toggle straddles the document/sidebar divider. Draw the
+    // sidebar after the document scrollbar so the circular button remains a
+    // clean, uninterrupted control where the two surfaces meet.
+    DrawOutlineSidebar(ctx, params);
 
     if (params.showInteractiveElements) {
         DrawAutoScrollIndicator(ctx.canvas, params.palette, *params.appState);

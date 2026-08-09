@@ -109,15 +109,15 @@ Goal: improve fidelity for real-world documentation without turning the app into
 - [x] Represent emphasis, strong, inline code, and strikethrough as combinable flags independent of links, images, and syntax roles.
 - [x] Preserve soft and hard breaks separately; render/copy/search soft breaks as whitespace and hard breaks as explicit newlines.
 - [x] Add parser, layout, renderer-font, search, copy-text, and hit-testing regressions plus a manual before/after fixture.
-- [ ] Add front matter detection for YAML, TOML, and JSON front matter at the start of a file.
-- [ ] Decide whether front matter is shown, collapsed, or hidden by default.
+- [x] Add front matter detection for YAML, TOML, and conservatively recognized JSON metadata at the start of a file.
+- [x] Decide whether front matter is shown, collapsed, or hidden by default: show title, author, date, and tags in a compact bar; hide other raw fields.
 - [x] Add a deliberate raw HTML policy: render a narrow browser-free allowlist and retain unsupported input as visible source.
 - [x] Support GitHub-style `<p>` and `<h1>`-`<h6>` alignment plus native `<a>`, `<img>`, and `<br>` rendering, including requested image dimensions.
 - [ ] Extend the safe subset where useful with `<kbd>`, `<sub>`, `<sup>`, `<details>`, and `<summary>`.
 - [x] Show unsupported or unsafe HTML such as scripts, event handlers, iframes, arbitrary attributes, and external embeds as source without executing it.
 - [ ] Add footnote rendering and reference/back-reference navigation if the parser support is sufficient.
 - [x] Render GitHub-style `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and `[!CAUTION]` alerts with native colors, titles, and icons.
-- [ ] Expand recognized Markdown-related extensions to include `.mdown`, `.mkd`, and possibly `.mdx` as a partial/fallback mode.
+- [x] Expand recognized Markdown-related extensions with `.mdown` and `.mkd`; defer `.mdx` until an explicit partial/fallback mode is designed.
 
 ## Milestone 5: Tables, Images, and Copy Fidelity
 
@@ -127,9 +127,9 @@ Goal: polish the most visible rendering and copy edge cases.
 - [x] Reduce document-side padding responsively below a 900 px content viewport, reaching compact 12 px margins at 480 px and below.
 - [x] Add per-table horizontal scrolling for tables whose useful column widths exceed the viewport.
 - [x] Preserve column alignment and bounded cell wrapping for narrow or long-cell tables.
-- [ ] Add copy table as plain text or TSV.
+- [x] Add table context actions for copying as TSV or CSV.
 - [x] Wrap very long unbroken strings and URLs at valid UTF-8 boundaries instead of letting them escape the document viewport.
-- [ ] Add image context menu actions for open image, copy image path, and reveal image in file manager.
+- [x] Add image context menu actions for open image, copy image path, and open image in the file manager.
 - [ ] Add an image zoom or lightbox view if it can stay within the single-window viewer model.
 - [x] Decide remote image policy: never fetch remote images automatically; show a labeled native placeholder instead.
 - [ ] Optionally support opt-in remote image loading behind a clear setting.
@@ -234,7 +234,7 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 
 - [ ] Which Markdown dialect is the primary compatibility target: CommonMark, GitHub-flavored Markdown, documentation-site Markdown, or broad tolerant Markdown?
 - [x] Should raw HTML render, be sanitized, or be shown as source? Use a strict native allowlist and show everything else as source.
-- [ ] Should front matter be visible, collapsed, or hidden by default?
+- [x] Should front matter be visible, collapsed, or hidden by default? Show common fields in a compact visible bar and hide the remaining raw fields.
 - [ ] Should remote images ever load automatically?
 - [x] Should local links outside the current document tree require confirmation? No; warn only for executable local files.
 - [ ] Should print/export preserve the active theme or always use a print-friendly theme?

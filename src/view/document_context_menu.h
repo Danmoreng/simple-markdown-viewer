@@ -12,9 +12,14 @@ namespace mdviewer {
 enum class DocumentContextCommand {
     None,
     CopySelection,
+    OpenImage,
+    CopyImagePath,
+    RevealImage,
     OpenLink,
     CopyLink,
     RevealLinkTarget,
+    CopyTableTsv,
+    CopyTableCsv,
     ReloadDocument,
     CopyDocumentPath,
     RevealDocument
@@ -31,6 +36,11 @@ struct DocumentContextMenu {
     std::vector<DocumentContextMenuItem> items;
     std::string linkUrl;
     std::filesystem::path localLinkPath;
+    std::string imageSource;
+    std::string imageCopyText;
+    std::filesystem::path localImagePath;
+    std::string tableTsv;
+    std::string tableCsv;
     std::filesystem::path documentPath;
 };
 

@@ -8,10 +8,11 @@
 namespace mdviewer {
 
 inline constexpr float kOutlineSidebarWidth = kDefaultOutlineWidth;
-inline constexpr float kOutlineCollapsedWidth = 34.0f;
+inline constexpr float kOutlineToggleSize = 24.0f;
+inline constexpr float kOutlineCollapsedWidth = kOutlineToggleSize * 0.5f;
 inline constexpr float kOutlineItemHeight = 32.0f;
 inline constexpr float kOutlineTopPadding = 8.0f;
-inline constexpr float kOutlineHeaderHeight = 34.0f;
+inline constexpr float kOutlineToggleTopPadding = 5.0f;
 inline constexpr float kOutlineBottomPadding = 8.0f;
 inline constexpr float kOutlineResizeHandleWidth = 8.0f;
 inline constexpr float kOutlineScrollbarWidth = 4.0f;
@@ -19,6 +20,8 @@ inline constexpr float kOutlineScrollbarMargin = 6.0f;
 
 float GetOutlineSidebarWidth(const AppState& appState);
 float GetOutlineX(const AppState& appState, float surfaceWidth);
+float GetOutlineDividerX(const AppState& appState, float surfaceWidth);
+SkRect GetOutlineToggleRect(const AppState& appState, float surfaceWidth, float contentTopInset);
 float GetOutlineViewportHeight(float surfaceHeight, float contentTopInset);
 float GetMaxOutlineScroll(const AppState& appState, float surfaceHeight, float contentTopInset);
 bool IsPointInOutlineSidebar(

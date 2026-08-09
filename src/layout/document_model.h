@@ -31,6 +31,7 @@ enum class BlockType {
     TableRow,
     TableHeaderCell,
     TableCell,
+    Metadata,
     RawHtml
 };
 
@@ -63,6 +64,13 @@ enum class InlineKind {
     HardBreak,
 };
 
+enum class MetadataRunRole {
+    None,
+    DotSeparator,
+    Divider,
+    Tag,
+};
+
 enum class SyntaxRole {
     None,
     Comment,
@@ -86,6 +94,7 @@ enum class TaskListState {
 struct InlineRun {
     InlineFormatting formatting = InlineFormatting::None;
     InlineKind kind = InlineKind::Text;
+    MetadataRunRole metadataRole = MetadataRunRole::None;
     SyntaxRole syntaxRole = SyntaxRole::None;
     std::string text;
     std::string imageSource;
@@ -111,6 +120,7 @@ struct Block {
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;
+    std::string metadataFormat;
     std::string rawHtml;
     std::vector<InlineRun> inlineRuns;
     std::vector<Block> children; // For nested blocks like lists

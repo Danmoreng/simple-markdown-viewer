@@ -1,6 +1,7 @@
 #include "layout_engine.h"
 
 #include <algorithm>
+#include <cctype>
 #include <numeric>
 #include <unordered_map>
 #include <utility>
@@ -40,6 +41,12 @@ constexpr float kMinTableColumnWidth = 80.0f;
 constexpr float kMaxTableColumnWidth = 420.0f;
 constexpr float kHorizontalScrollbarSpace = 12.0f;
 constexpr float kAlertTitleGap = 4.0f;
+constexpr float kMetadataPaddingY = 8.0f;
+constexpr float kMetadataTagFontScale = 0.78f;
+constexpr float kMetadataTagPaddingX = 8.0f;
+constexpr float kMetadataTagGap = 6.0f;
+constexpr float kMetadataSeparatorPaddingX = 9.0f;
+constexpr float kMetadataDividerWidth = 18.0f;
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
@@ -64,6 +71,91 @@ int HeadingLevel(BlockType type) {
         case BlockType::Heading6: return 6;
         default: return 1;
     }
+}
+
+std::string TrimTableCell(std::string value) {
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    value.erase(std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), value.end());
+    return value;
+}
+
+void AppendTableCellText(const Block& block, std::string& output) {
+    for (const auto& run : block.inlineRuns) {
+        if (run.kind == InlineKind::Text || run.kind == InlineKind::Image) {
+            output += run.text;
+        } else if (!output.empty() && output.back() != ' ') {
+            output.push_back(' ');
+        }
+    }
+    for (const auto& child : block.children) {
+        AppendTableCellText(child, output);
+    }
+}
+
+std::string NormalizeTableCell(const Block* cell) {
+    if (cell == nullptr) {
+        return {};
+    }
+    std::string value;
+    AppendTableCellText(*cell, value);
+    for (char& ch : value) {
+        if (ch == '\r' || ch == '\n' || ch == '\t') {
+            ch = ' ';
+        }
+    }
+    return TrimTableCell(std::move(value));
+}
+
+std::string EscapeCsvCell(const std::string& value) {
+    if (value.find_first_of(",\"") == std::string::npos) {
+        return value;
+    }
+    std::string escaped;
+    escaped.reserve(value.size() + 2);
+    escaped.push_back('"');
+    for (char ch : value) {
+        if (ch == '"') {
+            escaped.push_back('"');
+        }
+        escaped.push_back(ch);
+    }
+    escaped.push_back('"');
+    return escaped;
+}
+
+std::pair<std::string, std::string> SerializeTable(const Block& table) {
+    std::string tsv;
+    std::string csv;
+    bool firstRow = true;
+    for (const auto& row : table.children) {
+        if (row.type != BlockType::TableRow) {
+            continue;
+        }
+        if (!firstRow) {
+            tsv += "\r\n";
+            csv += "\r\n";
+        }
+        firstRow = false;
+        bool firstCell = true;
+        for (const auto& cell : row.children) {
+            if (cell.type != BlockType::TableHeaderCell && cell.type != BlockType::TableCell) {
+                continue;
+            }
+            if (!firstCell) {
+                tsv.push_back('\t');
+                csv.push_back(',');
+            }
+            firstCell = false;
+            const std::string value = NormalizeTableCell(&cell);
+            tsv += value;
+            csv += EscapeCsvCell(value);
+        }
+    }
+    return {std::move(tsv), std::move(csv)};
 }
 
 } // namespace
@@ -131,6 +223,7 @@ public:
             bl.orderedListStart = block.orderedListStart;
             bl.orderedListDelimiter = block.orderedListDelimiter;
             bl.codeLanguage = block.codeLanguage;
+            bl.metadataFormat = block.metadataFormat;
             bl.textStart = currentTextOffset;
 
             float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
@@ -168,6 +261,8 @@ public:
                 currentY += kCodeBlockPaddingY;
                 contentLeft += kCodeBlockPaddingX;
                 contentWidth = std::max(contentWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
+            } else if (block.type == BlockType::Metadata) {
+                currentY += kMetadataPaddingY;
             }
 
             if (IsHeading(block.type)) {
@@ -220,6 +315,11 @@ public:
 
             if (block.type == BlockType::CodeBlock) {
                 currentY += kCodeBlockPaddingY;
+            } else if (block.type == BlockType::Metadata) {
+                currentY += kMetadataPaddingY;
+                if (currentTextOffset > bl.textStart && !plainText.empty() && plainText.back() != '\n') {
+                    AppendPlainTextSeparator('\n');
+                }
             }
 
             bl.bounds = SkRect::MakeXYWH(blockLeft, blockTop, blockWidth, currentY - blockTop);
@@ -291,9 +391,76 @@ private:
         wrapWidth = std::max(wrapWidth, 1.0f);
 
         const bool isSingleImageBlock = (runs.size() == 1 && runs[0].kind == InlineKind::Image);
+        const auto measureMetadataRun = [&](const InlineRun& metadataRun) {
+            ConfigureInlineFont(blockType, metadataRun.formatting);
+            if (metadataRun.metadataRole == MetadataRunRole::Tag) {
+                font.setSize(font.getSize() * kMetadataTagFontScale);
+            }
+            float visualWidth = font.measureText(
+                metadataRun.text.c_str(),
+                metadataRun.text.size(),
+                SkTextEncoding::kUTF8);
+            switch (metadataRun.metadataRole) {
+                case MetadataRunRole::DotSeparator:
+                    visualWidth += kMetadataSeparatorPaddingX * 2.0f;
+                    break;
+                case MetadataRunRole::Divider:
+                    visualWidth = kMetadataDividerWidth;
+                    break;
+                case MetadataRunRole::Tag:
+                    visualWidth += (kMetadataTagPaddingX * 2.0f) + kMetadataTagGap;
+                    break;
+                case MetadataRunRole::None:
+                    break;
+            }
+            return visualWidth;
+        };
 
-        for (const auto& run : runs) {
+        for (size_t runIndex = 0; runIndex < runs.size(); ++runIndex) {
+            const auto& run = runs[runIndex];
             ConfigureInlineFont(blockType, run.formatting);
+            if (blockType == BlockType::Metadata && run.metadataRole != MetadataRunRole::None) {
+                const float visualWidth = measureMetadataRun(run);
+                const bool isSeparator = run.metadataRole == MetadataRunRole::DotSeparator ||
+                    run.metadataRole == MetadataRunRole::Divider;
+                const float nextRunWidth = isSeparator && runIndex + 1 < runs.size()
+                    ? measureMetadataRun(runs[runIndex + 1])
+                    : 0.0f;
+
+                if (currentX + visualWidth + nextRunWidth > wrapWidth && currentX > 0.0f) {
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
+                    PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
+                    currentX = 0.0f;
+                    currentLineWidth = 0.0f;
+                    if (isSeparator) {
+                        continue;
+                    }
+                }
+
+                ConfigureInlineFont(blockType, run.formatting);
+                if (run.metadataRole == MetadataRunRole::Tag) {
+                    font.setSize(font.getSize() * kMetadataTagFontScale);
+                }
+
+                currentLine.runs.push_back(RunLayout{
+                    .formatting = run.formatting,
+                    .kind = run.kind,
+                    .metadataRole = run.metadataRole,
+                    .syntaxRole = run.syntaxRole,
+                    .text = run.text,
+                    .textStart = currentTextOffset,
+                    .visualWidth = visualWidth,
+                    .linkTarget = run.linkTarget,
+                });
+                currentLine.textLength += run.text.size();
+                plainText += run.text;
+                currentTextOffset += run.text.size();
+                currentLine.height = std::max(currentLine.height, font.getSize() + 8.0f);
+                currentLineWidth = currentX + visualWidth;
+                currentX = currentLineWidth;
+                maxContentWidth = std::max(maxContentWidth, currentLineWidth);
+                continue;
+            }
             if (run.kind == InlineKind::HardBreak) {
                 plainText.push_back('\n');
                 currentTextOffset += 1;
@@ -653,6 +820,9 @@ private:
         tableLayout.type = BlockType::Table;
         tableLayout.align = block.align;
         tableLayout.textStart = currentTextOffset;
+        auto [tableTsv, tableCsv] = SerializeTable(block);
+        tableLayout.tableTsv = std::move(tableTsv);
+        tableLayout.tableCsv = std::move(tableCsv);
 
         const float tableLeft = leftMargin + indent;
         const float tableWidth = std::max(availableWidth - indent, 1.0f);

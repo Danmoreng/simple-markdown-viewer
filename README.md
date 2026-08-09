@@ -77,6 +77,10 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
 - Native right-click context menu for selection/link actions, reload, document-path copying, and opening files in the file manager
+- Image context actions for opening local or remote images, copying image paths, and opening local images in the file manager
+- Table context actions for copying tabular data as TSV or correctly quoted CSV
+- YAML, TOML, and conservatively recognized JSON front matter rendered as a compact bar for title, author, date, and tags; other raw fields stay hidden
+- Markdown file recognition for `.md`, `.markdown`, `.mdown`, and `.mkd`
 - Link text remains selectable while links stay clickable
 - Switchable `Light`, `Sepia`, and `Dark` themes
 - Custom client-drawn menu bar

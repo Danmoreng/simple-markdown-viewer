@@ -13,6 +13,11 @@ struct InteractionTextHit {
     size_t position = 0;
     bool valid = false;
     std::string url;
+    InlineKind kind = InlineKind::Text;
+    std::string linkTarget;
+    std::string imageSource;
+    std::string tableTsv;
+    std::string tableCsv;
 };
 
 enum class InteractionKey {
