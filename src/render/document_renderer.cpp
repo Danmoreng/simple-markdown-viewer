@@ -946,13 +946,30 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
     SkPaint borderPaint;
     borderPaint.setAntiAlias(false);
     borderPaint.setColor(params.palette.menuSeparator);
+    const float dividerX = params.appState->outlineSide == OutlineSide::Left
+        ? sidebarRect.right() - 1.0f
+        : sidebarRect.left();
     ctx.canvas->drawRect(
         SkRect::MakeXYWH(
-            params.appState->outlineSide == OutlineSide::Left ? sidebarRect.right() - 1.0f : sidebarRect.left(),
+            dividerX,
             params.contentTopInset,
             1.0f,
             sidebarRect.height()),
         borderPaint);
+
+    if (!params.appState->outlineCollapsed) {
+        SkPaint handlePaint = borderPaint;
+        handlePaint.setAlphaf(0.55f);
+        ctx.canvas->drawRoundRect(
+            SkRect::MakeXYWH(
+                dividerX - 1.0f,
+                params.contentTopInset + std::max((sidebarRect.height() - 44.0f) * 0.5f, 0.0f),
+                3.0f,
+                44.0f),
+            1.5f,
+            1.5f,
+            handlePaint);
+    }
 
     ctx.canvas->save();
     ctx.canvas->clipRect(sidebarRect);
@@ -1014,9 +1031,19 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
 
     ctx.font.setSize(15.0f);
     const float textTop = params.contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    ctx.canvas->save();
+    ctx.canvas->clipRect(SkRect::MakeLTRB(
+        sidebarRect.left(),
+        textTop,
+        sidebarRect.right(),
+        params.surfaceHeight - kOutlineBottomPadding));
     for (size_t index = 0; index < params.appState->docLayout.outline.size(); ++index) {
         const HeadingOutlineItem& item = params.appState->docLayout.outline[index];
-        const float itemY = textTop + (static_cast<float>(index) * kOutlineItemHeight);
+        const float itemY = textTop + (static_cast<float>(index) * kOutlineItemHeight) -
+            params.appState->outlineScrollOffset;
+        if (itemY + kOutlineItemHeight < textTop) {
+            continue;
+        }
         if (itemY > params.surfaceHeight) {
             break;
         }
@@ -1034,7 +1061,9 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
 
         const std::string fallbackText = "(untitled)";
         const std::string& text = item.text.empty() ? fallbackText : item.text;
-        const float maxTextWidth = std::max(params.documentLeftInset - localIndent - 16.0f, 16.0f);
+        const float maxTextWidth = std::max(
+            params.documentLeftInset - localIndent - kOutlineScrollbarMargin - kOutlineScrollbarWidth - 12.0f,
+            16.0f);
         const size_t bytesToDraw = FitUtf8TextBytes(params.typefaces, ctx.font, text, maxTextWidth);
 
         ctx.paint.setColor(index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)
@@ -1049,6 +1078,37 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
             itemY + 21.0f,
             ctx.font,
             ctx.paint);
+    }
+    ctx.canvas->restore();
+
+    if (const auto thumbRect = GetOutlineScrollbarThumbRect(
+            *params.appState,
+            params.surfaceWidth,
+            params.surfaceHeight,
+            params.contentTopInset)) {
+        SkPaint trackPaint;
+        trackPaint.setAntiAlias(true);
+        trackPaint.setColor(params.palette.menuSeparator);
+        trackPaint.setAlphaf(0.35f);
+        ctx.canvas->drawRoundRect(
+            SkRect::MakeXYWH(
+                thumbRect->left(),
+                textTop,
+                kOutlineScrollbarWidth,
+                GetOutlineViewportHeight(params.surfaceHeight, params.contentTopInset)),
+            kOutlineScrollbarWidth * 0.5f,
+            kOutlineScrollbarWidth * 0.5f,
+            trackPaint);
+
+        SkPaint thumbPaint;
+        thumbPaint.setAntiAlias(true);
+        thumbPaint.setColor(params.palette.menuText);
+        thumbPaint.setAlphaf(params.appState->isDraggingOutlineScrollbar ? 0.85f : 0.6f);
+        ctx.canvas->drawRoundRect(
+            *thumbRect,
+            kOutlineScrollbarWidth * 0.5f,
+            kOutlineScrollbarWidth * 0.5f,
+            thumbPaint);
     }
 
     ctx.canvas->restore();

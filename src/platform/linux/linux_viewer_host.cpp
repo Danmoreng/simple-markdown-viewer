@@ -164,6 +164,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
     };
 
     appState.codeBlockButtons.clear();
+    SyncOutlineScrollToDocument(appState, static_cast<float>(height), GetContentTopInset());
     RenderDocumentScene(params);
 
     // Render custom menu bar

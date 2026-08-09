@@ -77,6 +77,8 @@ Goal: make long documents substantially easier to navigate.
 - [x] Add a sidebar table of contents generated from headings.
 - [x] Support nested heading hierarchy and skipped heading levels.
 - [x] Highlight the current section while scrolling.
+- [x] Scroll long outlines independently and keep the active document section visible in the outline.
+- [x] Let users resize the outline with a draggable divider and persist its width.
 - [x] Click outline items to jump to headings.
 - [x] Add keyboard navigation for the outline.
 - [x] Add a command and shortcut to show/hide the outline.

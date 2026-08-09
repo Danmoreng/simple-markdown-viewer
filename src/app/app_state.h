@@ -21,6 +21,13 @@ struct AppState {
     DocumentLayout docLayout;
     ThemeMode theme = ThemeMode::Light;
     OutlineSide outlineSide = OutlineSide::Left;
+    float outlineWidth = kDefaultOutlineWidth;
+    float outlineScrollOffset = 0.0f;
+    float outlineLastDocumentScrollOffset = -1.0f;
+    float outlineLastViewportHeight = -1.0f;
+    bool isDraggingOutlineScrollbar = false;
+    float outlineScrollbarDragOffset = 0.0f;
+    bool isResizingOutline = false;
     float baseFontSize = 17.0f;
     float scrollOffset = 0.0f;
     std::optional<ScrollAnchor> relayoutScrollAnchor;
@@ -97,6 +104,12 @@ struct AppState {
         docModel = std::move(doc);
         docLayout = std::move(layout);
         scrollOffset = 0.0f;
+        outlineScrollOffset = 0.0f;
+        outlineLastDocumentScrollOffset = -1.0f;
+        outlineLastViewportHeight = -1.0f;
+        isDraggingOutlineScrollbar = false;
+        outlineScrollbarDragOffset = 0.0f;
+        isResizingOutline = false;
         relayoutScrollAnchor.reset();
         isSelecting = false;
         isDraggingScrollbar = false;

@@ -355,31 +355,80 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
     }
 
     bool toggledOutline = false;
+    bool startedOutlinePointerDrag = false;
     {
         std::lock_guard<std::mutex> outlineLock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
-        if (HitTestOutlineToggle(
+        const float surfaceWidth = context.host.surface
+            ? static_cast<float>(context.host.surface->width())
+            : 0.0f;
+        const float surfaceHeight = context.host.surface
+            ? static_cast<float>(context.host.surface->height())
+            : 0.0f;
+        if (HitTestOutlineResizeHandle(
                 appState,
                 static_cast<float>(x),
                 static_cast<float>(y),
-                context.host.surface ? static_cast<float>(context.host.surface->width()) : 0.0f,
+                surfaceWidth,
+                surfaceHeight,
+                GetContentTopInset())) {
+            appState.isResizingOutline = true;
+            appState.needsRepaint = true;
+            startedOutlinePointerDrag = true;
+        } else if (const auto outlineThumb = GetOutlineScrollbarThumbRect(
+                       appState,
+                       surfaceWidth,
+                       surfaceHeight,
+                       GetContentTopInset())) {
+            SkRect thumbHitRect = *outlineThumb;
+            thumbHitRect.outset(kOutlineScrollbarMargin, 0.0f);
+            const bool inTrack = static_cast<float>(x) >= thumbHitRect.left() &&
+                static_cast<float>(x) <= thumbHitRect.right() &&
+                static_cast<float>(y) >= GetContentTopInset() + kOutlineHeaderHeight + kOutlineTopPadding &&
+                static_cast<float>(y) <= surfaceHeight - kOutlineBottomPadding;
+            if (thumbHitRect.contains(static_cast<float>(x), static_cast<float>(y))) {
+                BeginOutlineScrollbarDrag(appState, static_cast<float>(y) - outlineThumb->top());
+                startedOutlinePointerDrag = true;
+            } else if (inTrack) {
+                BeginOutlineScrollbarDrag(appState, outlineThumb->height() * 0.5f);
+                UpdateOutlineScrollFromThumb(appState, static_cast<float>(y), surfaceHeight, GetContentTopInset());
+                startedOutlinePointerDrag = true;
+            }
+        }
+
+        if (!startedOutlinePointerDrag && HitTestOutlineToggle(
+                appState,
+                static_cast<float>(x),
+                static_cast<float>(y),
+                surfaceWidth,
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
             appState.outlineFocused = true;
+            appState.outlineLastDocumentScrollOffset = -1.0f;
             appState.needsRepaint = true;
             toggledOutline = true;
             InvalidateRect(hwnd, nullptr, FALSE);
-        } else if (const auto outlineHit = HitTestOutlineSidebar(
+        } else if (!startedOutlinePointerDrag) {
+            const auto outlineHit = HitTestOutlineSidebar(
                        appState,
                        static_cast<float>(x),
                        static_cast<float>(y),
-                       context.host.surface ? static_cast<float>(context.host.surface->width()) : 0.0f,
-                       GetContentTopInset())) {
-            FocusOutlineItem(appState, *outlineHit, GetMaxScroll(hwnd, context.host));
-            ClampScrollOffset(hwnd, context.host);
-            InvalidateRect(hwnd, nullptr, FALSE);
-            return true;
+                       surfaceWidth,
+                       GetContentTopInset());
+            if (outlineHit) {
+                FocusOutlineItem(appState, *outlineHit, GetMaxScroll(hwnd, context.host));
+                ClampScrollOffset(hwnd, context.host);
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return true;
+            }
         }
+    }
+    if (startedOutlinePointerDrag) {
+        StopAutoScroll(hwnd, context);
+        SetFocus(hwnd);
+        SetCapture(hwnd);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
     }
     if (toggledOutline) {
         RelayoutCurrentDocument(hwnd, context.host);
@@ -456,6 +505,47 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
         InvalidateRect(hwnd, nullptr, FALSE);
     }
 
+    bool resizedOutline = false;
+    bool handledOutlineDrag = false;
+    bool hoverOutlineResize = false;
+    bool activeOutlineResize = false;
+    {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        const float surfaceWidth = static_cast<float>(context.host.surface->width());
+        const float surfaceHeight = static_cast<float>(context.host.surface->height());
+        if (appState.isResizingOutline) {
+            activeOutlineResize = true;
+            resizedOutline = ResizeOutlineSidebar(appState, static_cast<float>(x), surfaceWidth);
+            handledOutlineDrag = true;
+        } else if (appState.isDraggingOutlineScrollbar) {
+            UpdateOutlineScrollFromThumb(
+                appState,
+                static_cast<float>(y),
+                surfaceHeight,
+                GetContentTopInset());
+            handledOutlineDrag = true;
+        } else {
+            hoverOutlineResize = HitTestOutlineResizeHandle(
+                appState,
+                static_cast<float>(x),
+                static_cast<float>(y),
+                surfaceWidth,
+                surfaceHeight,
+                GetContentTopInset());
+        }
+    }
+    SetCursor(LoadCursorW(nullptr, hoverOutlineResize || activeOutlineResize
+        ? IDC_SIZEWE
+        : IDC_ARROW));
+    if (resizedOutline) {
+        RelayoutCurrentDocument(hwnd, context.host);
+    }
+    if (handledOutlineDrag) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    }
+
     {
         auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
@@ -500,6 +590,27 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
 }
 
 bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, int y) {
+    bool endedOutlineDrag = false;
+    bool endedOutlineResize = false;
+    {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        endedOutlineResize = appState.isResizingOutline;
+        endedOutlineDrag = endedOutlineResize || appState.isDraggingOutlineScrollbar;
+        if (endedOutlineDrag) {
+            EndOutlinePointerDrag(appState);
+            appState.needsRepaint = true;
+        }
+    }
+    if (endedOutlineDrag) {
+        ReleaseCapture();
+        if (endedOutlineResize) {
+            context.host.controller.SaveConfig();
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    }
+
     const auto releaseHit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
 
     bool shouldUpdateSelection = false;
@@ -621,6 +732,30 @@ bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, b
         return true;
     }
 
+    POINT cursorPoint = {};
+    GetCursorPos(&cursorPoint);
+    ScreenToClient(hwnd, &cursorPoint);
+    {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        AppState& appState = GetAppState(context.host);
+        const float surfaceWidth = context.host.surface
+            ? static_cast<float>(context.host.surface->width())
+            : 0.0f;
+        const float surfaceHeight = context.host.surface
+            ? static_cast<float>(context.host.surface->height())
+            : 0.0f;
+        if (!appState.outlineCollapsed && IsPointInOutlineSidebar(
+                appState,
+                static_cast<float>(cursorPoint.x),
+                static_cast<float>(cursorPoint.y),
+                surfaceWidth,
+                GetContentTopInset())) {
+            ScrollOutlineBy(appState, static_cast<float>(delta), surfaceHeight, GetContentTopInset());
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         ApplyWheelScroll(GetAppState(context.host), static_cast<float>(delta), GetMaxScroll(hwnd, context.host));
@@ -694,8 +829,17 @@ bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId) {
 bool HandleCaptureChanged(HWND hwnd, ViewerInteractionContext& context, LPARAM capturedWindow) {
     if (reinterpret_cast<HWND>(capturedWindow) != hwnd) {
         StopAutoScroll(hwnd, context);
-        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
-        ClearPendingLinkState(GetAppState(context.host));
+        bool endedOutlineResize = false;
+        {
+            std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+            AppState& appState = GetAppState(context.host);
+            endedOutlineResize = appState.isResizingOutline;
+            EndOutlinePointerDrag(appState);
+            ClearPendingLinkState(appState);
+        }
+        if (endedOutlineResize) {
+            context.host.controller.SaveConfig();
+        }
         InvalidateRect(hwnd, nullptr, FALSE);
     }
     return true;

@@ -29,12 +29,20 @@ namespace mdviewer::linux_platform {
 namespace {
 
 constexpr float kDropdownItemHeight = 30.0f;
+GLFWcursor* gOutlineResizeCursor = nullptr;
 
 float GetLogicalWindowWidth(GLFWwindow* window) {
     int width = 0;
     int height = 0;
     glfwGetWindowSize(window, &width, &height);
     return static_cast<float>(width);
+}
+
+float GetLogicalWindowHeight(GLFWwindow* window) {
+    int width = 0;
+    int height = 0;
+    glfwGetWindowSize(window, &width, &height);
+    return static_cast<float>(height);
 }
 
 bool CopySelection(GLFWwindow* window, LinuxApp& app) {
@@ -240,6 +248,35 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
     if (!app) return;
 
     auto& appState = GetAppState(app->GetHostContext());
+    const float surfaceWidth = GetLogicalWindowWidth(window);
+    const float surfaceHeight = GetLogicalWindowHeight(window);
+
+    if (appState.isResizingOutline) {
+        if (ResizeOutlineSidebar(appState, static_cast<float>(xpos), surfaceWidth)) {
+            RelayoutCurrentDocument(window, app->GetHostContext());
+        }
+        glfwSetCursor(window, gOutlineResizeCursor);
+        appState.needsRepaint = true;
+        return;
+    }
+    if (appState.isDraggingOutlineScrollbar) {
+        UpdateOutlineScrollFromThumb(
+            appState,
+            static_cast<float>(ypos),
+            surfaceHeight,
+            GetContentTopInset());
+        appState.needsRepaint = true;
+        return;
+    }
+
+    const bool hoverOutlineResize = HitTestOutlineResizeHandle(
+        appState,
+        static_cast<float>(xpos),
+        static_cast<float>(ypos),
+        surfaceWidth,
+        surfaceHeight,
+        GetContentTopInset());
+    glfwSetCursor(window, hoverOutlineResize ? gOutlineResizeCursor : nullptr);
     
     if (appState.menuBarState.activeIndex != -1) {
         int itemIdx = HitTestDropdown(window, *app, xpos, ypos);
@@ -377,6 +414,47 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             return;
         }
 
+        const float surfaceWidth = GetLogicalWindowWidth(window);
+        const float surfaceHeight = GetLogicalWindowHeight(window);
+        if (HitTestOutlineResizeHandle(
+                appState,
+                static_cast<float>(xpos),
+                static_cast<float>(ypos),
+                surfaceWidth,
+                surfaceHeight,
+                GetContentTopInset())) {
+            appState.isResizingOutline = true;
+            appState.needsRepaint = true;
+            glfwSetCursor(window, gOutlineResizeCursor);
+            return;
+        }
+
+        if (const auto outlineThumb = GetOutlineScrollbarThumbRect(
+                appState,
+                surfaceWidth,
+                surfaceHeight,
+                GetContentTopInset())) {
+            SkRect thumbHitRect = *outlineThumb;
+            thumbHitRect.outset(kOutlineScrollbarMargin, 0.0f);
+            const bool inTrack = static_cast<float>(xpos) >= thumbHitRect.left() &&
+                static_cast<float>(xpos) <= thumbHitRect.right() &&
+                static_cast<float>(ypos) >= GetContentTopInset() + kOutlineHeaderHeight + kOutlineTopPadding &&
+                static_cast<float>(ypos) <= surfaceHeight - kOutlineBottomPadding;
+            if (thumbHitRect.contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
+                BeginOutlineScrollbarDrag(appState, static_cast<float>(ypos) - outlineThumb->top());
+                return;
+            }
+            if (inTrack) {
+                BeginOutlineScrollbarDrag(appState, outlineThumb->height() * 0.5f);
+                UpdateOutlineScrollFromThumb(
+                    appState,
+                    static_cast<float>(ypos),
+                    surfaceHeight,
+                    GetContentTopInset());
+                return;
+            }
+        }
+
         if (HitTestOutlineToggle(
                 appState,
                 static_cast<float>(xpos),
@@ -385,6 +463,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                 GetContentTopInset())) {
             appState.outlineCollapsed = !appState.outlineCollapsed;
             appState.outlineFocused = true;
+            appState.outlineLastDocumentScrollOffset = -1.0f;
             appState.needsRepaint = true;
             RelayoutCurrentDocument(window, app->GetHostContext());
             app->GetHostContext().controller.SaveConfig();
@@ -434,6 +513,15 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             appState.needsRepaint = true;
         }
     } else if (action == GLFW_RELEASE) {
+        const bool endedOutlineResize = appState.isResizingOutline;
+        if (endedOutlineResize || appState.isDraggingOutlineScrollbar) {
+            EndOutlinePointerDrag(appState);
+            if (endedOutlineResize) {
+                app->GetHostContext().controller.SaveConfig();
+            }
+            appState.needsRepaint = true;
+            return;
+        }
         const auto hit = HitTest(window, *app, xpos, ypos);
         auto result = FinishPrimaryPointerInteraction(appState, hit);
         if (result.activateLink) HandleLinkClick(window, app->GetHostContext(), result.linkUrl, result.forceExternal);
@@ -457,8 +545,27 @@ void OnScrollImpl(GLFWwindow* window, double xoffset, double yoffset) {
         return;
     }
 
-    ApplyWheelScroll(GetAppState(app->GetHostContext()), static_cast<float>(yoffset) * 40.0f, GetMaxScroll(window, app->GetHostContext()));
-    GetAppState(app->GetHostContext()).needsRepaint = true;
+    auto& appState = GetAppState(app->GetHostContext());
+    double cursorX = 0.0;
+    double cursorY = 0.0;
+    glfwGetCursorPos(window, &cursorX, &cursorY);
+    if (!appState.outlineCollapsed && IsPointInOutlineSidebar(
+            appState,
+            static_cast<float>(cursorX),
+            static_cast<float>(cursorY),
+            GetLogicalWindowWidth(window),
+            GetContentTopInset())) {
+        ScrollOutlineBy(
+            appState,
+            static_cast<float>(yoffset) * 40.0f,
+            GetLogicalWindowHeight(window),
+            GetContentTopInset());
+        appState.needsRepaint = true;
+        return;
+    }
+
+    ApplyWheelScroll(appState, static_cast<float>(yoffset) * 40.0f, GetMaxScroll(window, app->GetHostContext()));
+    appState.needsRepaint = true;
 }
 
 void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -624,6 +731,9 @@ void OnDrop(GLFWwindow* window, int count, const char** paths) noexcept {
 } // namespace
 
 void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
+    if (!gOutlineResizeCursor) {
+        gOutlineResizeCursor = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
+    }
     glfwSetWindowUserPointer(window, app);
     glfwSetCursorPosCallback(window, OnMouseMove);
     glfwSetMouseButtonCallback(window, OnMouseButton);
@@ -632,6 +742,13 @@ void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
     glfwSetCharCallback(window, OnChar);
     glfwSetFramebufferSizeCallback(window, OnFramebufferSize);
     glfwSetDropCallback(window, OnDrop);
+}
+
+void CleanupInteractionResources() {
+    if (gOutlineResizeCursor) {
+        glfwDestroyCursor(gOutlineResizeCursor);
+        gOutlineResizeCursor = nullptr;
+    }
 }
 
 } // namespace mdviewer::linux_platform

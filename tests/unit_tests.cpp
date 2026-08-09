@@ -123,6 +123,7 @@ void ConfigParsingAndSaving() {
         "font_family= Example Font \n"
         "base_font_size=999\n"
         "outline_side=right\n"
+        "outline_width=999\n"
         "recent_file_0=C:/docs/one.md\n"
         "recent_file_0_opened_at=1700000000\n"
         "recent_file_1=\n"
@@ -132,6 +133,7 @@ void ConfigParsingAndSaving() {
     Require(loaded.has_value(), "config should load");
     Require(loaded->theme == mdviewer::ThemeMode::Dark, "theme should parse");
     Require(loaded->outlineSide == mdviewer::OutlineSide::Right, "outline side should parse");
+    RequireNear(loaded->outlineWidth, mdviewer::kMaxOutlineWidth, 0.001f, "outline width should clamp");
     RequireEqual(loaded->fontFamilyUtf8, std::string("Example Font"), "font family should trim");
     RequireNear(loaded->baseFontSize, mdviewer::ClampBaseFontSize(999.0f), 0.001f, "font size should clamp");
     RequireEqual(loaded->recentFiles.size(), static_cast<size_t>(2), "empty recent entries should be skipped");
@@ -139,15 +141,17 @@ void ConfigParsingAndSaving() {
     RequireEqual(loaded->recentFiles[0].openedAtUnixSeconds, 1700000000LL, "recent opened timestamp should parse");
     RequireEqual(loaded->recentFiles[1].pathUtf8, std::string("C:/docs/two.md"), "recent files should preserve sparse index order");
 
-    WriteText(configPath, "[app]\nbase_font_size=not-a-number\ntheme=missing\n");
+    WriteText(configPath, "[app]\nbase_font_size=not-a-number\noutline_width=not-a-number\ntheme=missing\n");
     const auto invalid = mdviewer::LoadAppConfig(configPath);
     Require(invalid.has_value(), "invalid values still produce defaults");
     Require(invalid->theme == mdviewer::ThemeMode::Light, "invalid theme should fall back to light");
     RequireNear(invalid->baseFontSize, mdviewer::kDefaultBaseFontSize, 0.001f, "invalid font size should fall back");
+    RequireNear(invalid->outlineWidth, mdviewer::kDefaultOutlineWidth, 0.001f, "invalid outline width should fall back");
 
     mdviewer::AppConfig saved;
     saved.theme = mdviewer::ThemeMode::Sepia;
     saved.outlineSide = mdviewer::OutlineSide::Right;
+    saved.outlineWidth = 344.0f;
     saved.fontFamilyUtf8 = "Saved Font";
     saved.baseFontSize = 21.0f;
     saved.recentFiles = {
@@ -159,6 +163,7 @@ void ConfigParsingAndSaving() {
     Require(roundTrip.has_value(), "saved config should reload");
     Require(roundTrip->theme == mdviewer::ThemeMode::Sepia, "saved theme should round-trip");
     Require(roundTrip->outlineSide == mdviewer::OutlineSide::Right, "saved outline side should round-trip");
+    RequireNear(roundTrip->outlineWidth, saved.outlineWidth, 0.001f, "saved outline width should round-trip");
     RequireEqual(roundTrip->fontFamilyUtf8, saved.fontFamilyUtf8, "saved font should round-trip");
     RequireEqual(roundTrip->recentFiles.size(), saved.recentFiles.size(), "saved recent files should round-trip");
     RequireEqual(roundTrip->recentFiles[0].pathUtf8, saved.recentFiles[0].pathUtf8, "saved recent path should round-trip");
@@ -408,6 +413,60 @@ void HeadingAnchors() {
     RequireNear(mdviewer::GetOutlineX(appState, 900.0f), 900.0f - mdviewer::kOutlineSidebarWidth, 0.001f, "right outline should be placed at the right edge");
     Require(mdviewer::HitTestOutlineToggle(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 18.0f, 42.0f, 900.0f, 30.0f), "right outline toggle should hit at the inner left edge");
     Require(mdviewer::HitTestOutlineSidebar(appState, 900.0f - mdviewer::kOutlineSidebarWidth + 24.0f, 74.0f, 900.0f, 30.0f).has_value(), "right outline rows should hit inside the right sidebar");
+
+    appState.outlineSide = mdviewer::OutlineSide::Left;
+    appState.outlineWidth = 340.0f;
+    RequireNear(mdviewer::GetOutlineSidebarWidth(appState), 340.0f, 0.001f, "expanded outline should use the configured width");
+    Require(mdviewer::HitTestOutlineResizeHandle(appState, 340.0f, 180.0f, 900.0f, 600.0f, 30.0f), "outline divider should expose a resize handle");
+    Require(mdviewer::ResizeOutlineSidebar(appState, 410.0f, 900.0f), "dragging the divider should update outline width");
+    RequireNear(appState.outlineWidth, 410.0f, 0.001f, "outline resize should preserve the requested width");
+
+    mdviewer::AppState longOutlineState;
+    for (size_t index = 0; index < 40; ++index) {
+        longOutlineState.docLayout.outline.push_back({
+            1,
+            "Heading " + std::to_string(index),
+            "heading-" + std::to_string(index),
+            static_cast<float>(index) * 100.0f,
+        });
+    }
+    longOutlineState.scrollOffset = 3000.0f;
+    mdviewer::SyncOutlineScrollToDocument(longOutlineState, 300.0f, 30.0f);
+    Require(longOutlineState.outlineScrollOffset > 0.0f, "outline should follow the active heading in a long document");
+    const auto initialThumb = mdviewer::GetOutlineScrollbarThumbRect(longOutlineState, 900.0f, 300.0f, 30.0f);
+    Require(initialThumb.has_value(), "overflowing outline should expose a scrollbar thumb");
+    const auto visibleOutlineHit = mdviewer::HitTestOutlineSidebar(longOutlineState, 24.0f, 74.0f, 900.0f, 30.0f);
+    const size_t expectedVisibleIndex = static_cast<size_t>(longOutlineState.outlineScrollOffset / mdviewer::kOutlineItemHeight);
+    Require(
+        visibleOutlineHit.has_value() && *visibleOutlineHit == expectedVisibleIndex,
+        "outline hit testing should account for its scroll offset");
+
+    const float followedOffset = longOutlineState.outlineScrollOffset;
+    Require(mdviewer::ScrollOutlineBy(longOutlineState, -64.0f, 300.0f, 30.0f), "outline wheel scrolling should move its own viewport");
+    const float manualOffset = longOutlineState.outlineScrollOffset;
+    Require(manualOffset > followedOffset, "negative wheel delta should move farther down the outline");
+    mdviewer::SyncOutlineScrollToDocument(longOutlineState, 300.0f, 30.0f);
+    RequireNear(longOutlineState.outlineScrollOffset, manualOffset, 0.001f, "manual outline scroll should remain until the document moves again");
+
+    longOutlineState.scrollOffset = 100.0f;
+    mdviewer::SyncOutlineScrollToDocument(longOutlineState, 300.0f, 30.0f);
+    Require(longOutlineState.outlineScrollOffset < manualOffset, "document scrolling should bring its new active heading into the outline viewport");
+
+    const auto thumb = mdviewer::GetOutlineScrollbarThumbRect(longOutlineState, 900.0f, 300.0f, 30.0f);
+    Require(thumb.has_value(), "outline scrollbar should remain available after following the document");
+    mdviewer::BeginOutlineScrollbarDrag(longOutlineState, thumb->height() * 0.5f);
+    Require(mdviewer::UpdateOutlineScrollFromThumb(
+        longOutlineState,
+        300.0f - mdviewer::kOutlineBottomPadding - (thumb->height() * 0.5f),
+        300.0f,
+        30.0f), "dragging the outline scrollbar should update its offset");
+    RequireNear(
+        longOutlineState.outlineScrollOffset,
+        mdviewer::GetMaxOutlineScroll(longOutlineState, 300.0f, 30.0f),
+        0.01f,
+        "dragging the thumb to the bottom should reach the final outline items");
+    mdviewer::EndOutlinePointerDrag(longOutlineState);
+    Require(!longOutlineState.isDraggingOutlineScrollbar, "releasing the outline thumb should end its drag state");
 }
 
 void HitTestingMeasuresOnlyClosestLine() {

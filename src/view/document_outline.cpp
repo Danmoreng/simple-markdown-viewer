@@ -1,6 +1,7 @@
 #include "view/document_outline.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "view/document_interaction.h"
 
@@ -10,7 +11,7 @@ float GetOutlineSidebarWidth(const AppState& appState) {
     if (appState.docLayout.outline.empty()) {
         return 0.0f;
     }
-    return appState.outlineCollapsed ? kOutlineCollapsedWidth : kOutlineSidebarWidth;
+    return appState.outlineCollapsed ? kOutlineCollapsedWidth : ClampOutlineWidth(appState.outlineWidth);
 }
 
 float GetOutlineX(const AppState& appState, float surfaceWidth) {
@@ -19,6 +20,191 @@ float GetOutlineX(const AppState& appState, float surfaceWidth) {
         return 0.0f;
     }
     return std::max(surfaceWidth - width, 0.0f);
+}
+
+float GetOutlineViewportHeight(float surfaceHeight, float contentTopInset) {
+    const float contentTop = contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    return std::max(surfaceHeight - contentTop - kOutlineBottomPadding, 0.0f);
+}
+
+float GetMaxOutlineScroll(const AppState& appState, float surfaceHeight, float contentTopInset) {
+    const float contentHeight = static_cast<float>(appState.docLayout.outline.size()) * kOutlineItemHeight;
+    return std::max(contentHeight - GetOutlineViewportHeight(surfaceHeight, contentTopInset), 0.0f);
+}
+
+bool IsPointInOutlineSidebar(
+    const AppState& appState,
+    float x,
+    float y,
+    float surfaceWidth,
+    float contentTopInset) {
+    const float width = GetOutlineSidebarWidth(appState);
+    const float outlineX = GetOutlineX(appState, surfaceWidth);
+    return width > 0.0f && x >= outlineX && x < outlineX + width && y >= contentTopInset;
+}
+
+bool HitTestOutlineResizeHandle(
+    const AppState& appState,
+    float x,
+    float y,
+    float surfaceWidth,
+    float surfaceHeight,
+    float contentTopInset) {
+    if (appState.outlineCollapsed || appState.docLayout.outline.empty() ||
+        y < contentTopInset || y >= surfaceHeight) {
+        return false;
+    }
+
+    const float dividerX = appState.outlineSide == OutlineSide::Left
+        ? GetOutlineSidebarWidth(appState)
+        : GetOutlineX(appState, surfaceWidth);
+    return std::abs(x - dividerX) <= kOutlineResizeHandleWidth * 0.5f;
+}
+
+bool ResizeOutlineSidebar(AppState& appState, float pointerX, float surfaceWidth) {
+    const float requestedWidth = appState.outlineSide == OutlineSide::Left
+        ? pointerX
+        : surfaceWidth - pointerX;
+    const float clampedWidth = ClampOutlineWidth(requestedWidth);
+    if (std::abs(clampedWidth - appState.outlineWidth) < 0.01f) {
+        return false;
+    }
+
+    appState.outlineWidth = clampedWidth;
+    appState.needsRepaint = true;
+    return true;
+}
+
+void EnsureOutlineIndexVisible(
+    AppState& appState,
+    size_t index,
+    float surfaceHeight,
+    float contentTopInset) {
+    if (appState.docLayout.outline.empty()) {
+        appState.outlineScrollOffset = 0.0f;
+        return;
+    }
+
+    const float viewportHeight = GetOutlineViewportHeight(surfaceHeight, contentTopInset);
+    const float itemTop = static_cast<float>(std::min(index, appState.docLayout.outline.size() - 1)) * kOutlineItemHeight;
+    const float itemBottom = itemTop + kOutlineItemHeight;
+    if (itemTop < appState.outlineScrollOffset) {
+        appState.outlineScrollOffset = itemTop;
+    } else if (itemBottom > appState.outlineScrollOffset + viewportHeight) {
+        appState.outlineScrollOffset = itemBottom - viewportHeight;
+    }
+    appState.outlineScrollOffset = std::clamp(
+        appState.outlineScrollOffset,
+        0.0f,
+        GetMaxOutlineScroll(appState, surfaceHeight, contentTopInset));
+}
+
+void SyncOutlineScrollToDocument(AppState& appState, float surfaceHeight, float contentTopInset) {
+    if (appState.docLayout.outline.empty() || appState.outlineCollapsed) {
+        appState.outlineScrollOffset = 0.0f;
+        appState.outlineLastDocumentScrollOffset = appState.scrollOffset;
+        appState.outlineLastViewportHeight = surfaceHeight;
+        return;
+    }
+
+    const bool documentMoved = std::abs(appState.scrollOffset - appState.outlineLastDocumentScrollOffset) > 0.01f;
+    const bool viewportChanged = std::abs(surfaceHeight - appState.outlineLastViewportHeight) > 0.01f;
+    appState.outlineScrollOffset = std::clamp(
+        appState.outlineScrollOffset,
+        0.0f,
+        GetMaxOutlineScroll(appState, surfaceHeight, contentTopInset));
+    if (documentMoved || viewportChanged) {
+        EnsureOutlineIndexVisible(
+            appState,
+            GetCurrentOutlineIndex(appState.docLayout, appState.scrollOffset),
+            surfaceHeight,
+            contentTopInset);
+    }
+    appState.outlineLastDocumentScrollOffset = appState.scrollOffset;
+    appState.outlineLastViewportHeight = surfaceHeight;
+}
+
+bool ScrollOutlineBy(AppState& appState, float delta, float surfaceHeight, float contentTopInset) {
+    const float previousOffset = appState.outlineScrollOffset;
+    appState.outlineScrollOffset = std::clamp(
+        appState.outlineScrollOffset - delta,
+        0.0f,
+        GetMaxOutlineScroll(appState, surfaceHeight, contentTopInset));
+    if (std::abs(previousOffset - appState.outlineScrollOffset) < 0.01f) {
+        return false;
+    }
+    appState.needsRepaint = true;
+    return true;
+}
+
+std::optional<SkRect> GetOutlineScrollbarThumbRect(
+    const AppState& appState,
+    float surfaceWidth,
+    float surfaceHeight,
+    float contentTopInset) {
+    if (appState.outlineCollapsed || appState.docLayout.outline.empty()) {
+        return std::nullopt;
+    }
+
+    const float viewportHeight = GetOutlineViewportHeight(surfaceHeight, contentTopInset);
+    const float contentHeight = static_cast<float>(appState.docLayout.outline.size()) * kOutlineItemHeight;
+    const float maxScroll = GetMaxOutlineScroll(appState, surfaceHeight, contentTopInset);
+    if (viewportHeight <= 0.0f || contentHeight <= viewportHeight || maxScroll <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const float trackTop = contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    const float thumbHeight = std::min(
+        std::max(viewportHeight * (viewportHeight / contentHeight), 24.0f),
+        viewportHeight);
+    const float maxThumbTravel = std::max(viewportHeight - thumbHeight, 0.0f);
+    const float thumbY = trackTop + (appState.outlineScrollOffset / maxScroll) * maxThumbTravel;
+    const float thumbX = GetOutlineX(appState, surfaceWidth) + GetOutlineSidebarWidth(appState) -
+        kOutlineScrollbarMargin - kOutlineScrollbarWidth;
+    return SkRect::MakeXYWH(thumbX, thumbY, kOutlineScrollbarWidth, thumbHeight);
+}
+
+void BeginOutlineScrollbarDrag(AppState& appState, float dragOffset) {
+    appState.isDraggingOutlineScrollbar = true;
+    appState.outlineScrollbarDragOffset = std::max(dragOffset, 0.0f);
+    appState.needsRepaint = true;
+}
+
+bool UpdateOutlineScrollFromThumb(
+    AppState& appState,
+    float pointerY,
+    float surfaceHeight,
+    float contentTopInset) {
+    const float viewportHeight = GetOutlineViewportHeight(surfaceHeight, contentTopInset);
+    const float contentHeight = static_cast<float>(appState.docLayout.outline.size()) * kOutlineItemHeight;
+    const float maxScroll = GetMaxOutlineScroll(appState, surfaceHeight, contentTopInset);
+    if (viewportHeight <= 0.0f || contentHeight <= viewportHeight || maxScroll <= 0.0f) {
+        return false;
+    }
+
+    const float thumbHeight = std::min(
+        std::max(viewportHeight * (viewportHeight / contentHeight), 24.0f),
+        viewportHeight);
+    const float maxThumbTravel = std::max(viewportHeight - thumbHeight, 0.0f);
+    if (maxThumbTravel <= 0.0f) {
+        return false;
+    }
+
+    const float trackTop = contentTopInset + kOutlineHeaderHeight + kOutlineTopPadding;
+    const float thumbTop = std::clamp(
+        pointerY - appState.outlineScrollbarDragOffset - trackTop,
+        0.0f,
+        maxThumbTravel);
+    const float previousOffset = appState.outlineScrollOffset;
+    appState.outlineScrollOffset = (thumbTop / maxThumbTravel) * maxScroll;
+    appState.needsRepaint = true;
+    return std::abs(previousOffset - appState.outlineScrollOffset) >= 0.01f;
+}
+
+void EndOutlinePointerDrag(AppState& appState) {
+    appState.isDraggingOutlineScrollbar = false;
+    appState.outlineScrollbarDragOffset = 0.0f;
+    appState.isResizingOutline = false;
 }
 
 size_t GetCurrentOutlineIndex(const DocumentLayout& layout, float visibleDocumentTop) {
@@ -96,12 +282,13 @@ std::optional<size_t> HitTestOutlineSidebar(
     if (appState.outlineCollapsed ||
         appState.docLayout.outline.empty() ||
         localX < 0.0f ||
-        localX >= kOutlineSidebarWidth ||
+        localX >= GetOutlineSidebarWidth(appState) ||
         y < contentTopInset) {
         return std::nullopt;
     }
 
-    const float localY = y - contentTopInset - kOutlineHeaderHeight - kOutlineTopPadding;
+    const float localY = y - contentTopInset - kOutlineHeaderHeight - kOutlineTopPadding +
+        appState.outlineScrollOffset;
     if (localY < 0.0f) {
         return std::nullopt;
     }

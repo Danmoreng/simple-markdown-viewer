@@ -74,7 +74,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
 - Automatic document reload on external file changes while the file is open on Windows
-- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side, and recent files with opened timestamps
+- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, and recent files with opened timestamps
 - Platform app icons for the Windows executable and Linux window/desktop integration
 
 ## Scope
@@ -193,7 +193,7 @@ Open a file immediately:
 .\build\Release\mdviewer.exe .\README.md
 ```
 
-The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side, and recent-file persistence:
+The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side/width, and recent-file persistence:
 
 - Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
 - Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set
@@ -246,6 +246,7 @@ If the Release application has already been built, use `./package-linux.sh --ski
 - `View -> Theme`: switch between light, sepia, and dark themes
 - `View -> Show Outline`: show or collapse the heading outline with `Ctrl+Shift+O`
 - `View -> Outline on Left/Right`: choose the outline side; saved as `outline_side=left` or `outline_side=right`
+- Outline sidebar: use the mouse wheel or scrollbar for long heading lists; drag the divider to resize it. The width is saved as `outline_width`.
 - `Ctrl` + `+` / `-`: zoom document text in and out
 - **Navigation**:
   - `Alt + Left` or `Backspace`: Go Back

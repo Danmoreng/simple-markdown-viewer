@@ -28,6 +28,7 @@ void ViewerController::SetLegacyConfigPath(std::filesystem::path path) {
 bool ViewerController::LoadConfig() {
     appState_.theme = ThemeMode::Light;
     appState_.outlineSide = OutlineSide::Left;
+    appState_.outlineWidth = kDefaultOutlineWidth;
     appState_.baseFontSize = kDefaultBaseFontSize;
     fontFamilyUtf8_.clear();
     recentFiles_.clear();
@@ -52,6 +53,7 @@ bool ViewerController::LoadConfig() {
 
     appState_.theme = config->theme;
     appState_.outlineSide = config->outlineSide;
+    appState_.outlineWidth = ClampOutlineWidth(config->outlineWidth);
     appState_.baseFontSize = ClampBaseFontSize(config->baseFontSize);
     fontFamilyUtf8_ = config->fontFamilyUtf8;
     for (const auto& recentFile : config->recentFiles) {
@@ -82,6 +84,7 @@ bool ViewerController::SaveConfig() const {
     AppConfig config;
     config.theme = appState_.theme;
     config.outlineSide = appState_.outlineSide;
+    config.outlineWidth = ClampOutlineWidth(appState_.outlineWidth);
     config.fontFamilyUtf8 = fontFamilyUtf8_;
     config.baseFontSize = appState_.baseFontSize;
     config.recentFiles.reserve(recentFiles_.size());
@@ -130,6 +133,7 @@ bool ViewerController::ToggleOutlineCollapsed() {
     std::lock_guard<std::mutex> lock(appState_.mtx);
     appState_.outlineCollapsed = !appState_.outlineCollapsed;
     appState_.outlineFocused = true;
+    appState_.outlineLastDocumentScrollOffset = -1.0f;
     appState_.needsRepaint = true;
     return true;
 }

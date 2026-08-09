@@ -119,6 +119,7 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
     }
 
     std::cerr << "Cleaning up..." << std::endl;
+    CleanupInteractionResources();
     CleanupSkia(app.SurfaceContext());
     glfwDestroyWindow(window);
     glfwTerminate();

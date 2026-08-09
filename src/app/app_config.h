@@ -9,6 +9,12 @@
 
 namespace mdviewer {
 
+inline constexpr float kDefaultOutlineWidth = 260.0f;
+inline constexpr float kMinOutlineWidth = 180.0f;
+inline constexpr float kMaxOutlineWidth = 520.0f;
+
+float ClampOutlineWidth(float width);
+
 enum class OutlineSide {
     Left,
     Right
@@ -25,6 +31,7 @@ struct RecentFileConfigEntry {
 struct AppConfig {
     ThemeMode theme = ThemeMode::Light;
     OutlineSide outlineSide = OutlineSide::Left;
+    float outlineWidth = kDefaultOutlineWidth;
     std::string fontFamilyUtf8;
     float baseFontSize = 17.0f;
     std::vector<RecentFileConfigEntry> recentFiles;

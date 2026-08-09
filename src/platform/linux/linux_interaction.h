@@ -6,5 +6,6 @@
 namespace mdviewer::linux_platform {
 
 void SetupCallbacks(GLFWwindow* window, LinuxApp* app);
+void CleanupInteractionResources();
 
 } // namespace mdviewer::linux_platform

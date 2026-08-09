@@ -194,6 +194,10 @@ void Render(HWND hwnd, ViewerHostContext& context) {
     {
         std::lock_guard<std::mutex> lock(appState.mtx);
         appState.codeBlockButtons.clear();
+        SyncOutlineScrollToDocument(
+            appState,
+            static_cast<float>(context.surface->height()),
+            GetContentTopInset());
         RenderDocumentScene(
             DocumentSceneParams{
                 .canvas = canvas,

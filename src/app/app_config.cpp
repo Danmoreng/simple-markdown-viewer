@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -71,6 +72,13 @@ long long ParseUnixSeconds(const std::string& value) {
 
 } // namespace
 
+float ClampOutlineWidth(float width) {
+    if (!std::isfinite(width)) {
+        return kDefaultOutlineWidth;
+    }
+    return std::clamp(width, kMinOutlineWidth, kMaxOutlineWidth);
+}
+
 const char* OutlineSideToString(OutlineSide side) {
     switch (side) {
         case OutlineSide::Right:
@@ -133,6 +141,12 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
             config.theme = ThemeModeFromString(value.c_str());
         } else if (key == "outline_side") {
             config.outlineSide = OutlineSideFromString(value.c_str());
+        } else if (key == "outline_width") {
+            try {
+                config.outlineWidth = ClampOutlineWidth(std::stof(value));
+            } catch (...) {
+                config.outlineWidth = kDefaultOutlineWidth;
+            }
         } else if (key == "font_family") {
             config.fontFamilyUtf8 = value;
         } else if (key == "base_font_size") {
@@ -167,6 +181,7 @@ bool SaveAppConfig(const std::filesystem::path& path, const AppConfig& config) {
     output << "[app]\n";
     output << "theme=" << ThemeModeToString(config.theme) << '\n';
     output << "outline_side=" << OutlineSideToString(config.outlineSide) << '\n';
+    output << "outline_width=" << ClampOutlineWidth(config.outlineWidth) << '\n';
     output << "font_family=" << config.fontFamilyUtf8 << '\n';
     output << "base_font_size=" << ClampBaseFontSize(config.baseFontSize) << '\n';
     for (size_t index = 0; index < config.recentFiles.size(); ++index) {
