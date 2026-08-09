@@ -658,9 +658,9 @@ Platform conventions matter: shortcuts should feel native on Windows/Linux and m
 
 The product remains single-window. Opening a file or supported local document
 link replaces the current view and participates in Back/Forward history. Recent
-files are persisted; Windows exposes them in the current native menu, while Linux
-menu parity remains follow-up work. Optional session restore may reopen one last
-document, but must not grow into tabs or a workspace model.
+files are persisted and exposed from the File menu on Windows and Linux.
+Optional session restore may reopen one last document, but must not grow into
+tabs or a workspace model.
 
 ### 8.5 File Watching and Reload
 

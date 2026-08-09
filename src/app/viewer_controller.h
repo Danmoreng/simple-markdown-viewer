@@ -71,6 +71,8 @@ public:
     bool ResetFontFamily();
 
     const std::vector<RecentFileEntry>& GetRecentFiles() const { return recentFiles_; }
+    const std::optional<WindowPlacement>& GetWindowPlacement() const { return windowPlacement_; }
+    void SetWindowPlacement(WindowPlacement placement) { windowPlacement_ = placement; }
 
     OpenDocumentStatus OpenFile(
         const std::filesystem::path& path,
@@ -112,6 +114,7 @@ private:
     std::filesystem::path configPath_;
     std::filesystem::path legacyConfigPath_;
     std::string fontFamilyUtf8_;
+    std::optional<WindowPlacement> windowPlacement_;
     std::vector<RecentFileEntry> recentFiles_;
 };
 

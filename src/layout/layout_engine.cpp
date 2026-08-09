@@ -26,8 +26,7 @@ namespace {
 
 constexpr float kDocumentTopPadding = 20.0f;
 constexpr float kDocumentBottomPadding = 20.0f;
-constexpr float kDocumentLeftMargin = 40.0f;
-constexpr float kDocumentRightMargin = 104.0f;
+constexpr float kDocumentHorizontalMargin = 40.0f;
 constexpr float kCompactDocumentMargin = 12.0f;
 constexpr float kCompactViewportWidth = 480.0f;
 constexpr float kFullMarginViewportWidth = 900.0f;
@@ -75,10 +74,9 @@ DocumentHorizontalInsets GetDocumentHorizontalInsets(float viewportWidth) {
             (kFullMarginViewportWidth - kCompactViewportWidth),
         0.0f,
         1.0f);
-    return {
-        kCompactDocumentMargin + ((kDocumentLeftMargin - kCompactDocumentMargin) * interpolation),
-        kCompactDocumentMargin + ((kDocumentRightMargin - kCompactDocumentMargin) * interpolation),
-    };
+    const float margin = kCompactDocumentMargin +
+        ((kDocumentHorizontalMargin - kCompactDocumentMargin) * interpolation);
+    return {margin, margin};
 }
 
 class LayoutContext {

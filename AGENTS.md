@@ -154,6 +154,7 @@ Persisted settings include:
 - selected document font family
 - base font size / reader zoom
 - outline side and width
+- Linux window size and position
 - recent files and their last-opened timestamps
 
 Theme palette overrides are not supported config keys. Config should persist the

@@ -77,7 +77,7 @@ SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
     const auto layout = GetMenuBarLayout(window, app);
     if (menuIndex < 0 || menuIndex >= static_cast<int>(layout.itemRects.size())) return SkRect::MakeEmpty();
 
-    auto menus = GetLinuxMenus();
+    auto menus = GetLinuxMenus(app.Controller().GetRecentFiles());
     if (menuIndex >= static_cast<int>(menus.size())) return SkRect::MakeEmpty();
 
     const float x = layout.itemRects[menuIndex].left();
@@ -168,7 +168,11 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     return InteractionTextHit{docHit.position, docHit.valid, docHit.url};
 }
 
-void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
+void ExecuteMenuCommand(
+    GLFWwindow* window,
+    LinuxApp& app,
+    MenuCommand cmd,
+    const std::filesystem::path& commandPath = {}) {
     auto host = app.GetHostContext();
     switch (cmd) {
         case MenuCommand::Exit: glfwSetWindowShouldClose(window, GLFW_TRUE); break;
@@ -177,6 +181,11 @@ void ExecuteMenuCommand(GLFWwindow* window, LinuxApp& app, MenuCommand cmd) {
                 LoadFile(window, host, *path);
             }
         } break;
+        case MenuCommand::OpenRecentFile:
+            if (!commandPath.empty()) {
+                LoadFile(window, host, commandPath);
+            }
+            break;
         case MenuCommand::SaveAsPdf: {
             const auto& appState = GetAppState(host);
             if (appState.currentFilePath.empty()) {
@@ -385,10 +394,14 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
         if (appState.menuBarState.activeIndex != -1) {
             int itemIdx = HitTestDropdown(window, *app, xpos, ypos);
             if (itemIdx != -1) {
-                auto menus = GetLinuxMenus();
+                auto menus = GetLinuxMenus(app->Controller().GetRecentFiles());
                 auto& menu = menus[appState.menuBarState.activeIndex];
                 if (itemIdx < static_cast<int>(menu.items.size()) && !menu.items[itemIdx].isSeparator) {
-                    ExecuteMenuCommand(window, *app, menu.items[itemIdx].command);
+                    ExecuteMenuCommand(
+                        window,
+                        *app,
+                        menu.items[itemIdx].command,
+                        menu.items[itemIdx].path);
                 }
             }
             appState.menuBarState.activeIndex = -1;

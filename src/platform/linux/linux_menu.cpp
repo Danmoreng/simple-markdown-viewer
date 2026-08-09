@@ -2,7 +2,18 @@
 
 #include "render/pdf_exporter.h"
 
+#include <algorithm>
+
 namespace mdviewer::linux_platform {
+
+namespace {
+
+std::string PathLabel(const std::filesystem::path& path) {
+    const auto utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
+
+} // namespace
 
 const std::vector<MenuBarItem>& GetLinuxMenuBarItems() {
     static const std::vector<MenuBarItem> items = {
@@ -22,13 +33,25 @@ std::vector<DropdownItem> GetLinuxDropdownItems(const MenuDropdown& menu) {
     return items;
 }
 
-std::vector<MenuDropdown> GetLinuxMenus() {
+std::vector<MenuDropdown> GetLinuxMenus(const std::vector<RecentFileEntry>& recentFiles) {
     std::vector<MenuItem> fileItems = {
         {"Open...", MenuCommand::OpenFile},
     };
 #if MDVIEWER_ENABLE_PDF
     fileItems.push_back({"Save as PDF...", MenuCommand::SaveAsPdf});
 #endif
+    if (!recentFiles.empty()) {
+        fileItems.push_back({"", MenuCommand::None, true});
+        const size_t recentCount = std::min(recentFiles.size(), static_cast<size_t>(8));
+        for (size_t index = 0; index < recentCount; ++index) {
+            fileItems.push_back({
+                std::to_string(index + 1) + "  " + PathLabel(recentFiles[index].path),
+                MenuCommand::OpenRecentFile,
+                false,
+                recentFiles[index].path,
+            });
+        }
+    }
     fileItems.push_back({"", MenuCommand::None, true});
     fileItems.push_back({"Exit", MenuCommand::Exit});
 

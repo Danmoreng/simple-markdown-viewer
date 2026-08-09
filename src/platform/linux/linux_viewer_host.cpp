@@ -188,7 +188,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
 
     // Render active dropdown
     if (appState.menuBarState.activeIndex >= 0) {
-        auto menus = GetLinuxMenus();
+        auto menus = GetLinuxMenus(context.controller.GetRecentFiles());
         if (appState.menuBarState.activeIndex < static_cast<int>(menus.size())) {
             const auto& menu = menus[appState.menuBarState.activeIndex];
             const std::vector<DropdownItem> dropItems = GetLinuxDropdownItems(menu);

@@ -31,6 +31,7 @@ bool ViewerController::LoadConfig() {
     appState_.outlineWidth = kDefaultOutlineWidth;
     appState_.baseFontSize = kDefaultBaseFontSize;
     fontFamilyUtf8_.clear();
+    windowPlacement_.reset();
     recentFiles_.clear();
 
     if (configPath_.empty()) {
@@ -56,6 +57,7 @@ bool ViewerController::LoadConfig() {
     appState_.outlineWidth = ClampOutlineWidth(config->outlineWidth);
     appState_.baseFontSize = ClampBaseFontSize(config->baseFontSize);
     fontFamilyUtf8_ = config->fontFamilyUtf8;
+    windowPlacement_ = config->windowPlacement;
     for (const auto& recentFile : config->recentFiles) {
         if (!recentFile.pathUtf8.empty()) {
             const std::u8string recentPathUtf8(recentFile.pathUtf8.begin(), recentFile.pathUtf8.end());
@@ -87,6 +89,7 @@ bool ViewerController::SaveConfig() const {
     config.outlineWidth = ClampOutlineWidth(appState_.outlineWidth);
     config.fontFamilyUtf8 = fontFamilyUtf8_;
     config.baseFontSize = appState_.baseFontSize;
+    config.windowPlacement = windowPlacement_;
     config.recentFiles.reserve(recentFiles_.size());
     for (const auto& recentFile : recentFiles_) {
         const auto recentFileUtf8 = recentFile.path.u8string();

@@ -28,12 +28,20 @@ struct RecentFileConfigEntry {
     long long openedAtUnixSeconds = 0;
 };
 
+struct WindowPlacement {
+    int x = 0;
+    int y = 0;
+    int width = 900;
+    int height = 1200;
+};
+
 struct AppConfig {
     ThemeMode theme = ThemeMode::Light;
     OutlineSide outlineSide = OutlineSide::Left;
     float outlineWidth = kDefaultOutlineWidth;
     std::string fontFamilyUtf8;
     float baseFontSize = 17.0f;
+    std::optional<WindowPlacement> windowPlacement;
     std::vector<RecentFileConfigEntry> recentFiles;
 };
 

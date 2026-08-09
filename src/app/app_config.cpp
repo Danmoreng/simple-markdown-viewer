@@ -70,6 +70,27 @@ long long ParseUnixSeconds(const std::string& value) {
     }
 }
 
+std::optional<int> ParseInteger(const std::string& value) {
+    try {
+        size_t parsedLength = 0;
+        const int parsed = std::stoi(value, &parsedLength);
+        if (parsedLength != value.size()) {
+            return std::nullopt;
+        }
+        return parsed;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+bool IsValidWindowSize(int width, int height) {
+    constexpr int kMinWindowWidth = 320;
+    constexpr int kMinWindowHeight = 240;
+    constexpr int kMaxWindowDimension = 32768;
+    return width >= kMinWindowWidth && width <= kMaxWindowDimension &&
+        height >= kMinWindowHeight && height <= kMaxWindowDimension;
+}
+
 } // namespace
 
 float ClampOutlineWidth(float width) {
@@ -112,6 +133,10 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
 
     AppConfig config;
     std::map<size_t, RecentFileConfigEntry> recentFilesByIndex;
+    std::optional<int> windowX;
+    std::optional<int> windowY;
+    std::optional<int> windowWidth;
+    std::optional<int> windowHeight;
     std::string section;
     std::string line;
     while (std::getline(input, line)) {
@@ -155,11 +180,29 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
             } catch (...) {
                 config.baseFontSize = kDefaultBaseFontSize;
             }
+        } else if (key == "window_x") {
+            windowX = ParseInteger(value);
+        } else if (key == "window_y") {
+            windowY = ParseInteger(value);
+        } else if (key == "window_width") {
+            windowWidth = ParseInteger(value);
+        } else if (key == "window_height") {
+            windowHeight = ParseInteger(value);
         } else if (const auto fileIndex = ParseRecentFileIndex(key); fileIndex && !value.empty()) {
             recentFilesByIndex[*fileIndex].pathUtf8 = value;
         } else if (const auto openedAtIndex = ParseRecentOpenedAtIndex(key); openedAtIndex) {
             recentFilesByIndex[*openedAtIndex].openedAtUnixSeconds = ParseUnixSeconds(value);
         }
+    }
+
+    if (windowX && windowY && windowWidth && windowHeight &&
+        IsValidWindowSize(*windowWidth, *windowHeight)) {
+        config.windowPlacement = WindowPlacement{
+            *windowX,
+            *windowY,
+            *windowWidth,
+            *windowHeight,
+        };
     }
 
     for (auto& [recentIndex, recentFile] : recentFilesByIndex) {
@@ -184,6 +227,13 @@ bool SaveAppConfig(const std::filesystem::path& path, const AppConfig& config) {
     output << "outline_width=" << ClampOutlineWidth(config.outlineWidth) << '\n';
     output << "font_family=" << config.fontFamilyUtf8 << '\n';
     output << "base_font_size=" << ClampBaseFontSize(config.baseFontSize) << '\n';
+    if (config.windowPlacement &&
+        IsValidWindowSize(config.windowPlacement->width, config.windowPlacement->height)) {
+        output << "window_x=" << config.windowPlacement->x << '\n';
+        output << "window_y=" << config.windowPlacement->y << '\n';
+        output << "window_width=" << config.windowPlacement->width << '\n';
+        output << "window_height=" << config.windowPlacement->height << '\n';
+    }
     for (size_t index = 0; index < config.recentFiles.size(); ++index) {
         output << "recent_file_" << index << '=' << config.recentFiles[index].pathUtf8 << '\n';
         if (config.recentFiles[index].openedAtUnixSeconds > 0) {

@@ -1,9 +1,10 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
-#include <functional>
 
+#include "app/viewer_controller.h"
 #include "render/menu_renderer.h"
 
 namespace mdviewer::linux_platform {
@@ -19,6 +20,7 @@ enum class MenuCommand {
     OutlineLeft = 1007,
     OutlineRight = 1008,
     SaveAsPdf = 1009,
+    OpenRecentFile = 1010,
     ThemeLight = 1101,
     ThemeSepia = 1102,
     ThemeDark = 1103
@@ -28,6 +30,7 @@ struct MenuItem {
     std::string label;
     MenuCommand command = MenuCommand::None;
     bool isSeparator = false;
+    std::filesystem::path path;
 };
 
 struct MenuDropdown {
@@ -35,7 +38,7 @@ struct MenuDropdown {
     std::vector<MenuItem> items;
 };
 
-std::vector<MenuDropdown> GetLinuxMenus();
+std::vector<MenuDropdown> GetLinuxMenus(const std::vector<RecentFileEntry>& recentFiles);
 const std::vector<MenuBarItem>& GetLinuxMenuBarItems();
 std::vector<DropdownItem> GetLinuxDropdownItems(const MenuDropdown& menu);
 

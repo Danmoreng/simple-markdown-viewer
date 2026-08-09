@@ -164,6 +164,10 @@ void ConfigParsingAndSaving() {
         "base_font_size=999\n"
         "outline_side=right\n"
         "outline_width=999\n"
+        "window_x=-1200\n"
+        "window_y=75\n"
+        "window_width=1280\n"
+        "window_height=800\n"
         "recent_file_0=C:/docs/one.md\n"
         "recent_file_0_opened_at=1700000000\n"
         "recent_file_1=\n"
@@ -176,17 +180,25 @@ void ConfigParsingAndSaving() {
     RequireNear(loaded->outlineWidth, mdviewer::kMaxOutlineWidth, 0.001f, "outline width should clamp");
     RequireEqual(loaded->fontFamilyUtf8, std::string("Example Font"), "font family should trim");
     RequireNear(loaded->baseFontSize, mdviewer::ClampBaseFontSize(999.0f), 0.001f, "font size should clamp");
+    Require(loaded->windowPlacement.has_value(), "complete valid window placement should parse");
+    RequireEqual(loaded->windowPlacement->x, -1200, "window placement should preserve negative monitor coordinates");
+    RequireEqual(loaded->windowPlacement->y, 75, "window placement should preserve vertical position");
+    RequireEqual(loaded->windowPlacement->width, 1280, "window placement should preserve width");
+    RequireEqual(loaded->windowPlacement->height, 800, "window placement should preserve height");
     RequireEqual(loaded->recentFiles.size(), static_cast<size_t>(2), "empty recent entries should be skipped");
     RequireEqual(loaded->recentFiles[0].pathUtf8, std::string("C:/docs/one.md"), "recent files should preserve order");
     RequireEqual(loaded->recentFiles[0].openedAtUnixSeconds, 1700000000LL, "recent opened timestamp should parse");
     RequireEqual(loaded->recentFiles[1].pathUtf8, std::string("C:/docs/two.md"), "recent files should preserve sparse index order");
 
-    WriteText(configPath, "[app]\nbase_font_size=not-a-number\noutline_width=not-a-number\ntheme=missing\n");
+    WriteText(configPath,
+        "[app]\nbase_font_size=not-a-number\noutline_width=not-a-number\ntheme=missing\n"
+        "window_x=10\nwindow_y=20\nwindow_width=invalid\nwindow_height=100\n");
     const auto invalid = mdviewer::LoadAppConfig(configPath);
     Require(invalid.has_value(), "invalid values still produce defaults");
     Require(invalid->theme == mdviewer::ThemeMode::Light, "invalid theme should fall back to light");
     RequireNear(invalid->baseFontSize, mdviewer::kDefaultBaseFontSize, 0.001f, "invalid font size should fall back");
     RequireNear(invalid->outlineWidth, mdviewer::kDefaultOutlineWidth, 0.001f, "invalid outline width should fall back");
+    Require(!invalid->windowPlacement.has_value(), "incomplete or invalid window placement should be ignored");
 
     mdviewer::AppConfig saved;
     saved.theme = mdviewer::ThemeMode::Sepia;
@@ -194,6 +206,7 @@ void ConfigParsingAndSaving() {
     saved.outlineWidth = 344.0f;
     saved.fontFamilyUtf8 = "Saved Font";
     saved.baseFontSize = 21.0f;
+    saved.windowPlacement = mdviewer::WindowPlacement{-640, 48, 1440, 900};
     saved.recentFiles = {
         {"C:/docs/a.md", 1700000100},
         {"C:/docs/b.md", 1700000200},
@@ -205,6 +218,11 @@ void ConfigParsingAndSaving() {
     Require(roundTrip->outlineSide == mdviewer::OutlineSide::Right, "saved outline side should round-trip");
     RequireNear(roundTrip->outlineWidth, saved.outlineWidth, 0.001f, "saved outline width should round-trip");
     RequireEqual(roundTrip->fontFamilyUtf8, saved.fontFamilyUtf8, "saved font should round-trip");
+    Require(roundTrip->windowPlacement.has_value(), "saved window placement should round-trip");
+    RequireEqual(roundTrip->windowPlacement->x, saved.windowPlacement->x, "saved window x should round-trip");
+    RequireEqual(roundTrip->windowPlacement->y, saved.windowPlacement->y, "saved window y should round-trip");
+    RequireEqual(roundTrip->windowPlacement->width, saved.windowPlacement->width, "saved window width should round-trip");
+    RequireEqual(roundTrip->windowPlacement->height, saved.windowPlacement->height, "saved window height should round-trip");
     RequireEqual(roundTrip->recentFiles.size(), saved.recentFiles.size(), "saved recent files should round-trip");
     RequireEqual(roundTrip->recentFiles[0].pathUtf8, saved.recentFiles[0].pathUtf8, "saved recent path should round-trip");
     RequireEqual(roundTrip->recentFiles[0].openedAtUnixSeconds, saved.recentFiles[0].openedAtUnixSeconds, "saved recent timestamp should round-trip");
@@ -858,8 +876,8 @@ void LayoutSensitiveBehavior() {
 
     const auto wideInsets = mdviewer::GetDocumentHorizontalInsets(900.0f);
     const auto compactInsets = mdviewer::GetDocumentHorizontalInsets(480.0f);
-    RequireNear(wideInsets.left, 40.0f, 0.001f, "wide documents should retain the established left margin");
-    RequireNear(wideInsets.right, 104.0f, 0.001f, "wide documents should retain the established right margin");
+    RequireNear(wideInsets.left, 40.0f, 0.001f, "wide documents should retain the established horizontal margin");
+    RequireNear(wideInsets.right, wideInsets.left, 0.001f, "wide documents should use symmetric horizontal margins");
     RequireNear(compactInsets.left, 12.0f, 0.001f, "compact documents should reduce their left margin");
     RequireNear(compactInsets.right, 12.0f, 0.001f, "compact documents should reduce their right margin");
     RequireNear(narrow.blocks.front().bounds.left(), compactInsets.left, 0.001f, "compact layout should apply its responsive left margin");
