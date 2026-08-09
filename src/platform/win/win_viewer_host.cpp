@@ -70,6 +70,15 @@ void ShowMissingFragment(HWND hwnd, const std::string& fragment) {
         "The linked section could not be found in the document:\n\n#" + fragment);
 }
 
+bool ConfirmLocalLinkTarget(HWND hwnd, const LinkTarget& target) {
+    std::string message;
+    if (target.executableLocalFile) {
+        message += "This link points to a file that may execute code.\n";
+    }
+    message += "\n" + PathToUtf8(target.path) + "\n\nOpen it anyway?";
+    return ConfirmWarning(hwnd, "Open local target?", message);
+}
+
 bool ScrollToFragment(HWND hwnd, ViewerHostContext& context, const std::string& fragment) {
     if (fragment.empty()) {
         return false;
@@ -316,6 +325,7 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
     if (!State(context).docLayout.outline.empty()) {
         RelayoutCurrentDocument(hwnd, context);
     }
+    ClampScrollOffset(hwnd, context);
 
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
@@ -552,6 +562,9 @@ void HandleLinkClick(HWND hwnd, ViewerHostContext& context, const std::string& u
     }
 
     const auto target = context.controller.ResolveLinkTarget(url, forceExternal);
+    if (target.RequiresConfirmation() && !ConfirmLocalLinkTarget(hwnd, target)) {
+        return;
+    }
     switch (target.kind) {
         case LinkTargetKind::MissingLocalPath:
             ShowMissingLocalPath(hwnd, target.path);
@@ -622,6 +635,7 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
     const float viewportHeight = GetViewportHeight(hwnd, context);
     const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(State(context), viewportHeight);
 
+    context.imageCache.Clear();
     const auto status = context.controller.ReloadCurrentFile(
         width,
         GetRegularTypeface(context),

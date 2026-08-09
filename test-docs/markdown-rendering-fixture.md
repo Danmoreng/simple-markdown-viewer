@@ -6,7 +6,7 @@ Use this file to visually check Markdown rendering behavior while changing the p
 
 Plain text should wrap normally and preserve readable spacing. This sentence is intentionally long enough to wrap at narrower window widths so line breaking, selection, and link hit testing can be checked together.
 
-This paragraph contains *emphasis*, **strong text**, `inline code`, [a relative link](README.md), [a heading fragment link](#task-lists), [an external link](https://example.com), and an inline image placeholder if the image cannot be loaded: ![Missing image alt text](missing-image.png).
+This paragraph contains *emphasis*, **strong text**, `inline code`, [a relative link](html-and-table-overflow.md), [a heading fragment link](#task-lists), [an external link](https://example.com), and an inline image placeholder if the image cannot be loaded: ![Missing image alt text](missing-image.png).
 
 Strikethrough text should render with a strike line: ~~completed or removed text~~.
 
@@ -37,6 +37,12 @@ Use these links to verify heading fragment navigation:
 [duplicate heading](#duplicate-heading-1),
 [missing local file](missing-document.md),
 [missing section](#this-section-does-not-exist).
+
+## Local Link Safety
+
+- [Same-folder document](html-and-table-overflow.md) should open without a warning.
+- [Parent-folder document](../README.md) should open without a warning.
+- [Executable-link fixture](link-warning-fixture.cmd) should warn that opening it may execute code.
 
 ### 日本語
 
@@ -194,7 +200,7 @@ public static class Program
 |:-------------|:--------------:|--------------:|
 | Alpha        | Beta           | Gamma         |
 | Longer cell content should wrap cleanly | Center | 12345 |
-| `code`       | **strong**     | [link](README.md) |
+| `code`       | **strong**     | [link](html-and-table-overflow.md) |
 | Short | A much wider content-driven column | Narrow |
 
 ## Thematic Break

@@ -44,7 +44,13 @@ std::optional<DocumentContextCommand> ShowDocumentContextMenu(const DocumentCont
     GtkWidget* popup = gtk_menu_new();
 
     for (const auto& item : menu.items) {
-        GtkWidget* menuItem = gtk_menu_item_new_with_label(item.label.c_str());
+        GtkWidget* menuItem = item.isSeparator
+            ? gtk_separator_menu_item_new()
+            : gtk_menu_item_new_with_label(item.label.c_str());
+        if (item.isSeparator) {
+            gtk_menu_shell_append(GTK_MENU_SHELL(popup), menuItem);
+            continue;
+        }
         gtk_widget_set_sensitive(menuItem, item.enabled ? TRUE : FALSE);
         g_object_set_data(
             G_OBJECT(menuItem),

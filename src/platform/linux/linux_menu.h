@@ -22,6 +22,7 @@ enum class MenuCommand {
     SaveAsPdf = 1009,
     OpenRecentFile = 1010,
     Print = 1011,
+    Reload = 1012,
     ThemeLight = 1101,
     ThemeSepia = 1102,
     ThemeDark = 1103

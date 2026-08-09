@@ -34,4 +34,11 @@ bool OpenPath(const std::filesystem::path& path) {
     return SpawnDetachedOpen(path.c_str());
 }
 
+bool RevealInFileManager(const std::filesystem::path& path) {
+    std::error_code error;
+    const bool isDirectory = std::filesystem::is_directory(path, error);
+    const std::filesystem::path folder = isDirectory && !error ? path : path.parent_path();
+    return !folder.empty() && OpenPath(folder);
+}
+
 } // namespace mdviewer::linux_platform

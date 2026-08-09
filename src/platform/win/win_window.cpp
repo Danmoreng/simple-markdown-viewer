@@ -9,6 +9,7 @@
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_interaction.h"
 #include "platform/win/win_menu.h"
+#include "platform/win/win_message_dialog.h"
 #include "platform/win/win_viewer_host.h"
 #include "view/document_interaction.h"
 
@@ -47,6 +48,11 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
         .openFile = [hwnd, appPtr]() {
             if (const auto path = ShowOpenFileDialog(hwnd)) {
                 LoadFile(hwnd, appPtr->Host(), *path);
+            }
+        },
+        .reload = [hwnd, appPtr]() {
+            if (!ReloadCurrentFile(hwnd, appPtr->Host(), true)) {
+                ShowErrorMessage(hwnd, "Reload failed", "The current document could not be reloaded.");
             }
         },
         .saveAsPdf = [hwnd, appPtr]() {
@@ -288,6 +294,10 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
                 GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
         case WM_KEYDOWN:
+            if (wParam == VK_F5) {
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(kCommandReload, 0), 0);
+                return 0;
+            }
             if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && wParam == 'P') {
                 PrintCurrentDocument(hwnd, app.Host());
                 return 0;
@@ -348,6 +358,11 @@ bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& hand
         case kCommandOpenFile:
             if (handlers.openFile) {
                 handlers.openFile();
+            }
+            return true;
+        case kCommandReload:
+            if (handlers.reload) {
+                handlers.reload();
             }
             return true;
         case kCommandSaveAsPdf:

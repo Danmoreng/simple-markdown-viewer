@@ -17,6 +17,7 @@ namespace mdviewer {
 struct RecentFileEntry {
     std::filesystem::path path;
     long long openedAtUnixSeconds = 0;
+    float scrollOffset = 0.0f;
 };
 
 enum class OpenDocumentStatus {
@@ -107,8 +108,10 @@ private:
     static std::optional<std::filesystem::file_time_type> TryGetFileWriteTime(const std::filesystem::path& path);
     static long long GetCurrentUnixSeconds();
     static std::filesystem::path NormalizeRecentFilePath(const std::filesystem::path& path);
+    float GetRememberedScrollOffset(const std::filesystem::path& path) const;
+    void RememberCurrentScrollPosition();
     void AddRecentFile(const std::filesystem::path& path, long long openedAtUnixSeconds);
-    void AppendRecentFileFromConfig(const std::filesystem::path& path, long long openedAtUnixSeconds);
+    void AppendRecentFileFromConfig(const std::filesystem::path& path, long long openedAtUnixSeconds, float scrollOffset);
 
     AppState appState_;
     std::filesystem::path configPath_;

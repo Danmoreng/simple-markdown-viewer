@@ -93,13 +93,13 @@ Goal: make long documents substantially easier to navigate.
 Goal: make link behavior predictable, inspectable, and safer.
 
 - [x] Reject suspicious or unsupported URL schemes such as `javascript:`, custom app protocols, and shell-like targets instead of passing them to the platform shell.
-- [ ] Warn before opening executable local files or clearly external local paths.
+- [x] Warn before opening executable local files.
 - [x] Show clear feedback for broken local files and document-section links.
-- [ ] Add document/background context menu actions for reload, copy document path, and reveal in file manager.
-- [ ] Add link context menu actions for reveal target in file manager when the target is local.
-- [ ] Add a manual reload command and shortcut.
+- [x] Add document/background context menu actions for reload, copy document path, and reveal in file manager.
+- [x] Add link context menu actions for reveal target in file manager when the target is local.
+- [x] Add a manual reload command and shortcut.
 - [x] Preserve scroll position after manual or automatic reload when practical.
-- [ ] Add remembered scroll position per recent file.
+- [x] Add remembered scroll position per recent file.
 
 ## Milestone 4: Markdown Compatibility Improvements
 
@@ -236,7 +236,7 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [x] Should raw HTML render, be sanitized, or be shown as source? Use a strict native allowlist and show everything else as source.
 - [ ] Should front matter be visible, collapsed, or hidden by default?
 - [ ] Should remote images ever load automatically?
-- [ ] Should local links outside the current document tree require confirmation?
+- [x] Should local links outside the current document tree require confirmation? No; warn only for executable local files.
 - [ ] Should print/export preserve the active theme or always use a print-friendly theme?
 - [ ] What level of accessibility is expected for a custom-rendered document surface?
 - [ ] Should diagrams and math become first-class features or stay optional enhancements?

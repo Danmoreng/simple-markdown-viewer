@@ -28,6 +28,10 @@ std::optional<DocumentContextCommand> ShowDocumentContextMenu(
 
     for (size_t index = 0; index < menu.items.size(); ++index) {
         const auto& item = menu.items[index];
+        if (item.isSeparator) {
+            AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
+            continue;
+        }
         const std::wstring label = WinApp::Utf8ToWide(item.label);
         AppendMenuW(
             popup,
@@ -51,7 +55,7 @@ std::optional<DocumentContextCommand> ShowDocumentContextMenu(
     }
 
     const size_t index = static_cast<size_t>(selected - kContextCommandBase);
-    if (index >= menu.items.size() || !menu.items[index].enabled) {
+    if (index >= menu.items.size() || !menu.items[index].enabled || menu.items[index].isSeparator) {
         return std::nullopt;
     }
 

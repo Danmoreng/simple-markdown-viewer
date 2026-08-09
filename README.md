@@ -62,6 +62,8 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - Web links open in your default browser
   - Local Markdown and text files open in the same window
   - Robust detection for extensionless files (like `LICENSE`)
+  - Clear feedback for missing local files and heading fragments
+  - Confirmation before opening executable local files
   - **Link hover preview** at the bottom-left
   - `Ctrl+Click` to force any link to open externally
 - Smooth scrolling with:
@@ -74,14 +76,14 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Mouse text selection and `Ctrl+C` copy
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
-- Native right-click context menu for copying selected text and link actions
+- Native right-click context menu for selection/link actions, reload, document-path copying, and revealing files
 - Link text remains selectable while links stay clickable
 - Switchable `Light`, `Sepia`, and `Dark` themes
 - Custom client-drawn menu bar
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
-- Automatic document reload on external file changes while the file is open on Windows
-- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, recent files with opened timestamps, and window placement on Windows and Linux
+- Manual document reload with `F5`, plus automatic reload on external file changes while the file is open on Windows
+- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, recent files with opened timestamps and scroll positions, and window placement on Windows and Linux
 - Platform app icons for the Windows executable and Linux window/desktop integration
 
 ## Scope
@@ -200,7 +202,7 @@ Open a file immediately:
 .\build\Release\mdviewer.exe .\README.md
 ```
 
-The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side/width, recent-file persistence, and the last window size and position on Windows and Linux:
+The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side/width, recent-file timestamps and scroll positions, and the last window size and position on Windows and Linux:
 
 - Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
 - Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set
@@ -234,6 +236,7 @@ If the Release application has already been built, use `./package-linux.sh --ski
 ## Controls
 
 - `File -> Open...`: open a file
+- `File -> Reload` or `F5`: reload the current document and preserve its reading position when practical
 - `File -> Save as PDF...`: export the currently open Markdown document to PDF
 - `File -> Print...` or `Ctrl+P`: print the currently open Markdown document on Windows or Linux
 - `File`: reopen recently opened files on Windows or Linux; the newest file appears first with its last-opened date and time
@@ -245,10 +248,11 @@ If the Release application has already been built, use `./package-linux.sh --ski
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
 - `Ctrl+F`: search within the current document
+- `F5`: reload the current document while preserving the reading position when practical
 - `Enter` / `Shift+Enter`: move to the next or previous search match while search is open
 - `Escape`: close search
 - Search close button: click the `x` button in the search box
-- right click: open a native context menu with selection/link actions
+- right click: open a native context menu with selection, link, reload, document-path, and file-manager actions
 - external file save: reload the currently open document automatically on Windows
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
@@ -267,7 +271,8 @@ If the Release application has already been built, use `./package-linux.sh --ski
 - **Links**:
   - `Click`: Open internally (MD/Text) or externally (Web/Other)
   - `Ctrl + Click`: Force open in default system application
-  - `Right Click`: open/copy link from the native context menu
+  - `Right Click`: open/copy links and reveal local targets from the native context menu
+  - Executable local files require confirmation before opening
   - `Hover`: Preview target path in bottom-left overlay
   - `Click and drag`: select link text without opening the link
 - **Code Blocks**:

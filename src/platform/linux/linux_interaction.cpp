@@ -3,6 +3,7 @@
 #include "platform/linux/linux_viewer_host.h"
 #include "platform/linux/linux_context_menu.h"
 #include "platform/linux/linux_menu.h"
+#include "platform/linux/linux_message_dialog.h"
 #include "platform/linux/linux_print.h"
 #include "platform/linux/linux_clipboard.h"
 #include "platform/linux/linux_file_dialog.h"
@@ -32,6 +33,11 @@ namespace {
 
 constexpr float kDropdownItemHeight = 30.0f;
 GLFWcursor* gOutlineResizeCursor = nullptr;
+
+std::string PathToUtf8(const std::filesystem::path& path) {
+    const auto utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
 
 float GetLogicalWindowWidth(GLFWwindow* window) {
     int width = 0;
@@ -218,6 +224,11 @@ void ExecuteMenuCommand(
         case MenuCommand::OpenRecentFile:
             if (!commandPath.empty()) {
                 LoadFile(window, host, commandPath);
+            }
+            break;
+        case MenuCommand::Reload:
+            if (!ReloadCurrentFile(window, host, true)) {
+                ShowErrorMessage("Reload failed", "The current document could not be reloaded.");
             }
             break;
         case MenuCommand::Print:
@@ -450,6 +461,26 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                 break;
             case DocumentContextCommand::CopyLink:
                 SetClipboardText(window, menu.linkUrl);
+                break;
+            case DocumentContextCommand::RevealLinkTarget:
+                if (!RevealInFileManager(menu.localLinkPath)) {
+                    ShowErrorMessage("Open in File Manager failed", "The link target could not be opened in the file manager.");
+                }
+                break;
+            case DocumentContextCommand::ReloadDocument:
+                if (!ReloadCurrentFile(window, app->GetHostContext(), true)) {
+                    ShowErrorMessage("Reload failed", "The current document could not be reloaded.");
+                }
+                break;
+            case DocumentContextCommand::CopyDocumentPath:
+                SetClipboardText(window, PathToUtf8(menu.documentPath));
+                break;
+            case DocumentContextCommand::RevealDocument:
+                if (!RevealInFileManager(menu.documentPath)) {
+                    ShowErrorMessage("Open in File Manager failed", "The document could not be opened in the file manager.");
+                }
+                break;
+            case DocumentContextCommand::None:
                 break;
         }
         appState.needsRepaint = true;
@@ -887,6 +918,11 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
         case GLFW_KEY_P:
             if (ev.ctrl && app->Controller().HasCurrentFile()) {
                 ExecuteMenuCommand(window, *app, MenuCommand::Print);
+            }
+            break;
+        case GLFW_KEY_F5:
+            if (app->Controller().HasCurrentFile()) {
+                ExecuteMenuCommand(window, *app, MenuCommand::Reload);
             }
             break;
         case GLFW_KEY_ENTER:

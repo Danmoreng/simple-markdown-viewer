@@ -52,6 +52,15 @@ void ShowMissingFragment(const std::string& fragment) {
         "The linked section could not be found in the document:\n\n#" + fragment);
 }
 
+bool ConfirmLocalLinkTarget(const LinkTarget& target) {
+    std::string message;
+    if (target.executableLocalFile) {
+        message += "This link points to a file that may execute code.\n";
+    }
+    message += "\n" + PathToUtf8(target.path) + "\n\nOpen it anyway?";
+    return ConfirmWarning("Open local target?", message);
+}
+
 bool ScrollToFragment(GLFWwindow* window, LinuxHostContext context, const std::string& fragment) {
     if (fragment.empty()) {
         return false;
@@ -274,12 +283,12 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
 
     if (status == OpenDocumentStatus::Success) {
         auto& appState = GetAppState(context);
-        appState.scrollOffset = 0;
         appState.needsRepaint = true;
         context.controller.SaveConfig();
         if (!appState.docLayout.outline.empty()) {
             RelayoutCurrentDocument(window, context);
         }
+        ClampScrollOffset(window, context);
         return true;
     }
     if (status == OpenDocumentStatus::FileTooLarge) {
@@ -355,6 +364,9 @@ void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::st
     }
 
     const auto target = context.controller.ResolveLinkTarget(url, forceExternal);
+    if (target.RequiresConfirmation() && !ConfirmLocalLinkTarget(target)) {
+        return;
+    }
     switch (target.kind) {
         case LinkTargetKind::MissingLocalPath:
             ShowMissingLocalPath(target.path);
@@ -400,6 +412,45 @@ void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
     
     RestoreScrollAnchor(appState, scrollAnchor, GetViewportHeight(window, context), GetMaxScroll(window, context));
     RememberRelayoutScrollAnchor(appState, scrollAnchor);
+}
+
+bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preserveScrollOffset) {
+    const std::filesystem::path currentPath = GetAppState(context).currentFilePath;
+    if (currentPath.empty()) {
+        return false;
+    }
+
+    auto* regularTypeface = GetRegularTypeface(context);
+    if (!regularTypeface) {
+        return false;
+    }
+
+    const float viewportHeight = GetViewportHeight(window, context);
+    const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(GetAppState(context), viewportHeight);
+    context.imageCache.Clear();
+    const auto status = context.controller.ReloadCurrentFile(
+        GetDocumentLayoutWidth(window, context),
+        regularTypeface,
+        [&context](const DocumentModel& doc, const std::filesystem::path& base) {
+            context.imageCache.PreloadDocumentImages(doc, base);
+        },
+        [&context, currentPath](const std::string& url) {
+            return context.imageCache.GetImageSize(url, currentPath.parent_path());
+        });
+    if (status != OpenDocumentStatus::Success) {
+        return false;
+    }
+
+    auto& appState = GetAppState(context);
+    if (preserveScrollOffset) {
+        RestoreScrollAnchor(appState, scrollAnchor, GetViewportHeight(window, context), GetMaxScroll(window, context));
+        RememberRelayoutScrollAnchor(appState, scrollAnchor);
+    } else {
+        ClearRelayoutScrollAnchor(appState);
+    }
+    ClampScrollOffset(window, context);
+    appState.needsRepaint = true;
+    return true;
 }
 
 void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta) {

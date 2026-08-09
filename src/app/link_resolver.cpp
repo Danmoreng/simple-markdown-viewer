@@ -1,9 +1,11 @@
 #include "app/link_resolver.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 #include "app/document_loader.h"
 
@@ -76,6 +78,48 @@ bool HasUnsupportedScheme(const std::string& path) {
     return true;
 }
 
+bool HasExecutableExtension(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    constexpr std::array<std::string_view, 36> executableExtensions = {
+        ".app", ".appimage", ".bat", ".cmd", ".com", ".command", ".cpl", ".desktop", ".exe", ".gadget",
+        ".hta", ".inf", ".jar", ".js", ".jse", ".lnk", ".msc", ".msi", ".msp", ".mst", ".pif",
+        ".ps1", ".reg", ".run", ".scf", ".scr", ".sct", ".sh", ".shb", ".shs", ".vbe", ".vbs",
+        ".ws", ".wsf", ".wsh", ".url",
+    };
+    return std::find(executableExtensions.begin(), executableExtensions.end(), extension) != executableExtensions.end();
+}
+
+bool HasExecutablePermissions(const std::filesystem::path& path) {
+#ifdef _WIN32
+    (void)path;
+    return false;
+#else
+    std::error_code error;
+    const auto status = std::filesystem::status(path, error);
+    const auto permissions = status.permissions();
+    if (error || !std::filesystem::is_regular_file(status) || permissions == std::filesystem::perms::unknown) {
+        return false;
+    }
+    constexpr auto executePermissions =
+        std::filesystem::perms::owner_exec |
+        std::filesystem::perms::group_exec |
+        std::filesystem::perms::others_exec;
+    return (permissions & executePermissions) != std::filesystem::perms::none;
+#endif
+}
+
+LinkTarget MakeExistingLocalTarget(
+    LinkTargetKind kind,
+    const std::filesystem::path& targetPath,
+    std::string fragment) {
+    LinkTarget target{kind, {}, targetPath, std::move(fragment)};
+    target.executableLocalFile = HasExecutableExtension(targetPath) || HasExecutablePermissions(targetPath);
+    return target;
+}
+
 } // namespace
 
 LinkTarget ResolveLinkTarget(
@@ -120,9 +164,15 @@ LinkTarget ResolveLinkTarget(
             return {LinkTargetKind::MissingLocalPath, {}, targetPath, fragment};
         }
         if (ShouldOpenInternally(targetPath, forceExternal)) {
-            return {LinkTargetKind::InternalDocument, {}, targetPath, fragment};
+            return MakeExistingLocalTarget(
+                LinkTargetKind::InternalDocument,
+                targetPath,
+                std::move(fragment));
         }
-        return {LinkTargetKind::ExternalPath, {}, targetPath, {}};
+        return MakeExistingLocalTarget(
+            LinkTargetKind::ExternalPath,
+            targetPath,
+            {});
     }
 
     if (pathPart.empty() && !fragment.empty() && !currentFilePath.empty() && !forceExternal) {
@@ -133,7 +183,8 @@ LinkTarget ResolveLinkTarget(
         return {};
     }
 
-    const std::filesystem::path documentRelativePath = currentFilePath.parent_path() / UrlDecode(pathPart);
+    const std::filesystem::path decodedPath = std::filesystem::path(UrlDecode(pathPart));
+    const std::filesystem::path documentRelativePath = currentFilePath.parent_path() / decodedPath;
     std::filesystem::path targetPath = documentRelativePath;
     if (!std::filesystem::exists(targetPath)) {
         targetPath = std::filesystem::path(UrlDecode(pathPart));
@@ -144,9 +195,15 @@ LinkTarget ResolveLinkTarget(
     }
 
     if (ShouldOpenInternally(targetPath, forceExternal)) {
-        return {LinkTargetKind::InternalDocument, {}, targetPath, fragment};
+        return MakeExistingLocalTarget(
+            LinkTargetKind::InternalDocument,
+            targetPath,
+            std::move(fragment));
     }
-    return {LinkTargetKind::ExternalPath, {}, targetPath, {}};
+    return MakeExistingLocalTarget(
+        LinkTargetKind::ExternalPath,
+        targetPath,
+        {});
 }
 
 } // namespace mdviewer

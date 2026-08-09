@@ -69,6 +69,7 @@ std::vector<MenuDropdown> GetLinuxMenus(const ViewerController& controller) {
 
     std::vector<MenuItem> fileItems = {
         {"Open...", MenuCommand::OpenFile, false, {}, "Ctrl+O"},
+        {"Reload", MenuCommand::Reload, false, {}, "F5", hasCurrentFile},
     };
 #if MDVIEWER_ENABLE_PDF
     fileItems.push_back({"Save as PDF...", MenuCommand::SaveAsPdf, false, {}, {}, hasCurrentFile});

@@ -62,11 +62,42 @@ std::optional<size_t> ParseRecentOpenedAtIndex(const std::string& key) {
     }
 }
 
+std::optional<size_t> ParseRecentScrollOffsetIndex(const std::string& key) {
+    constexpr std::string_view prefix = "recent_file_";
+    constexpr std::string_view suffix = "_scroll_offset";
+    if (key.rfind(prefix, 0) != 0 || key.size() <= prefix.size() + suffix.size()) {
+        return std::nullopt;
+    }
+    if (key.compare(key.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return std::nullopt;
+    }
+
+    const std::string indexText = key.substr(prefix.size(), key.size() - prefix.size() - suffix.size());
+    if (indexText.empty() || indexText.find_first_not_of("0123456789") != std::string::npos) {
+        return std::nullopt;
+    }
+
+    try {
+        return static_cast<size_t>(std::stoull(indexText));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 long long ParseUnixSeconds(const std::string& value) {
     try {
         return std::max(0LL, std::stoll(value));
     } catch (...) {
         return 0;
+    }
+}
+
+float ParseScrollOffset(const std::string& value) {
+    try {
+        const float parsed = std::stof(value);
+        return std::isfinite(parsed) && parsed > 0.0f ? parsed : 0.0f;
+    } catch (...) {
+        return 0.0f;
     }
 }
 
@@ -192,6 +223,8 @@ std::optional<AppConfig> LoadAppConfig(const std::filesystem::path& path) {
             recentFilesByIndex[*fileIndex].pathUtf8 = value;
         } else if (const auto openedAtIndex = ParseRecentOpenedAtIndex(key); openedAtIndex) {
             recentFilesByIndex[*openedAtIndex].openedAtUnixSeconds = ParseUnixSeconds(value);
+        } else if (const auto scrollOffsetIndex = ParseRecentScrollOffsetIndex(key); scrollOffsetIndex) {
+            recentFilesByIndex[*scrollOffsetIndex].scrollOffset = ParseScrollOffset(value);
         }
     }
 
@@ -238,6 +271,9 @@ bool SaveAppConfig(const std::filesystem::path& path, const AppConfig& config) {
         output << "recent_file_" << index << '=' << config.recentFiles[index].pathUtf8 << '\n';
         if (config.recentFiles[index].openedAtUnixSeconds > 0) {
             output << "recent_file_" << index << "_opened_at=" << config.recentFiles[index].openedAtUnixSeconds << '\n';
+        }
+        if (config.recentFiles[index].scrollOffset > 0.0f) {
+            output << "recent_file_" << index << "_scroll_offset=" << config.recentFiles[index].scrollOffset << '\n';
         }
     }
     return output.good();

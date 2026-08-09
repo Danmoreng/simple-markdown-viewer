@@ -27,6 +27,7 @@
 #include "util/skia_font_utils.h"
 #include "util/utf8.h"
 #include "view/document_hit_test.h"
+#include "view/document_context_menu.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -170,8 +171,10 @@ void ConfigParsingAndSaving() {
         "window_height=800\n"
         "recent_file_0=C:/docs/one.md\n"
         "recent_file_0_opened_at=1700000000\n"
+        "recent_file_0_scroll_offset=345.75\n"
         "recent_file_1=\n"
-        "recent_file_2=C:/docs/two.md\n");
+        "recent_file_2=C:/docs/two.md\n"
+        "recent_file_2_scroll_offset=not-a-number\n");
 
     const auto loaded = mdviewer::LoadAppConfig(configPath);
     Require(loaded.has_value(), "config should load");
@@ -188,7 +191,9 @@ void ConfigParsingAndSaving() {
     RequireEqual(loaded->recentFiles.size(), static_cast<size_t>(2), "empty recent entries should be skipped");
     RequireEqual(loaded->recentFiles[0].pathUtf8, std::string("C:/docs/one.md"), "recent files should preserve order");
     RequireEqual(loaded->recentFiles[0].openedAtUnixSeconds, 1700000000LL, "recent opened timestamp should parse");
+    RequireNear(loaded->recentFiles[0].scrollOffset, 345.75f, 0.001f, "recent scroll offset should parse");
     RequireEqual(loaded->recentFiles[1].pathUtf8, std::string("C:/docs/two.md"), "recent files should preserve sparse index order");
+    RequireNear(loaded->recentFiles[1].scrollOffset, 0.0f, 0.001f, "invalid recent scroll offsets should fall back safely");
 
     WriteText(configPath,
         "[app]\nbase_font_size=not-a-number\noutline_width=not-a-number\ntheme=missing\n"
@@ -208,8 +213,8 @@ void ConfigParsingAndSaving() {
     saved.baseFontSize = 21.0f;
     saved.windowPlacement = mdviewer::WindowPlacement{-640, 48, 1440, 900};
     saved.recentFiles = {
-        {"C:/docs/a.md", 1700000100},
-        {"C:/docs/b.md", 1700000200},
+        {"C:/docs/a.md", 1700000100, 512.5f},
+        {"C:/docs/b.md", 1700000200, 0.0f},
     };
     Require(mdviewer::SaveAppConfig(configPath, saved), "config should save");
     const auto roundTrip = mdviewer::LoadAppConfig(configPath);
@@ -226,6 +231,7 @@ void ConfigParsingAndSaving() {
     RequireEqual(roundTrip->recentFiles.size(), saved.recentFiles.size(), "saved recent files should round-trip");
     RequireEqual(roundTrip->recentFiles[0].pathUtf8, saved.recentFiles[0].pathUtf8, "saved recent path should round-trip");
     RequireEqual(roundTrip->recentFiles[0].openedAtUnixSeconds, saved.recentFiles[0].openedAtUnixSeconds, "saved recent timestamp should round-trip");
+    RequireNear(roundTrip->recentFiles[0].scrollOffset, saved.recentFiles[0].scrollOffset, 0.001f, "saved recent scroll offset should round-trip");
 }
 
 void RecentFilesAndHistory() {
@@ -234,8 +240,11 @@ void RecentFilesAndHistory() {
     std::ostringstream config;
     config << "[app]\n";
     for (int index = 0; index < 10; ++index) {
-        config << "recent_file_" << index << '=' << (temp.Path() / ("file" + std::to_string(index) + ".md")).string() << '\n';
+        const fs::path recentPath = temp.Path() / ("file" + std::to_string(index) + ".md");
+        WriteText(recentPath, "# File " + std::to_string(index) + "\n");
+        config << "recent_file_" << index << '=' << recentPath.string() << '\n';
         config << "recent_file_" << index << "_opened_at=" << (1700000000 + index) << '\n';
+        config << "recent_file_" << index << "_scroll_offset=" << (125.0f + index) << '\n';
     }
     config << "recent_file_10=" << (temp.Path() / "file5.md").string() << '\n';
     WriteText(configPath, config.str());
@@ -247,17 +256,33 @@ void RecentFilesAndHistory() {
     RequireEqual(recent.size(), static_cast<size_t>(8), "recent files should be capped");
     Require(recent.front().path.filename() == "file0.md", "loaded recent files should keep most-recent-first order");
     RequireEqual(recent.front().openedAtUnixSeconds, 1700000000LL, "loaded recent timestamp should be preserved");
+    RequireNear(recent.front().scrollOffset, 125.0f, 0.001f, "loaded recent scroll offset should be preserved");
     Require(std::any_of(recent.begin(), recent.end(), [](const mdviewer::RecentFileEntry& entry) {
         return entry.path.filename() == "file5.md";
     }), "duplicate recent file later in config should not create another entry");
 
     const fs::path openedPath = temp.Path() / "fresh.md";
     WriteText(openedPath, "# Fresh\n");
+    const fs::path rememberedPath = recent.front().path;
+    Require(
+        controller.OpenFile(rememberedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
+        "opening a remembered recent file should succeed");
+    RequireNear(controller.GetAppState().scrollOffset, 125.0f, 0.001f, "opening a recent file should restore its scroll offset");
+    controller.GetMutableAppState().scrollOffset = 432.5f;
     Require(
         controller.OpenFile(openedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
         "opening a file should succeed");
     Require(controller.GetRecentFiles().front().path.filename() == "fresh.md", "newly opened file should be first in recent files");
     Require(controller.GetRecentFiles().front().openedAtUnixSeconds > 0, "newly opened file should record an opened timestamp");
+    Require(
+        controller.OpenFile(rememberedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
+        "reopening a recent file should succeed");
+    RequireNear(controller.GetAppState().scrollOffset, 432.5f, 0.001f, "reopening a recent file should restore its latest scroll offset");
+    controller.GetMutableAppState().scrollOffset = 678.25f;
+    Require(controller.SaveConfig(), "saving controller config should include the current scroll position");
+    const auto savedRecentConfig = mdviewer::LoadAppConfig(configPath);
+    Require(savedRecentConfig.has_value() && !savedRecentConfig->recentFiles.empty(), "saved recent config should reload");
+    RequireNear(savedRecentConfig->recentFiles.front().scrollOffset, 678.25f, 0.001f, "current file scroll should be captured when config is saved");
 
     mdviewer::AppState state;
     const fs::path first = temp.Path() / "first.md";
@@ -327,6 +352,7 @@ void LinkResolution() {
     const fs::path binary = root / "docs" / "app.exe";
     const fs::path svg = root / "docs" / "diagram.svg";
     const fs::path tldraw = root / "docs" / "diagram.tldraw";
+    const fs::path outside = root / "outside.md";
     WriteText(current, "# Home\n");
     WriteText(sibling, "# Other\n");
     WriteText(child, "# Child\n");
@@ -334,6 +360,7 @@ void LinkResolution() {
     WriteText(binary, std::string("MZ\0\0binary", 10));
     WriteText(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"32\"></svg>");
     WriteText(tldraw, std::string("PK\x03\x04\0binary", 11));
+    WriteText(outside, "# Outside\n");
 
     auto target = mdviewer::ResolveLinkTarget(current, "#Section%201", false);
     Require(target.kind == mdviewer::LinkTargetKind::InternalDocument, "fragment-only link should stay internal");
@@ -344,6 +371,14 @@ void LinkResolution() {
     Require(target.kind == mdviewer::LinkTargetKind::InternalDocument, "percent-encoded markdown path should resolve internally");
     RequireEqual(target.path.lexically_normal(), sibling.lexically_normal(), "encoded spaces should resolve to sibling path");
     RequireEqual(target.fragment, std::string("A B"), "file fragment should decode");
+    Require(!target.RequiresConfirmation(), "ordinary document-relative link should not require confirmation");
+
+    target = mdviewer::ResolveLinkTarget(current, "../outside.md", false);
+    Require(target.kind == mdviewer::LinkTargetKind::InternalDocument, "outside markdown file should still be an internal document target");
+    Require(!target.RequiresConfirmation(), "document links outside the current folder should open without confirmation");
+
+    target = mdviewer::ResolveLinkTarget(current, sibling.string(), false);
+    Require(!target.RequiresConfirmation(), "absolute document links should open without confirmation");
 
     target = mdviewer::ResolveLinkTarget(current, "nested/page.md?ignored=true", false);
     Require(target.kind == mdviewer::LinkTargetKind::InternalDocument, "relative markdown path with query should resolve");
@@ -356,6 +391,7 @@ void LinkResolution() {
     Require(target.kind == mdviewer::LinkTargetKind::MissingLocalPath, "missing local file should be reported distinctly");
     RequireEqual(target.path.lexically_normal(), (current.parent_path() / "missing.md").lexically_normal(),
                  "missing local file should preserve the document-relative target path");
+    Require(!target.RequiresConfirmation(), "missing target should report its error without a separate safety confirmation");
 
     const auto missingFileUtf8 = (root / "missing file.md").generic_u8string();
     target = mdviewer::ResolveLinkTarget(
@@ -374,8 +410,9 @@ void LinkResolution() {
     target = mdviewer::ResolveLinkTarget(current, "custom-app:open", false);
     Require(target.kind == mdviewer::LinkTargetKind::Invalid, "custom URL scheme should remain invalid rather than looking like a missing file");
 
-    target = mdviewer::ResolveLinkTarget(current, binary.string(), false);
+    target = mdviewer::ResolveLinkTarget(current, binary.filename().string(), false);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "existing binary path should open as external path");
+    Require(target.executableLocalFile, "executable extension should require confirmation");
 
     target = mdviewer::ResolveLinkTarget(current, svg.string(), false);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "SVG links should not be loaded as text documents");
@@ -387,6 +424,45 @@ void LinkResolution() {
 
     target = mdviewer::ResolveLinkTarget(current, sibling.string(), true);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "forceExternal should override internal text handling");
+
+    mdviewer::AppState contextState;
+    contextState.currentFilePath = current;
+    const mdviewer::InteractionTextHit localLinkHit{0, true, "Other%20File.md"};
+    const auto contextMenu = mdviewer::BuildDocumentContextMenu(contextState, localLinkHit);
+    const auto hasContextCommand = [&](mdviewer::DocumentContextCommand command) {
+        return std::any_of(contextMenu.items.begin(), contextMenu.items.end(), [&](const auto& item) {
+            return item.command == command;
+        });
+    };
+    Require(hasContextCommand(mdviewer::DocumentContextCommand::RevealLinkTarget), "local link context menu should offer reveal target");
+    Require(hasContextCommand(mdviewer::DocumentContextCommand::ReloadDocument), "document context menu should offer reload");
+    Require(hasContextCommand(mdviewer::DocumentContextCommand::CopyDocumentPath), "document context menu should offer copy path");
+    Require(!hasContextCommand(mdviewer::DocumentContextCommand::RevealDocument), "link context menu should not duplicate the document file-manager action");
+    RequireEqual(contextMenu.localLinkPath.lexically_normal(), sibling.lexically_normal(), "context menu should retain resolved local link path");
+
+    const mdviewer::InteractionTextHit backgroundHit{};
+    const auto backgroundContextMenu = mdviewer::BuildDocumentContextMenu(contextState, backgroundHit);
+    Require(
+        std::any_of(backgroundContextMenu.items.begin(), backgroundContextMenu.items.end(), [](const auto& item) {
+            return item.command == mdviewer::DocumentContextCommand::RevealDocument;
+        }),
+        "background context menu should offer the document file-manager action");
+
+    const mdviewer::InteractionTextHit webLinkHit{0, true, "https://example.com"};
+    const auto webContextMenu = mdviewer::BuildDocumentContextMenu(contextState, webLinkHit);
+    Require(
+        std::none_of(webContextMenu.items.begin(), webContextMenu.items.end(), [](const auto& item) {
+            return item.command == mdviewer::DocumentContextCommand::RevealLinkTarget;
+        }),
+        "web link context menu should not offer a local reveal action");
+
+    const mdviewer::InteractionTextHit missingLinkHit{0, true, "missing.md"};
+    const auto missingContextMenu = mdviewer::BuildDocumentContextMenu(contextState, missingLinkHit);
+    Require(
+        std::none_of(missingContextMenu.items.begin(), missingContextMenu.items.end(), [](const auto& item) {
+            return item.command == mdviewer::DocumentContextCommand::RevealLinkTarget;
+        }),
+        "missing link context menu should not offer a reveal action");
 }
 
 void SvgImageRendering() {

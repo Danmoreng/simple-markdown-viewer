@@ -63,7 +63,8 @@ bool ViewerController::LoadConfig() {
             const std::u8string recentPathUtf8(recentFile.pathUtf8.begin(), recentFile.pathUtf8.end());
             AppendRecentFileFromConfig(
                 std::filesystem::path(recentPathUtf8),
-                recentFile.openedAtUnixSeconds);
+                recentFile.openedAtUnixSeconds,
+                recentFile.scrollOffset);
         }
     }
     return true;
@@ -91,11 +92,17 @@ bool ViewerController::SaveConfig() const {
     config.baseFontSize = appState_.baseFontSize;
     config.windowPlacement = windowPlacement_;
     config.recentFiles.reserve(recentFiles_.size());
+    const std::filesystem::path currentPath = appState_.currentFilePath.empty()
+        ? std::filesystem::path{}
+        : NormalizeRecentFilePath(appState_.currentFilePath);
     for (const auto& recentFile : recentFiles_) {
         const auto recentFileUtf8 = recentFile.path.u8string();
         RecentFileConfigEntry entry;
         entry.pathUtf8.assign(recentFileUtf8.begin(), recentFileUtf8.end());
         entry.openedAtUnixSeconds = recentFile.openedAtUnixSeconds;
+        entry.scrollOffset = !currentPath.empty() && recentFile.path == currentPath
+            ? std::max(appState_.scrollOffset, 0.0f)
+            : recentFile.scrollOffset;
         config.recentFiles.push_back(std::move(entry));
     }
 
@@ -227,7 +234,10 @@ OpenDocumentStatus ViewerController::OpenFile(
         ClampBaseFontSize(appState_.baseFontSize),
         imageSizeProvider);
 
+    RememberCurrentScrollPosition();
+    const float rememberedScrollOffset = GetRememberedScrollOffset(path);
     appState_.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
+    appState_.scrollOffset = rememberedScrollOffset;
     appState_.currentFileLastWriteTime = TryGetFileWriteTime(path);
     if (updateRecentFiles) {
         AddRecentFile(path, GetCurrentUnixSeconds());
@@ -355,6 +365,16 @@ long long ViewerController::GetCurrentUnixSeconds() {
 
 void ViewerController::AddRecentFile(const std::filesystem::path& path, long long openedAtUnixSeconds) {
     const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
+    float scrollOffset = 0.0f;
+    const auto existing = std::find_if(
+        recentFiles_.begin(),
+        recentFiles_.end(),
+        [&](const RecentFileEntry& entry) {
+            return entry.path == normalizedPath;
+        });
+    if (existing != recentFiles_.end()) {
+        scrollOffset = existing->scrollOffset;
+    }
     recentFiles_.erase(
         std::remove_if(
             recentFiles_.begin(),
@@ -363,13 +383,44 @@ void ViewerController::AddRecentFile(const std::filesystem::path& path, long lon
                 return entry.path == normalizedPath;
             }),
         recentFiles_.end());
-    recentFiles_.insert(recentFiles_.begin(), RecentFileEntry{normalizedPath, openedAtUnixSeconds});
+    recentFiles_.insert(recentFiles_.begin(), RecentFileEntry{normalizedPath, openedAtUnixSeconds, scrollOffset});
     if (recentFiles_.size() > kMaxRecentFiles) {
         recentFiles_.resize(kMaxRecentFiles);
     }
 }
 
-void ViewerController::AppendRecentFileFromConfig(const std::filesystem::path& path, long long openedAtUnixSeconds) {
+float ViewerController::GetRememberedScrollOffset(const std::filesystem::path& path) const {
+    const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
+    const auto existing = std::find_if(
+        recentFiles_.begin(),
+        recentFiles_.end(),
+        [&](const RecentFileEntry& entry) {
+            return entry.path == normalizedPath;
+        });
+    return existing == recentFiles_.end() ? 0.0f : std::max(existing->scrollOffset, 0.0f);
+}
+
+void ViewerController::RememberCurrentScrollPosition() {
+    if (appState_.currentFilePath.empty()) {
+        return;
+    }
+
+    const std::filesystem::path normalizedPath = NormalizeRecentFilePath(appState_.currentFilePath);
+    const auto existing = std::find_if(
+        recentFiles_.begin(),
+        recentFiles_.end(),
+        [&](const RecentFileEntry& entry) {
+            return entry.path == normalizedPath;
+        });
+    if (existing != recentFiles_.end()) {
+        existing->scrollOffset = std::max(appState_.scrollOffset, 0.0f);
+    }
+}
+
+void ViewerController::AppendRecentFileFromConfig(
+    const std::filesystem::path& path,
+    long long openedAtUnixSeconds,
+    float scrollOffset) {
     const std::filesystem::path normalizedPath = NormalizeRecentFilePath(path);
     const auto existing = std::find_if(
         recentFiles_.begin(),
@@ -381,7 +432,11 @@ void ViewerController::AppendRecentFileFromConfig(const std::filesystem::path& p
         return;
     }
 
-    recentFiles_.push_back(RecentFileEntry{normalizedPath, openedAtUnixSeconds});
+    recentFiles_.push_back(RecentFileEntry{
+        normalizedPath,
+        openedAtUnixSeconds,
+        std::isfinite(scrollOffset) ? std::max(scrollOffset, 0.0f) : 0.0f,
+    });
     if (recentFiles_.size() > kMaxRecentFiles) {
         recentFiles_.resize(kMaxRecentFiles);
     }

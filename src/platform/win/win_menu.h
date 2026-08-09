@@ -27,6 +27,7 @@ inline constexpr UINT_PTR kCommandSelectFont = 1003;
 inline constexpr UINT_PTR kCommandUseDefaultFont = 1004;
 inline constexpr UINT_PTR kCommandSaveAsPdf = 1009;
 inline constexpr UINT_PTR kCommandPrint = 1010;
+inline constexpr UINT_PTR kCommandReload = 1011;
 inline constexpr UINT_PTR kCommandThemeLight = 1101;
 inline constexpr UINT_PTR kCommandThemeSepia = 1102;
 inline constexpr UINT_PTR kCommandThemeDark = 1103;

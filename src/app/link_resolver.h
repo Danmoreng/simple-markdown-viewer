@@ -18,6 +18,11 @@ struct LinkTarget {
     std::string externalUrl;
     std::filesystem::path path;
     std::string fragment;
+    bool executableLocalFile = false;
+
+    [[nodiscard]] bool RequiresConfirmation() const {
+        return executableLocalFile;
+    }
 };
 
 LinkTarget ResolveLinkTarget(

@@ -299,6 +299,7 @@ bool CreateMenus(const ThemePalette& palette) {
     }
 
     AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+    AppendMenuW(g_fileMenu, MF_STRING, kCommandReload, L"&Reload\tF5");
     AppendMenuW(g_fileMenu, MF_STRING, kCommandSaveAsPdf, L"Save as &PDF...");
     AppendMenuW(g_fileMenu, MF_STRING, kCommandPrint, L"&Print...\tCtrl+P");
     AppendMenuW(g_fileMenu, MF_SEPARATOR, 0, nullptr);
@@ -369,6 +370,7 @@ void UpdateMenuState(
         }
 
         AppendMenuW(g_fileMenu, MF_STRING, kCommandOpenFile, L"&Open...\tCtrl+O");
+        AppendMenuW(g_fileMenu, MF_STRING, kCommandReload, L"&Reload\tF5");
         AppendMenuW(g_fileMenu, MF_STRING, kCommandSaveAsPdf, L"Save as &PDF...");
         AppendMenuW(g_fileMenu, MF_STRING, kCommandPrint, L"&Print...\tCtrl+P");
         if (!g_recentFiles.empty()) {
@@ -391,6 +393,10 @@ void UpdateMenuState(
     ConfigureOwnerDrawMenu(g_fileMenu);
     ConfigureOwnerDrawMenu(g_viewMenu);
 
+    EnableMenuItem(
+        g_fileMenu,
+        kCommandReload,
+        MF_BYCOMMAND | (hasCurrentFile ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(
         g_fileMenu,
         kCommandSaveAsPdf,

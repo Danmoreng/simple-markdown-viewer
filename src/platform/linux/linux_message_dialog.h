@@ -5,5 +5,6 @@
 namespace mdviewer::linux_platform {
 
 void ShowErrorMessage(const std::string& title, const std::string& message);
+bool ConfirmWarning(const std::string& title, const std::string& message);
 
 } // namespace mdviewer::linux_platform

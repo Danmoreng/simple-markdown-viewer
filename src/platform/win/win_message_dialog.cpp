@@ -38,4 +38,14 @@ void ShowErrorMessage(HWND owner, const std::string& title, const std::string& m
     MessageBoxW(owner, wideMessage.c_str(), wideTitle.c_str(), MB_OK | MB_ICONERROR);
 }
 
+bool ConfirmWarning(HWND owner, const std::string& title, const std::string& message) {
+    const std::wstring wideTitle = Utf8ToWide(title);
+    const std::wstring wideMessage = Utf8ToWide(message);
+    return MessageBoxW(
+        owner,
+        wideMessage.c_str(),
+        wideTitle.c_str(),
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
+}
+
 } // namespace mdviewer::win

@@ -9,7 +9,9 @@
 
 #include "platform/win/win_clipboard.h"
 #include "platform/win/win_context_menu.h"
+#include "platform/win/win_message_dialog.h"
 #include "platform/win/win_menu.h"
+#include "platform/win/win_shell.h"
 #include "render/document_renderer.h"
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
@@ -32,6 +34,11 @@ struct RenderContext {
     SkPaint paint;
     SkFont font;
 };
+
+std::string PathToUtf8(const std::filesystem::path& path) {
+    const auto utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
 
 DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float viewportY) {
     DocumentTextHit hit;
@@ -743,6 +750,26 @@ bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX
             break;
         case DocumentContextCommand::CopyLink:
             CopyUtf8TextToClipboard(hwnd, menu.linkUrl);
+            break;
+        case DocumentContextCommand::RevealLinkTarget:
+            if (!RevealInFileManager(menu.localLinkPath)) {
+                ShowErrorMessage(hwnd, "Open in File Manager failed", "The link target could not be opened in File Explorer.");
+            }
+            break;
+        case DocumentContextCommand::ReloadDocument:
+            if (!ReloadCurrentFile(hwnd, context.host, true)) {
+                ShowErrorMessage(hwnd, "Reload failed", "The current document could not be reloaded.");
+            }
+            break;
+        case DocumentContextCommand::CopyDocumentPath:
+            CopyUtf8TextToClipboard(hwnd, PathToUtf8(menu.documentPath));
+            break;
+        case DocumentContextCommand::RevealDocument:
+            if (!RevealInFileManager(menu.documentPath)) {
+                ShowErrorMessage(hwnd, "Open in File Manager failed", "The document could not be opened in File Explorer.");
+            }
+            break;
+        case DocumentContextCommand::None:
             break;
     }
 

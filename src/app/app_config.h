@@ -26,6 +26,7 @@ OutlineSide OutlineSideFromString(const char* value);
 struct RecentFileConfigEntry {
     std::string pathUtf8;
     long long openedAtUnixSeconds = 0;
+    float scrollOffset = 0.0f;
 };
 
 struct WindowPlacement {
