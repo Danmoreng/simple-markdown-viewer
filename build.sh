@@ -85,7 +85,7 @@ if [ "$SKIP_SKIA" = false ]; then
 
     echo "Configuring Skia with GN ($CONFIGURATION)..."
     SKIA_ENABLE_PDF="$ENABLE_PDF"
-    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
+    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_pdf_subset_harfbuzz=false skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
     
     # GN and Ninja paths
     GN_PATH="./bin/gn"
@@ -107,6 +107,15 @@ fi
 SKIA_OUT_PATH="$SKIA_DIR/out/Static"
 if [ "$CONFIGURATION" = "Debug" ]; then
     SKIA_OUT_PATH="$SKIA_DIR/out/Debug"
+fi
+
+if [ "$ENABLE_PDF" = true ]; then
+    SKIA_ARGS_FILE="$SKIA_OUT_PATH/SKIA_GN_ARGS"
+    if [ ! -f "$SKIA_ARGS_FILE" ] || ! grep -q 'skia_pdf_subset_harfbuzz=false' "$SKIA_ARGS_FILE"; then
+        echo "The existing Skia build enables the unstable HarfBuzz PDF font subsetter." >&2
+        echo "Rebuild Skia with ./build.sh before using PDF export; do not pass --skip-skia." >&2
+        exit 1
+    fi
 fi
 
 echo "Configuring CMake..."
