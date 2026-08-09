@@ -300,30 +300,30 @@ void ClearPendingLinkState(AppState& appState) {
 void BeginScrollbarDrag(AppState& appState, float dragOffset) {
     appState.isDraggingScrollbar = true;
     appState.isSelecting = false;
-    EndCodeBlockScrollbarDrag(appState);
+    EndHorizontalScrollbarDrag(appState);
     appState.scrollbarDragOffset = dragOffset;
     ClearPendingLinkState(appState);
 }
 
-bool BeginCodeBlockScrollbarInteraction(AppState& appState, float documentX, float documentY) {
-    for (auto region = appState.codeBlockScrollbars.rbegin(); region != appState.codeBlockScrollbars.rend(); ++region) {
+bool BeginHorizontalScrollbarInteraction(AppState& appState, float documentX, float documentY) {
+    for (auto region = appState.horizontalScrollbars.rbegin(); region != appState.horizontalScrollbars.rend(); ++region) {
         SkRect hitRect = region->trackRect;
         hitRect.outset(0.0f, 4.0f);
         if (!hitRect.contains(documentX, documentY)) {
             continue;
         }
 
-        appState.isDraggingCodeBlockScrollbar = true;
-        appState.draggingCodeBlockTextStart = region->blockTextStart;
+        appState.isDraggingHorizontalScrollbar = true;
+        appState.draggingHorizontalBlockTextStart = region->blockTextStart;
         appState.isSelecting = false;
         appState.isDraggingScrollbar = false;
         ClearPendingLinkState(appState);
 
         if (region->thumbRect.contains(documentX, documentY)) {
-            appState.codeBlockScrollbarDragOffset = documentX - region->thumbRect.left();
+            appState.horizontalScrollbarDragOffset = documentX - region->thumbRect.left();
         } else {
-            appState.codeBlockScrollbarDragOffset = region->thumbRect.width() * 0.5f;
-            UpdateCodeBlockScrollbarDrag(appState, documentX);
+            appState.horizontalScrollbarDragOffset = region->thumbRect.width() * 0.5f;
+            UpdateHorizontalScrollbarDrag(appState, documentX);
         }
         appState.needsRepaint = true;
         return true;
@@ -331,32 +331,32 @@ bool BeginCodeBlockScrollbarInteraction(AppState& appState, float documentX, flo
     return false;
 }
 
-bool UpdateCodeBlockScrollbarDrag(AppState& appState, float documentX) {
-    if (!appState.isDraggingCodeBlockScrollbar) {
+bool UpdateHorizontalScrollbarDrag(AppState& appState, float documentX) {
+    if (!appState.isDraggingHorizontalScrollbar) {
         return false;
     }
 
     const auto region = std::find_if(
-        appState.codeBlockScrollbars.begin(),
-        appState.codeBlockScrollbars.end(),
+        appState.horizontalScrollbars.begin(),
+        appState.horizontalScrollbars.end(),
         [&](const auto& candidate) {
-            return candidate.blockTextStart == appState.draggingCodeBlockTextStart;
+            return candidate.blockTextStart == appState.draggingHorizontalBlockTextStart;
         });
-    if (region == appState.codeBlockScrollbars.end()) {
-        EndCodeBlockScrollbarDrag(appState);
+    if (region == appState.horizontalScrollbars.end()) {
+        EndHorizontalScrollbarDrag(appState);
         return false;
     }
 
     const float thumbTravel = std::max(region->trackRect.width() - region->thumbRect.width(), 0.0f);
     const float thumbLeft = std::clamp(
-        documentX - appState.codeBlockScrollbarDragOffset,
+        documentX - appState.horizontalScrollbarDragOffset,
         region->trackRect.left(),
         region->trackRect.left() + thumbTravel);
     const float normalized = thumbTravel > 0.0f
         ? (thumbLeft - region->trackRect.left()) / thumbTravel
         : 0.0f;
     const float nextOffset = normalized * region->maxScroll;
-    float& offset = appState.codeBlockScrollOffsets[region->blockTextStart];
+    float& offset = appState.horizontalScrollOffsets[region->blockTextStart];
     if (std::abs(offset - nextOffset) <= 0.01f) {
         return false;
     }
@@ -365,18 +365,18 @@ bool UpdateCodeBlockScrollbarDrag(AppState& appState, float documentX) {
     return true;
 }
 
-void EndCodeBlockScrollbarDrag(AppState& appState) {
-    appState.isDraggingCodeBlockScrollbar = false;
-    appState.draggingCodeBlockTextStart = 0;
-    appState.codeBlockScrollbarDragOffset = 0.0f;
+void EndHorizontalScrollbarDrag(AppState& appState) {
+    appState.isDraggingHorizontalScrollbar = false;
+    appState.draggingHorizontalBlockTextStart = 0;
+    appState.horizontalScrollbarDragOffset = 0.0f;
 }
 
-bool ScrollCodeBlockAtPoint(AppState& appState, float documentX, float documentY, float delta) {
-    for (auto region = appState.codeBlockScrollbars.rbegin(); region != appState.codeBlockScrollbars.rend(); ++region) {
+bool ScrollHorizontalBlockAtPoint(AppState& appState, float documentX, float documentY, float delta) {
+    for (auto region = appState.horizontalScrollbars.rbegin(); region != appState.horizontalScrollbars.rend(); ++region) {
         if (!region->viewportRect.contains(documentX, documentY)) {
             continue;
         }
-        float& offset = appState.codeBlockScrollOffsets[region->blockTextStart];
+        float& offset = appState.horizontalScrollOffsets[region->blockTextStart];
         const float nextOffset = std::clamp(offset + delta, 0.0f, region->maxScroll);
         if (std::abs(nextOffset - offset) > 0.01f) {
             offset = nextOffset;
@@ -390,7 +390,7 @@ bool ScrollCodeBlockAtPoint(AppState& appState, float documentX, float documentY
 void BeginSelection(AppState& appState, const InteractionTextHit& hit, bool forceExternal, int pressX, int pressY) {
     appState.isSelecting = true;
     appState.isDraggingScrollbar = false;
-    EndCodeBlockScrollbarDrag(appState);
+    EndHorizontalScrollbarDrag(appState);
     if (hit.valid) {
         appState.selectionAnchor = hit.position;
         appState.selectionFocus = hit.position;
@@ -478,7 +478,7 @@ void StartAutoScrollState(AppState& appState, float x, float y) {
     appState.isAutoScrolling = true;
     appState.isSelecting = false;
     appState.isDraggingScrollbar = false;
-    EndCodeBlockScrollbarDrag(appState);
+    EndHorizontalScrollbarDrag(appState);
     appState.autoScrollOriginX = x;
     appState.autoScrollOriginY = y;
     appState.autoScrollCursorX = x;

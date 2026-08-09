@@ -194,7 +194,7 @@ void Render(HWND hwnd, ViewerHostContext& context) {
     {
         std::lock_guard<std::mutex> lock(appState.mtx);
         appState.codeBlockButtons.clear();
-        appState.codeBlockScrollbars.clear();
+        appState.horizontalScrollbars.clear();
         SyncOutlineScrollToDocument(
             appState,
             static_cast<float>(context.surface->height()),
@@ -227,8 +227,8 @@ void Render(HWND hwnd, ViewerHostContext& context) {
                 .addCodeBlockButton = [&](const SkRect& rect, size_t start, size_t end) {
                     appState.codeBlockButtons.push_back({rect, {start, end}});
                 },
-                .addCodeBlockScrollbar = [&](const CodeBlockScrollbarRegion& region) {
-                    appState.codeBlockScrollbars.push_back(region);
+                .addHorizontalScrollbar = [&](const HorizontalScrollbarRegion& region) {
+                    appState.horizontalScrollbars.push_back(region);
                 },
             });
     }

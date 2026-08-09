@@ -7,7 +7,8 @@ Date: 2026-08-08
 This audit records repository-specific risks found while investigating reports
 that some Markdown documents can crash the Linux build. It also identifies the
 highest-value Markdown compatibility work, especially for documents that render
-well on GitHub but currently expose raw HTML in the viewer.
+well on GitHub and depend on embedded HTML. The safe native HTML subset described
+below has since been implemented for the common header pattern.
 
 The findings below are based on source inspection and the existing Windows test
 target. A crash dump or minimized failing document is still required to prove
@@ -203,25 +204,27 @@ visible line break. The model and layout now preserve that distinction.
 - Unicode case folding is incomplete, so anchors containing uppercase non-ASCII
   letters can differ from GitHub.
 
-### Tables and long tokens lack an overflow strategy
+### Completed: table and long-token overflow strategy
 
-Wide tables are compressed into the document width and very long unbroken words
-or URLs are allowed to overflow. Add horizontal table scrolling or another
-explicit overflow policy, and introduce safe breaking for long tokens.
+Wide tables preserve bounded useful column widths behind a clipped viewport and
+provide the same native per-block horizontal scrolling interaction as code
+blocks. Very long unbroken words and URLs wrap at valid UTF-8 boundaries.
 
 ## Safe Raw HTML Plan
 
-Raw HTML is currently mapped to ordinary paragraph/text nodes, which is why HTML
-tags are shown as source. Full browser-compatible HTML is neither necessary nor
-appropriate for this native, browser-free viewer.
+Raw HTML now uses a strict browser-free allowlist. Aligned paragraphs and
+headings, links, images, and line breaks become native document-model nodes;
+unknown or unsafe fragments remain visible as source. Full browser-compatible
+HTML is neither necessary nor appropriate for this viewer.
 
-Implement a native allowlist in phases:
+The remaining allowlist can grow in phases:
 
 1. Inline semantics: `<br>`, HTML comments, `<sub>`, `<sup>`, `<ins>`, and
    `<kbd>`.
 2. Navigation and disclosure: `<a name="...">`, `<details>`, and `<summary>`.
-3. Images: `<picture>`, `<source>`, and `<img>` after the local/remote image
-   policy and image resource limits are implemented.
+3. Images: native `<img>` is complete for local resources; `<picture>` and
+   `<source>` remain optional. Remote images are represented by labeled
+   placeholders and are not fetched automatically.
 4. HTML tables as a separate feature because alignment, `rowspan`, and `colspan`
    require dedicated layout support.
 

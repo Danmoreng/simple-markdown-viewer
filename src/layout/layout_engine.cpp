@@ -38,6 +38,8 @@ constexpr float kCodeBlockPaddingY = 8.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableCellPaddingY = 8.0f;
 constexpr float kMinTableColumnWidth = 80.0f;
+constexpr float kMaxTableColumnWidth = 420.0f;
+constexpr float kHorizontalScrollbarSpace = 12.0f;
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
@@ -180,6 +182,10 @@ public:
                 if (block.type == BlockType::CodeBlock) {
                     bl.codeContentWidth = laidOutContentWidth;
                     bl.codeViewportWidth = contentWidth;
+                    bl.horizontalContentWidth = laidOutContentWidth;
+                    bl.horizontalViewportWidth = contentWidth;
+                    bl.usesHorizontalScrollOffset = laidOutContentWidth > contentWidth + 0.5f;
+                    bl.horizontalScrollOwnerTextStart = bl.textStart;
                 }
 
                 if (!block.children.empty()) {
@@ -284,7 +290,20 @@ private:
                     }
                 }
 
-                if (isSingleImageBlock) {
+                const bool hasRequestedWidth = run.imageRequestedWidth > 0.0f;
+                const bool hasRequestedHeight = run.imageRequestedHeight > 0.0f;
+                if (hasRequestedWidth || hasRequestedHeight) {
+                    const float aspect = hasActualSize ? (actualW / actualH) : 1.618f;
+                    imgDisplayW = hasRequestedWidth
+                        ? run.imageRequestedWidth
+                        : run.imageRequestedHeight * aspect;
+                    imgDisplayH = hasRequestedHeight
+                        ? run.imageRequestedHeight
+                        : run.imageRequestedWidth / aspect;
+                    const float fitScale = std::min(1.0f, wrapWidth / std::max(imgDisplayW, 1.0f));
+                    imgDisplayW = std::max(imgDisplayW * fitScale, 1.0f);
+                    imgDisplayH = std::max(imgDisplayH * fitScale, 1.0f);
+                } else if (isSingleImageBlock) {
                     const float maxBlockImageWidth = wrapWidth * 0.9f;
                     imgDisplayW = hasActualSize
                         ? std::min(maxBlockImageWidth, actualW)
@@ -292,10 +311,15 @@ private:
                     imgDisplayW = std::max(imgDisplayW, 1.0f);
                     float aspect = hasActualSize ? (actualH / actualW) : 0.618f;
                     imgDisplayH = imgDisplayW * aspect;
-                } else {
+                } else if (hasActualSize) {
                     imgDisplayH = lineHeight * 0.8f;
-                    float aspect = hasActualSize ? (actualW / actualH) : 1.5f;
+                    const float aspect = actualW / actualH;
                     imgDisplayW = imgDisplayH * aspect;
+                } else {
+                    ConfigureInlineFont(blockType, run.formatting);
+                    imgDisplayH = lineHeight * 1.05f;
+                    const float labelWidth = font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
+                    imgDisplayW = std::clamp(labelWidth + 14.0f, 28.0f, wrapWidth);
                 }
 
                 if (currentX + imgDisplayW > wrapWidth && currentX > 0.0f) {
@@ -446,13 +470,15 @@ private:
         if (!allowOverflowWord) {
             return 0;
         }
-
-        size_t wordEnd = 0;
-        while (wordEnd < length && !IsBreakableWhitespace(text[wordEnd])) {
-            ++wordEnd;
+        if (best > 0) {
+            return best;
         }
-
-        return wordEnd > 0 ? wordEnd : best;
+        size_t firstBoundary = 1;
+        while (firstBoundary < length &&
+               (static_cast<unsigned char>(text[firstBoundary]) & 0xC0) == 0x80) {
+            ++firstBoundary;
+        }
+        return firstBoundary;
     }
 
     void ConfigureInlineFont(BlockType blockType, InlineFormatting formatting) {
@@ -560,7 +586,9 @@ private:
                     continue;
                 }
                 const float contentWidth = MeasureInlineRunsWidth(cell->inlineRuns, cell->type) + (kTableCellPaddingX * 2.0f);
-                preferredWidths[columnIndex] = std::max(preferredWidths[columnIndex], contentWidth);
+                preferredWidths[columnIndex] = std::max(
+                    preferredWidths[columnIndex],
+                    std::min(contentWidth, kMaxTableColumnWidth));
             }
         }
 
@@ -575,18 +603,7 @@ private:
                 width += extra;
             }
         } else {
-            const float scale = tableWidth / preferredTotal;
-            for (size_t columnIndex = 0; columnIndex < columnCount; ++columnIndex) {
-                widths[columnIndex] = std::max(preferredWidths[columnIndex] * scale, kMinTableColumnWidth);
-            }
-
-            const float scaledTotal = std::accumulate(widths.begin(), widths.end(), 0.0f);
-            if (scaledTotal > tableWidth) {
-                const float shrink = tableWidth / scaledTotal;
-                for (auto& width : widths) {
-                    width *= shrink;
-                }
-            }
+            widths = preferredWidths;
         }
 
         return widths;
@@ -636,6 +653,10 @@ private:
         columnCount = std::max<size_t>(columnCount, 1);
 
         const std::vector<float> columnWidths = ComputeTableColumnWidths(rows, columnCount, tableWidth);
+        const float tableContentWidth = std::accumulate(columnWidths.begin(), columnWidths.end(), 0.0f);
+        const bool horizontallyScrollable = tableContentWidth > tableWidth + 0.5f;
+        tableLayout.horizontalContentWidth = tableContentWidth;
+        tableLayout.horizontalViewportWidth = tableWidth;
         float rowTop = currentY;
 
         for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
@@ -643,6 +664,8 @@ private:
             BlockLayout rowLayout;
             rowLayout.type = BlockType::TableRow;
             rowLayout.textStart = currentTextOffset;
+            rowLayout.usesHorizontalScrollOffset = horizontallyScrollable;
+            rowLayout.horizontalScrollOwnerTextStart = tableLayout.textStart;
 
             float rowHeight = 0.0f;
             for (size_t columnIndex = 0; columnIndex < columnCount; ++columnIndex) {
@@ -656,7 +679,7 @@ private:
                 }
                 const float cellWidth =
                     (columnIndex + 1 == columnCount)
-                        ? (tableLeft + tableWidth - cellLeft)
+                        ? (tableLeft + tableContentWidth - cellLeft)
                         : columnWidths[columnIndex];
                 const float cellInnerLeft = cellLeft + kTableCellPaddingX;
                 const float cellInnerTop = rowTop + kTableCellPaddingY;
@@ -666,6 +689,8 @@ private:
                 cellLayout.type = cellType;
                 cellLayout.align = cellAlign;
                 cellLayout.textStart = currentTextOffset;
+                cellLayout.usesHorizontalScrollOffset = horizontallyScrollable;
+                cellLayout.horizontalScrollOwnerTextStart = tableLayout.textStart;
 
                 const float lineHeight = GetLineHeight(
                     cellType,
@@ -702,7 +727,7 @@ private:
                     rowHeight);
             }
 
-            rowLayout.bounds = SkRect::MakeXYWH(tableLeft, rowTop, tableWidth, rowHeight);
+            rowLayout.bounds = SkRect::MakeXYWH(tableLeft, rowTop, tableContentWidth, rowHeight);
             rowLayout.textLength = currentTextOffset - rowLayout.textStart;
             tableLayout.children.push_back(std::move(rowLayout));
 
@@ -712,7 +737,7 @@ private:
             }
         }
 
-        currentY = rowTop;
+        currentY = rowTop + (horizontallyScrollable ? kHorizontalScrollbarSpace : 0.0f);
         tableLayout.bounds = SkRect::MakeXYWH(tableLeft, tableTop, tableWidth, currentY - tableTop);
         tableLayout.textLength = currentTextOffset - tableLayout.textStart;
         layouts.push_back(std::move(tableLayout));

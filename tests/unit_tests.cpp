@@ -678,6 +678,72 @@ void MarkdownCorrectnessFoundation() {
     Require(mdviewer::HasFormatting(linkHit.formatting, mdviewer::InlineFormatting::Strong), "hit testing should preserve combined formatting metadata");
 }
 
+void SafeHtmlSubset() {
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
+        "<p align=\"center\">\n"
+        "  <img src=\"docs/logo.svg\" alt=\"project logo\" width=\"160\">\n"
+        "</p>\n\n"
+        "<h1 align=\"center\">Project &amp; Tools</h1>\n\n"
+        "<p align=\"center\">First line.<br>Second line.</p>\n\n"
+        "<p>Text before <a href=\"target.md\">linked words</a> and after.</p>\n\n"
+        "<p align=\"center\">\n"
+        "  <a href=\"LICENSE\"><img src=\"https://img.shields.io/license.svg\" alt=\"Apache 2.0\"></a>\n"
+        "</p>\n");
+
+    RequireEqual(document.blocks.size(), static_cast<size_t>(5), "supported HTML blocks should become five native blocks");
+    Require(document.blocks[0].type == mdviewer::BlockType::Paragraph, "HTML p should become a paragraph");
+    Require(document.blocks[0].align == mdviewer::TextAlign::Center, "HTML align=center should be preserved");
+    RequireEqual(document.blocks[0].inlineRuns.size(), static_cast<size_t>(1), "image-only HTML paragraph should not retain indentation whitespace");
+    const auto& logo = document.blocks[0].inlineRuns[0];
+    Require(logo.kind == mdviewer::InlineKind::Image, "HTML img should become a native image run");
+    RequireEqual(logo.imageSource, std::string("docs/logo.svg"), "HTML image source should be preserved");
+    RequireNear(logo.imageRequestedWidth, 160.0f, 0.001f, "HTML image width should be preserved");
+
+    Require(document.blocks[1].type == mdviewer::BlockType::Heading1, "HTML h1 should become a native heading");
+    RequireEqual(MergeInlineRunText(document.blocks[1].inlineRuns), std::string("Project & Tools"), "HTML entities should decode");
+    const auto hardBreak = std::find_if(document.blocks[2].inlineRuns.begin(), document.blocks[2].inlineRuns.end(), [](const auto& run) {
+        return run.kind == mdviewer::InlineKind::HardBreak;
+    });
+    Require(hardBreak != document.blocks[2].inlineRuns.end(), "HTML br should become a hard break");
+
+    RequireEqual(MergeInlineRunText(document.blocks[3].inlineRuns),
+                 std::string("Text before linked words and after."),
+                 "HTML whitespace around inline links should remain readable");
+    const auto& badge = document.blocks[4].inlineRuns[0];
+    Require(badge.kind == mdviewer::InlineKind::Image, "linked HTML badge should remain an image");
+    RequireEqual(badge.linkTarget, std::string("LICENSE"), "HTML image should retain its enclosing link");
+
+    const mdviewer::DocumentModel unsafe = mdviewer::MarkdownParser::Parse(
+        "<script>alert('not executed')</script>\n");
+    RequireEqual(unsafe.blocks.size(), static_cast<size_t>(1), "unsupported HTML should remain one source block");
+    Require(unsafe.blocks[0].type == mdviewer::BlockType::RawHtml, "unsafe HTML should not become a renderable HTML element");
+    Require(MergeInlineRunText(unsafe.blocks[0].inlineRuns).find("<script>") != std::string::npos,
+            "unsafe HTML should remain visible as source");
+
+    const mdviewer::DocumentModel inlineBreak = mdviewer::MarkdownParser::Parse("before<br>after\n");
+    RequireEqual(inlineBreak.blocks.size(), static_cast<size_t>(1), "inline HTML br should stay in its paragraph");
+    Require(std::any_of(inlineBreak.blocks[0].inlineRuns.begin(), inlineBreak.blocks[0].inlineRuns.end(), [](const auto& run) {
+        return run.kind == mdviewer::InlineKind::HardBreak;
+    }), "inline HTML br should become a hard break");
+
+    const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    const auto layout = mdviewer::LayoutEngine::ComputeLayout(
+        document,
+        900.0f,
+        typeface.get(),
+        17.0f,
+        [](const std::string& source) {
+            return source == "docs/logo.svg"
+                ? std::pair<float, float>{256.0f, 256.0f}
+                : std::pair<float, float>{0.0f, 0.0f};
+        });
+    RequireNear(layout.blocks[0].lines[0].runs[0].imageWidth, 160.0f, 0.5f, "requested HTML image width should drive layout");
+    RequireNear(layout.blocks[0].lines[0].runs[0].imageHeight, 160.0f, 0.5f, "one requested image dimension should preserve intrinsic aspect ratio");
+    Require(layout.blocks[0].lines[0].x > layout.blocks[0].bounds.left(), "centered HTML image should be centered by native layout");
+    Require(layout.blocks[2].lines.size() >= 2, "HTML br should force a second rendered line");
+}
+
 void LayoutSensitiveBehavior() {
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(
         "# Title\n\n"
@@ -733,6 +799,56 @@ void LayoutSensitiveBehavior() {
         0.001f,
         "compact layout should apply its responsive right margin");
 
+    const auto wideTableLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "| Engine | Checkpoint / KV | Prefill tok/s | TTFT | Effective D2H | ITL | Sampled peak VRAM | Notes |\n"
+            "| - | - | - | - | - | - | - | - |\n"
+            "| gem16 | direct-FP8-NVFP4-checkpoint | 5866.86 | 2792.64 ms | 87.66 | 11.408 ms | 11746 MiB | reproducible-result |\n"),
+        420.0f,
+        typefacePtr,
+        17.0f);
+    const auto& wideTable = FirstBlockOfType(wideTableLayout, mdviewer::BlockType::Table);
+    Require(wideTable.horizontalContentWidth > wideTable.horizontalViewportWidth,
+            "wide tables should retain natural columns and expose horizontal overflow");
+    Require(!wideTable.children.empty() && wideTable.children[0].bounds.width() > wideTable.bounds.width(),
+            "table rows should keep their content width behind the clipped viewport");
+
+    mdviewer::AppState renderedTableState;
+    renderedTableState.docLayout = wideTableLayout;
+    renderedTableState.outlineCollapsed = true;
+    const int tableRenderHeight = static_cast<int>(std::ceil(wideTableLayout.totalHeight + 20.0f));
+    const sk_sp<SkSurface> tableSurface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(420, tableRenderHeight));
+    Require(tableSurface != nullptr, "table scrollbar regression should create a raster surface");
+    std::vector<mdviewer::HorizontalScrollbarRegion> tableScrollbars;
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = tableSurface->getCanvas(),
+        .appState = &renderedTableState,
+        .palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark),
+        .typefaces = mdviewer::DocumentTypefaceSet{
+            .fontMgr = fontMgr.get(),
+            .regular = typefacePtr,
+            .bold = typefacePtr,
+            .heading = typefacePtr,
+            .code = typefacePtr,
+        },
+        .baseFontSize = 17.0f,
+        .viewportHeight = static_cast<float>(tableRenderHeight),
+        .surfaceWidth = 420.0f,
+        .surfaceHeight = static_cast<float>(tableRenderHeight),
+        .visibleDocumentBottom = wideTableLayout.totalHeight,
+        .addHorizontalScrollbar = [&](const auto& region) { tableScrollbars.push_back(region); },
+    });
+    RequireEqual(tableScrollbars.size(), static_cast<size_t>(1), "one wide table should expose one horizontal scrollbar");
+
+    const auto longTokenLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "https://example.com/this-is-one-deliberately-unbroken-token-that-must-not-escape-the-document-viewport\n"),
+        280.0f,
+        typefacePtr,
+        17.0f);
+    Require(!longTokenLayout.blocks.empty() && longTokenLayout.blocks[0].lines.size() > 1,
+            "very long unbroken tokens should wrap at UTF-8 boundaries");
+
     const auto overflowingCodeLayout = mdviewer::LayoutEngine::ComputeLayout(
         mdviewer::MarkdownParser::Parse(
             "```cpp\n"
@@ -748,7 +864,7 @@ void LayoutSensitiveBehavior() {
         "overflowing code should record a horizontal scroll range");
 
     mdviewer::AppState codeScrollState;
-    codeScrollState.codeBlockScrollbars.push_back(mdviewer::CodeBlockScrollbarRegion{
+    codeScrollState.horizontalScrollbars.push_back(mdviewer::HorizontalScrollbarRegion{
         .viewportRect = SkRect::MakeXYWH(10.0f, 20.0f, 200.0f, 100.0f),
         .trackRect = SkRect::MakeXYWH(10.0f, 110.0f, 200.0f, 6.0f),
         .thumbRect = SkRect::MakeXYWH(10.0f, 110.0f, 50.0f, 6.0f),
@@ -756,17 +872,17 @@ void LayoutSensitiveBehavior() {
         .maxScroll = 600.0f,
     });
     Require(
-        mdviewer::BeginCodeBlockScrollbarInteraction(codeScrollState, 20.0f, 112.0f),
+        mdviewer::BeginHorizontalScrollbarInteraction(codeScrollState, 20.0f, 112.0f),
         "code scrollbar thumb should begin a drag");
-    Require(mdviewer::UpdateCodeBlockScrollbarDrag(codeScrollState, 160.0f), "dragging a code scrollbar should change its offset");
-    Require(codeScrollState.codeBlockScrollOffsets[42] > 0.0f, "code scrollbar drag should move the selected block horizontally");
-    mdviewer::EndCodeBlockScrollbarDrag(codeScrollState);
-    Require(!codeScrollState.isDraggingCodeBlockScrollbar, "code scrollbar drag should end cleanly");
-    const float draggedOffset = codeScrollState.codeBlockScrollOffsets[42];
+    Require(mdviewer::UpdateHorizontalScrollbarDrag(codeScrollState, 160.0f), "dragging a code scrollbar should change its offset");
+    Require(codeScrollState.horizontalScrollOffsets[42] > 0.0f, "code scrollbar drag should move the selected block horizontally");
+    mdviewer::EndHorizontalScrollbarDrag(codeScrollState);
+    Require(!codeScrollState.isDraggingHorizontalScrollbar, "code scrollbar drag should end cleanly");
+    const float draggedOffset = codeScrollState.horizontalScrollOffsets[42];
     Require(
-        mdviewer::ScrollCodeBlockAtPoint(codeScrollState, 50.0f, 50.0f, 40.0f),
+        mdviewer::ScrollHorizontalBlockAtPoint(codeScrollState, 50.0f, 50.0f, 40.0f),
         "horizontal wheel input over a code block should be consumed");
-    Require(codeScrollState.codeBlockScrollOffsets[42] > draggedOffset, "horizontal wheel input should advance that code block only");
+    Require(codeScrollState.horizontalScrollOffsets[42] > draggedOffset, "horizontal wheel input should advance that code block only");
 
     mdviewer::AppState renderedCodeState;
     renderedCodeState.sourceText = "long code";
@@ -775,7 +891,7 @@ void LayoutSensitiveBehavior() {
     const int renderHeight = static_cast<int>(std::ceil(overflowingCodeLayout.totalHeight + 40.0f));
     const sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(320, renderHeight));
     Require(surface != nullptr, "code scrollbar regression should create a raster surface");
-    std::vector<mdviewer::CodeBlockScrollbarRegion> renderedScrollbars;
+    std::vector<mdviewer::HorizontalScrollbarRegion> renderedScrollbars;
     mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
         .canvas = surface->getCanvas(),
         .appState = &renderedCodeState,
@@ -792,7 +908,7 @@ void LayoutSensitiveBehavior() {
         .surfaceWidth = 320.0f,
         .surfaceHeight = static_cast<float>(renderHeight),
         .visibleDocumentBottom = overflowingCodeLayout.totalHeight,
-        .addCodeBlockScrollbar = [&](const auto& region) { renderedScrollbars.push_back(region); },
+        .addHorizontalScrollbar = [&](const auto& region) { renderedScrollbars.push_back(region); },
     });
     RequireEqual(renderedScrollbars.size(), static_cast<size_t>(1), "renderer should expose one scrollbar for one overflowing code block");
     Require(
@@ -1053,6 +1169,7 @@ int main() {
         {"MarkdownSafetyLimits", MarkdownSafetyLimits},
         {"DocumentSizeLimit", DocumentSizeLimit},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
+        {"SafeHtmlSubset", SafeHtmlSubset},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
         {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},

@@ -15,7 +15,7 @@
 
 namespace mdviewer {
 
-struct CodeBlockScrollbarRegion {
+struct HorizontalScrollbarRegion {
     SkRect viewportRect = SkRect::MakeEmpty();
     SkRect trackRect = SkRect::MakeEmpty();
     SkRect thumbRect = SkRect::MakeEmpty();
@@ -74,11 +74,11 @@ struct AppState {
     
     // Maps code block button regions to the range of text in that code block
     std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;
-    std::unordered_map<size_t, float> codeBlockScrollOffsets;
-    std::vector<CodeBlockScrollbarRegion> codeBlockScrollbars;
-    bool isDraggingCodeBlockScrollbar = false;
-    size_t draggingCodeBlockTextStart = 0;
-    float codeBlockScrollbarDragOffset = 0.0f;
+    std::unordered_map<size_t, float> horizontalScrollOffsets;
+    std::vector<HorizontalScrollbarRegion> horizontalScrollbars;
+    bool isDraggingHorizontalScrollbar = false;
+    size_t draggingHorizontalBlockTextStart = 0;
+    float horizontalScrollbarDragOffset = 0.0f;
 
     mutable std::mutex mtx;
 
@@ -154,11 +154,11 @@ struct AppState {
         pendingLinkPressY = 0;
         pendingLinkUrl.clear();
         codeBlockButtons.clear();
-        codeBlockScrollOffsets.clear();
-        codeBlockScrollbars.clear();
-        isDraggingCodeBlockScrollbar = false;
-        draggingCodeBlockTextStart = 0;
-        codeBlockScrollbarDragOffset = 0.0f;
+        horizontalScrollOffsets.clear();
+        horizontalScrollbars.clear();
+        isDraggingHorizontalScrollbar = false;
+        draggingHorizontalBlockTextStart = 0;
+        horizontalScrollbarDragOffset = 0.0f;
     }
 };
 

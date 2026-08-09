@@ -42,7 +42,7 @@ struct DocumentSceneParams {
     std::optional<SkRect> scrollbarThumbRect;
     std::function<sk_sp<SkImage>(const std::string& url, float displayWidth, float displayHeight)> resolveImage;
     std::function<void(const SkRect& rect, size_t start, size_t end)> addCodeBlockButton;
-    std::function<void(const CodeBlockScrollbarRegion& region)> addCodeBlockScrollbar;
+    std::function<void(const HorizontalScrollbarRegion& region)> addHorizontalScrollbar;
 };
 
 bool IsHeadingBlock(BlockType blockType);

@@ -305,17 +305,20 @@ Security and privacy considerations:
 
 ### 5.8 Raw HTML in Markdown
 
-Many Markdown files contain embedded HTML. Raw HTML is currently displayed as
-source text; it is not rendered semantically. The planned policy is a small
-native allowlist rather than browser-compatible HTML.
+Many Markdown files contain embedded HTML. The viewer implements a small native
+allowlist rather than browser-compatible HTML. Centered paragraphs and headings,
+links, local images with width/height hints, and `<br>` are translated into the
+same document model used by Markdown. Unknown or unsafe fragments remain visible
+as source.
 
 Planned user-facing behavior:
 
-- Render safe inline HTML tags such as `<br>`, `<kbd>`, `<sub>`, `<sup>`, `<details>`, `<summary>`.
+- Already render `<br>`, `<a>`, and `<img>` plus aligned `<p>` and `<h1>`-`<h6>` blocks.
+- Consider `<kbd>`, `<sub>`, `<sup>`, `<details>`, and `<summary>` as later allowlist extensions.
 - Render common block tags such as `<table>` only if safe and consistent.
 - Never execute scripts, event handlers, iframes, external embeds, or unsafe
   attributes.
-- Provide a setting or indicator when HTML is suppressed.
+- Keep unsupported HTML visible as source so suppression is never silent.
 
 Easy-to-miss HTML features:
 
@@ -737,12 +740,11 @@ Even a viewer can expose users to unsafe or privacy-invasive content.
 
 Markdown can reference remote images and links.
 
-Desirable behavior:
+Current behavior and possible extensions:
 
-- Clear setting for loading remote images.
-- Block remote content by default in stricter privacy mode.
-- Show placeholder when remote content is blocked.
-- Allow per-document or global enablement.
+- Remote images are never fetched automatically.
+- A labeled native placeholder is shown when remote content is blocked.
+- A future version may offer explicit per-document or global opt-in loading.
 - Avoid automatic execution of embedded remote content.
 
 ### 10.2 Unsafe HTML and Scripts
@@ -915,9 +917,10 @@ code. The most important remaining quality work is:
 2. Completed: correct fenced-code mutation, nested inline styles, and soft line
    breaks. Heading anchors cover the common cases, with duplicate suffix numbering
    and non-ASCII case folding retained as explicit follow-up work.
-3. Completed for fenced code: preserve source lines and provide per-block
-   horizontal scrolling. Table overflow and safe long-token breaking remain.
-4. Implement a small safe native HTML subset.
+3. Completed: preserve fenced-code source lines, add per-code/table horizontal
+   scrolling, and safely wrap long unbroken tokens.
+4. Completed for the common GitHub header pattern: implement a strict native
+   HTML subset for aligned paragraphs/headings, links, images, and line breaks.
 5. Add front matter, footnotes, and GitHub alerts.
 6. Treat math and diagrams as optional enhancements with source fallback.
 
@@ -928,7 +931,7 @@ copy, internal local links, link hover previews, recent files, runtime fonts,
 reader zoom, themes, PDF export, and Windows live reload/printing.
 
 The highest-value remaining usability work is Linux runtime validation and parity,
-safe raw HTML, table overflow, remembered per-file scroll positions, manual reload,
+remaining HTML extensions, remembered per-file scroll positions, manual reload,
 broken-resource feedback, keyboard focus/accessibility, system/high-contrast themes,
 and print/export polish.
 
@@ -1022,9 +1025,9 @@ grouped into three horizons:
 
 ### Next
 
-- Safe raw HTML subset.
+- Additional safe HTML extensions where real documents justify them.
 - Front matter, footnotes, and GitHub alerts.
-- Table, long-token, search, keyboard, and accessibility improvements.
+- Table copy fidelity, search, keyboard, and accessibility improvements.
 - Cross-platform reload, print, and error-state polish.
 
 ### Later
@@ -1101,5 +1104,5 @@ depends more on robustness and fidelity than on accumulating surface features.
 
 The features and edge cases most likely to be missed are resource limits, Linux
 crash diagnostics, front matter, cross-platform file watching, relative-link
-security, duplicate heading anchors, wide tables, copy fidelity, raw HTML policy,
+security, duplicate heading anchors, copy fidelity, remaining HTML extensions,
 remote-image privacy, high-contrast accessibility, and print/export behavior.

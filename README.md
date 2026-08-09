@@ -46,9 +46,10 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - blockquotes
   - fenced code blocks with **one-click copy**, Tree-sitter syntax highlighting, and per-block horizontal scrolling for long source lines
   - thematic breaks
-  - tables
+  - tables with horizontal scrolling when their useful column widths exceed the viewport
   - combinable emphasis, strong text, strikethrough, inline code, and links
   - CommonMark soft breaks as flowing whitespace and explicit hard breaks as visible line breaks
+  - a browser-free HTML allowlist for GitHub-style centered paragraphs/headings, links, local images, and `<br>`; unsupported or unsafe HTML remains visible as source
   - decoded Markdown entities
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size; SVG HTML `<foreignObject>` content is not supported
 - Navigation:
@@ -66,6 +67,8 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - custom scrollbar
   - middle-mouse auto-scroll on Windows
 - Responsive document margins that reclaim reading width in narrow windows
+- Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
+- Remote images are not fetched automatically; HTML badges and other remote images use labeled placeholders
 - Mouse text selection and `Ctrl+C` copy
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`

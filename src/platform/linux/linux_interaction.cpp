@@ -118,7 +118,7 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
 
     HitTestCallbacks callbacks;
     callbacks.get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
-        if (run.text.empty()) return run.imageWidth;
+        if (run.kind == InlineKind::Image) return run.imageWidth;
         SkFont font;
         ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.formatting, appState.baseFontSize);
         return font.measureText(run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
@@ -151,11 +151,11 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     };
 
     callbacks.get_block_horizontal_scroll = [&](const BlockLayout& block) {
-        if (block.type != BlockType::CodeBlock) {
+        if (!block.usesHorizontalScrollOffset) {
             return 0.0f;
         }
-        const auto found = appState.codeBlockScrollOffsets.find(block.textStart);
-        return found == appState.codeBlockScrollOffsets.end() ? 0.0f : found->second;
+        const auto found = appState.horizontalScrollOffsets.find(block.horizontalScrollOwnerTextStart);
+        return found == appState.horizontalScrollOffsets.end() ? 0.0f : found->second;
     };
 
     auto docHit = HitTestDocument(
@@ -277,10 +277,10 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
         appState.needsRepaint = true;
         return;
     }
-    if (appState.isDraggingCodeBlockScrollbar) {
+    if (appState.isDraggingHorizontalScrollbar) {
         const float documentX = static_cast<float>(xpos) -
             (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app->GetHostContext()) : 0.0f);
-        UpdateCodeBlockScrollbarDrag(appState, documentX);
+        UpdateHorizontalScrollbarDrag(appState, documentX);
         appState.needsRepaint = true;
         return;
     }
@@ -502,7 +502,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
         const float documentX = static_cast<float>(xpos) -
             (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app->GetHostContext()) : 0.0f);
         const float documentY = static_cast<float>(ypos) - GetContentTopInset() + appState.scrollOffset;
-        if (BeginCodeBlockScrollbarInteraction(appState, documentX, documentY)) {
+        if (BeginHorizontalScrollbarInteraction(appState, documentX, documentY)) {
             appState.needsRepaint = true;
             return;
         }
@@ -546,8 +546,8 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             appState.needsRepaint = true;
             return;
         }
-        if (appState.isDraggingCodeBlockScrollbar) {
-            EndCodeBlockScrollbarDrag(appState);
+        if (appState.isDraggingHorizontalScrollbar) {
+            EndHorizontalScrollbarDrag(appState);
             appState.needsRepaint = true;
             return;
         }
@@ -603,7 +603,7 @@ void OnScrollImpl(GLFWwindow* window, double xoffset, double yoffset) {
         const float documentX = static_cast<float>(cursorX) -
             (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app->GetHostContext()) : 0.0f);
         const float documentY = static_cast<float>(cursorY) - GetContentTopInset() + appState.scrollOffset;
-        if (ScrollCodeBlockAtPoint(appState, documentX, documentY, horizontalDelta)) {
+        if (ScrollHorizontalBlockAtPoint(appState, documentX, documentY, horizontalDelta)) {
             appState.needsRepaint = true;
             return;
         }

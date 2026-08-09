@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 
 #include "render/typography.h"
 #include "view/document_interaction.h"
@@ -26,14 +27,18 @@ namespace {
 constexpr float kTextBaselineOffset = 5.0f;
 constexpr float kCodeBlockPaddingX = 8.0f;
 constexpr float kCodeBlockPaddingY = 8.0f;
-constexpr float kCodeBlockScrollbarHeight = 6.0f;
-constexpr float kCodeBlockScrollbarMinThumbWidth = 28.0f;
+constexpr float kHorizontalScrollbarHeight = 6.0f;
+constexpr float kHorizontalScrollbarMinThumbWidth = 28.0f;
 constexpr float kBlockquoteAccentWidth = 4.0f;
 constexpr float kBlockquoteTextInset = 18.0f;
 constexpr float kListMarkerGap = 16.0f;
 constexpr float kOrderedListMarkerTextGap = 10.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableBorderWidth = 1.0f;
+
+bool IsRemoteImageSource(std::string_view source) {
+    return source.starts_with("https://") || source.starts_with("http://");
+}
 
 struct RenderContext {
     SkCanvas* canvas = nullptr;
@@ -618,15 +623,25 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                     SkSamplingOptions(SkFilterMode::kLinear));
             } else {
                 SkPaint placeholderPaint;
-                placeholderPaint.setStyle(SkPaint::kStroke_Style);
                 placeholderPaint.setColor(params.palette.listMarker);
                 placeholderPaint.setStrokeWidth(1.0f);
                 const SkRect rect = SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH);
-                ctx.canvas->drawRect(rect, placeholderPaint);
-                ctx.canvas->drawLine(rect.left(), rect.top(), rect.right(), rect.bottom(), placeholderPaint);
-                ctx.canvas->drawLine(rect.right(), rect.top(), rect.left(), rect.bottom(), placeholderPaint);
+                if (IsRemoteImageSource(run.imageSource)) {
+                    SkPaint fillPaint;
+                    fillPaint.setAntiAlias(true);
+                    fillPaint.setColor(params.palette.codeInlineBackground);
+                    ctx.canvas->drawRoundRect(rect, 4.0f, 4.0f, fillPaint);
+                    placeholderPaint.setAntiAlias(true);
+                    placeholderPaint.setStyle(SkPaint::kStroke_Style);
+                    ctx.canvas->drawRoundRect(rect, 4.0f, 4.0f, placeholderPaint);
+                } else {
+                    placeholderPaint.setStyle(SkPaint::kStroke_Style);
+                    ctx.canvas->drawRect(rect, placeholderPaint);
+                    ctx.canvas->drawLine(rect.left(), rect.top(), rect.right(), rect.bottom(), placeholderPaint);
+                    ctx.canvas->drawLine(rect.right(), rect.top(), rect.left(), rect.bottom(), placeholderPaint);
+                }
 
-                if (!run.text.empty() && rect.width() > 24.0f && rect.height() > 16.0f) {
+                if (!run.text.empty() && rect.width() > 24.0f && rect.height() > 12.0f) {
                     ctx.canvas->save();
                     ctx.canvas->clipRect(rect.makeInset(4.0f, 2.0f));
                     ctx.paint.setColor(params.palette.emptyStateText);
@@ -692,39 +707,44 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
     }
 }
 
-float GetCodeBlockScrollOffset(const DocumentSceneParams& params, const BlockLayout& block) {
+float GetHorizontalScrollOffset(const DocumentSceneParams& params, const BlockLayout& block) {
     if (!params.appState) {
         return 0.0f;
     }
-    const auto found = params.appState->codeBlockScrollOffsets.find(block.textStart);
-    if (found == params.appState->codeBlockScrollOffsets.end()) {
+    const auto found = params.appState->horizontalScrollOffsets.find(block.textStart);
+    if (found == params.appState->horizontalScrollOffsets.end()) {
         return 0.0f;
     }
-    return std::clamp(found->second, 0.0f, std::max(block.codeContentWidth - block.codeViewportWidth, 0.0f));
+    return std::clamp(
+        found->second,
+        0.0f,
+        std::max(block.horizontalContentWidth - block.horizontalViewportWidth, 0.0f));
 }
 
-void DrawCodeBlockScrollbar(
+void DrawHorizontalScrollbar(
     RenderContext& ctx,
     const DocumentSceneParams& params,
     const BlockLayout& block) {
-    const float maxScroll = std::max(block.codeContentWidth - block.codeViewportWidth, 0.0f);
-    if (maxScroll <= 0.5f || block.codeViewportWidth <= 0.0f) {
+    const float maxScroll = std::max(block.horizontalContentWidth - block.horizontalViewportWidth, 0.0f);
+    if (maxScroll <= 0.5f || block.horizontalViewportWidth <= 0.0f) {
         return;
     }
 
-    const float trackLeft = block.bounds.left() + kCodeBlockPaddingX;
-    const float trackTop = block.bounds.bottom() - (kCodeBlockScrollbarHeight * 0.5f);
+    const float trackLeft = block.type == BlockType::CodeBlock
+        ? block.bounds.left() + kCodeBlockPaddingX
+        : block.bounds.left();
+    const float trackTop = block.bounds.bottom() - (kHorizontalScrollbarHeight * 0.5f);
     const SkRect trackRect = SkRect::MakeXYWH(
         trackLeft,
         trackTop,
-        block.codeViewportWidth,
-        kCodeBlockScrollbarHeight);
+        block.horizontalViewportWidth,
+        kHorizontalScrollbarHeight);
     const float thumbWidth = std::clamp(
-        block.codeViewportWidth * (block.codeViewportWidth / block.codeContentWidth),
-        std::min(kCodeBlockScrollbarMinThumbWidth, block.codeViewportWidth),
-        block.codeViewportWidth);
+        block.horizontalViewportWidth * (block.horizontalViewportWidth / block.horizontalContentWidth),
+        std::min(kHorizontalScrollbarMinThumbWidth, block.horizontalViewportWidth),
+        block.horizontalViewportWidth);
     const float thumbTravel = std::max(trackRect.width() - thumbWidth, 0.0f);
-    const float scrollOffset = GetCodeBlockScrollOffset(params, block);
+    const float scrollOffset = GetHorizontalScrollOffset(params, block);
     const float thumbLeft = trackRect.left() + (maxScroll > 0.0f ? (scrollOffset / maxScroll) * thumbTravel : 0.0f);
     const SkRect thumbRect = SkRect::MakeXYWH(
         thumbLeft,
@@ -735,20 +755,20 @@ void DrawCodeBlockScrollbar(
     SkPaint trackPaint;
     trackPaint.setAntiAlias(true);
     trackPaint.setColor(params.palette.scrollbarTrack);
-    ctx.canvas->drawRoundRect(trackRect, kCodeBlockScrollbarHeight * 0.5f, kCodeBlockScrollbarHeight * 0.5f, trackPaint);
+    ctx.canvas->drawRoundRect(trackRect, kHorizontalScrollbarHeight * 0.5f, kHorizontalScrollbarHeight * 0.5f, trackPaint);
 
     SkPaint thumbPaint;
     thumbPaint.setAntiAlias(true);
     thumbPaint.setColor(params.palette.scrollbarThumb);
-    ctx.canvas->drawRoundRect(thumbRect, kCodeBlockScrollbarHeight * 0.5f, kCodeBlockScrollbarHeight * 0.5f, thumbPaint);
+    ctx.canvas->drawRoundRect(thumbRect, kHorizontalScrollbarHeight * 0.5f, kHorizontalScrollbarHeight * 0.5f, thumbPaint);
 
-    if (params.showInteractiveElements && params.addCodeBlockScrollbar) {
-        params.addCodeBlockScrollbar(CodeBlockScrollbarRegion{
+    if (params.showInteractiveElements && params.addHorizontalScrollbar) {
+        params.addHorizontalScrollbar(HorizontalScrollbarRegion{
             .viewportRect = SkRect::MakeLTRB(
                 block.bounds.left(),
-                block.bounds.top() - kCodeBlockPaddingY,
-                block.bounds.right() + kCodeBlockPaddingX,
-                block.bounds.bottom() + kCodeBlockPaddingY),
+                block.bounds.top() - (block.type == BlockType::CodeBlock ? kCodeBlockPaddingY : 0.0f),
+                block.bounds.right() + (block.type == BlockType::CodeBlock ? kCodeBlockPaddingX : 0.0f),
+                block.bounds.bottom() + (block.type == BlockType::CodeBlock ? kCodeBlockPaddingY : 0.0f)),
             .trackRect = trackRect,
             .thumbRect = thumbRect,
             .blockTextStart = block.textStart,
@@ -779,16 +799,22 @@ void DrawBlocks(
 
         DrawBlockDecoration(ctx, params, block, parentType, parentOrderedListStart, parentOrderedListDelimiter, index);
 
-        const bool isScrollableCodeBlock = block.type == BlockType::CodeBlock &&
-            block.codeContentWidth > block.codeViewportWidth + 0.5f;
-        if (isScrollableCodeBlock) {
+        const bool isHorizontallyScrollable =
+            block.horizontalContentWidth > block.horizontalViewportWidth + 0.5f;
+        if (isHorizontallyScrollable) {
+            const float clipLeft = block.type == BlockType::CodeBlock
+                ? block.bounds.left() + kCodeBlockPaddingX
+                : block.bounds.left();
+            const float clipTop = block.type == BlockType::CodeBlock
+                ? block.bounds.top() - kCodeBlockPaddingY
+                : block.bounds.top();
             ctx.canvas->save();
             ctx.canvas->clipRect(SkRect::MakeXYWH(
-                block.bounds.left() + kCodeBlockPaddingX,
-                block.bounds.top() - kCodeBlockPaddingY,
-                block.codeViewportWidth,
-                block.bounds.height() + (kCodeBlockPaddingY * 2.0f)));
-            ctx.canvas->translate(-GetCodeBlockScrollOffset(params, block), 0.0f);
+                clipLeft,
+                clipTop,
+                block.horizontalViewportWidth,
+                block.bounds.height() + (block.type == BlockType::CodeBlock ? kCodeBlockPaddingY * 2.0f : 0.0f)));
+            ctx.canvas->translate(-GetHorizontalScrollOffset(params, block), 0.0f);
         }
 
         for (const auto& line : block.lines) {
@@ -799,12 +825,16 @@ void DrawBlocks(
             DrawSearchStrokeForLine(ctx, params, block, line);
         }
 
-        if (isScrollableCodeBlock) {
-            ctx.canvas->restore();
-            DrawCodeBlockScrollbar(ctx, params, block);
+        if (!block.children.empty() && isHorizontallyScrollable) {
+            DrawBlocks(ctx, params, block.children, block.type, block.orderedListStart, block.orderedListDelimiter);
         }
 
-        if (!block.children.empty()) {
+        if (isHorizontallyScrollable) {
+            ctx.canvas->restore();
+            DrawHorizontalScrollbar(ctx, params, block);
+        }
+
+        if (!block.children.empty() && !isHorizontallyScrollable) {
             DrawBlocks(ctx, params, block.children, block.type, block.orderedListStart, block.orderedListDelimiter);
         }
     }

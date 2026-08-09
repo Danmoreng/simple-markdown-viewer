@@ -42,6 +42,10 @@ struct BlockLayout {
     syntax::HighlightStatus codeHighlightStatus = syntax::HighlightStatus::NotRequested;
     float codeContentWidth = 0.0f;
     float codeViewportWidth = 0.0f;
+    float horizontalContentWidth = 0.0f;
+    float horizontalViewportWidth = 0.0f;
+    bool usesHorizontalScrollOffset = false;
+    size_t horizontalScrollOwnerTextStart = 0;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;

@@ -30,7 +30,8 @@ enum class BlockType {
     Table,
     TableRow,
     TableHeaderCell,
-    TableCell
+    TableCell,
+    RawHtml
 };
 
 enum class InlineFormatting : uint8_t {
@@ -89,6 +90,8 @@ struct InlineRun {
     std::string text;
     std::string imageSource;
     std::string linkTarget;
+    float imageRequestedWidth = 0.0f;
+    float imageRequestedHeight = 0.0f;
 };
 
 struct Block {
@@ -98,6 +101,7 @@ struct Block {
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;
+    std::string rawHtml;
     std::vector<InlineRun> inlineRuns;
     std::vector<Block> children; // For nested blocks like lists
 };

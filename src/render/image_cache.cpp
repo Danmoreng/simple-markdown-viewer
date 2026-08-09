@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <string_view>
 
 #include "util/skia_font_utils.h"
 
@@ -39,6 +40,14 @@ bool IsSvgPath(const std::filesystem::path& path) {
     return extension == ".svg";
 }
 
+bool IsRemoteImageUrl(std::string_view url) {
+    std::string lowered(url);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    return lowered.starts_with("https://") || lowered.starts_with("http://");
+}
+
 void PreloadBlocks(
     DocumentImageCache& cache,
     const std::vector<Block>& blocks,
@@ -72,6 +81,9 @@ void DocumentImageCache::ClearScaledImages() {
 }
 
 std::pair<float, float> DocumentImageCache::GetImageSize(const std::string& url, const std::filesystem::path& baseDir) {
+    if (IsRemoteImageUrl(url)) {
+        return {0.0f, 0.0f};
+    }
     const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
     CachedImageEntry* entry = GetOrLoadEntry(imagePath);
     if (!entry) {
@@ -91,6 +103,9 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
     const std::filesystem::path& baseDir,
     float displayWidth,
     float displayHeight) {
+    if (IsRemoteImageUrl(url)) {
+        return nullptr;
+    }
     const std::filesystem::path imagePath = ResolveImagePath(url, baseDir);
     CachedImageEntry* entry = GetOrLoadEntry(imagePath);
     if (!entry || (!entry->baseImage && !entry->svgDom) ||
