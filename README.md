@@ -10,6 +10,7 @@ It is built with:
 - Win32 or GLFW/GTK for the platform shell and event loop
 - Skia for custom rendering
 - md4c for Markdown parsing
+- utf8proc for portable Unicode heading anchors
 - Tree-sitter for parser-based code syntax highlighting
 
 ## Screenshot
@@ -208,7 +209,7 @@ For compatibility, if the per-user file does not exist, the app can still load a
 
 ## Linux Build Notes
 
-The Linux host is compiled from the same CMake target on Linux. It uses GLFW for the window/event loop and GTK3 for native dialogs/context menus, alongside the same Skia, md4c, and Tree-sitter dependencies.
+The Linux host is compiled from the same CMake target on Linux. It uses GLFW for the window/event loop and GTK3 for native dialogs/context menus, alongside the same Skia, md4c, utf8proc, and Tree-sitter dependencies.
 
 Build Skia and the PDF-enabled viewer, then run the tests:
 
@@ -228,7 +229,7 @@ Create a stripped Linux release archive with:
 ./package-linux.sh
 ```
 
-If the Release application has already been built, use `./package-linux.sh --skip-build`. The resulting archive and checksum are written to `dist/mdviewer-linux-x64.tar.gz` and `dist/mdviewer-linux-x64.tar.gz.sha256`. Skia, md4c, GLFW, and Tree-sitter are linked into the executable; GTK3, OpenGL, X11, fontconfig, freetype, and standard C/C++ runtime libraries remain distribution-provided dependencies. See [`docs/LINUX_SMOKE_TEST.md`](docs/LINUX_SMOKE_TEST.md) for release validation and manual desktop checks.
+If the Release application has already been built, use `./package-linux.sh --skip-build`. The resulting archive and checksum are written to `dist/mdviewer-linux-x64.tar.gz` and `dist/mdviewer-linux-x64.tar.gz.sha256`. Skia, md4c, utf8proc, GLFW, and Tree-sitter are linked into the executable; GTK3, OpenGL, X11, fontconfig, freetype, and standard C/C++ runtime libraries remain distribution-provided dependencies. See [`docs/LINUX_SMOKE_TEST.md`](docs/LINUX_SMOKE_TEST.md) for release validation and manual desktop checks.
 
 ## Controls
 
@@ -285,6 +286,11 @@ Direct dependencies used by the current build:
   - version: `release-0.5.2`
   - license: MIT
   - local license file: `build/_deps/md4c-src/LICENSE.md`
+- `utf8proc`
+  - role: portable Unicode case conversion for heading anchors
+  - version: `v2.11.3`
+  - license: MIT, including Unicode data under the bundled Unicode data license
+  - local license file: `build/_deps/utf8proc-src/LICENSE.md`
 - `Tree-sitter`
   - role: parser-based syntax highlighting for fenced code blocks
   - license: MIT

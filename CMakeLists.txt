@@ -24,6 +24,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
+# utf8proc - Portable Unicode case conversion for GitHub-style heading anchors.
+set(UTF8PROC_INSTALL OFF CACHE BOOL "" FORCE)
+set(UTF8PROC_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    utf8proc
+    GIT_REPOSITORY https://github.com/JuliaStrings/utf8proc.git
+    GIT_TAG        v2.11.3
+)
+FetchContent_MakeAvailable(utf8proc)
+
 # Tree-sitter - mature parser-based syntax highlighting for fenced code blocks.
 FetchContent_Declare(
     tree_sitter
@@ -276,6 +286,8 @@ endif()
 target_compile_definitions(mdviewer PRIVATE
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
 
+target_link_libraries(mdviewer PRIVATE utf8proc)
+
 target_include_directories(mdviewer PRIVATE 
     src
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -365,6 +377,7 @@ if(MSVC)
     # Match Skia's static runtime
     set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET utf8proc PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 add_executable(mdviewer_tests
@@ -397,6 +410,8 @@ add_executable(mdviewer_tests
 
 target_compile_definitions(mdviewer_tests PRIVATE
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
+
+target_link_libraries(mdviewer_tests PRIVATE utf8proc)
 
 target_include_directories(mdviewer_tests PRIVATE
     src

@@ -32,8 +32,8 @@ sha256sum --check dist/mdviewer-linux-x64.tar.gz.sha256
 ```
 
 The staged executable must be stripped. `ldd` must not contain paths below the
-repository `build/` directory and must not report missing libraries. md4c, GLFW,
-Tree-sitter, and Skia are linked into the executable; GTK3, OpenGL, X11,
+repository `build/` directory and must not report missing libraries. md4c,
+utf8proc, GLFW, Tree-sitter, and Skia are linked into the executable; GTK3, OpenGL, X11,
 fontconfig, freetype, libc, and other normal distribution libraries remain
 system dependencies.
 

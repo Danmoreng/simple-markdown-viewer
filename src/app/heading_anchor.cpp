@@ -3,6 +3,8 @@
 #include <cctype>
 #include <cstdint>
 
+#include <utf8proc.h>
+
 namespace mdviewer {
 
 namespace {
@@ -73,6 +75,24 @@ bool IsEmojiOrSymbol(uint32_t codepoint) {
            codepoint == 0xFE0F;
 }
 
+void AppendUtf8Codepoint(std::string& text, uint32_t codepoint) {
+    if (codepoint <= 0x7F) {
+        text.push_back(static_cast<char>(codepoint));
+    } else if (codepoint <= 0x7FF) {
+        text.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0xFFFF) {
+        text.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+        text.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0x10FFFF) {
+        text.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+        text.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+        text.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+}
+
 } // namespace
 
 std::string MakeHeadingAnchor(std::string_view text) {
@@ -98,7 +118,8 @@ std::string MakeHeadingAnchor(std::string_view text) {
                 lastWasHyphen = true;
             }
         } else if (!IsCombiningMark(codepoint) && !IsEmojiOrSymbol(codepoint)) {
-            slug.append(text.substr(offset, nextOffset - offset));
+            const auto lowercase = utf8proc_tolower(static_cast<utf8proc_int32_t>(codepoint));
+            AppendUtf8Codepoint(slug, static_cast<uint32_t>(lowercase));
             lastWasHyphen = false;
         }
 

@@ -538,7 +538,7 @@ private:
         }
 
         std::string uniqueSlug = slug;
-        int suffix = 1;
+        int suffix = 0;
         while (anchors.contains(uniqueSlug)) {
             ++suffix;
             uniqueSlug = slug + "-" + std::to_string(suffix);

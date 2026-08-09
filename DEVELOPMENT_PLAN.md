@@ -85,7 +85,7 @@ Goal: make long documents substantially easier to navigate.
 - [x] Add a command and shortcut to show/hide the outline.
 - [x] Decide Back/Forward behavior for internal heading jumps: keep Back/Forward file-only; heading jumps do not enter history.
 - [x] Support duplicate headings, Unicode headings, emoji, punctuation, and percent-decoded heading fragments.
-- [ ] Close the remaining GitHub-anchor gaps in duplicate suffix numbering and non-ASCII case folding.
+- [x] Close the remaining GitHub-anchor gaps in duplicate suffix numbering and non-ASCII case folding.
 - [x] Decide copy-heading-link support: out of scope for now.
 
 ## Milestone 3: Safer Links and Better File Context

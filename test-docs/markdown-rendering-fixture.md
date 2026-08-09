@@ -31,17 +31,22 @@ Entities should decode, not display literally: &amp; &lt; &gt; &nbsp; &#x2713;.
 Use these links to verify heading fragment navigation:
 [Unicode heading](#日本語),
 [Latin Unicode heading](#résumé-guide),
+[Cyrillic uppercase heading](#привет-мир),
 [emoji-stripped heading](#emoji-heading),
 [punctuation heading](#c-c),
-[duplicate heading](#duplicate-heading-2).
+[duplicate heading](#duplicate-heading-1).
 
 ### 日本語
 
 This heading should appear in the outline and should be reachable with the `#日本語` fragment.
 
-### Résumé Guide
+### RÉSUMÉ GUIDE
 
 This heading keeps Latin Unicode letters and should use the `#résumé-guide` fragment.
+
+### ПРИВЕТ Мир
+
+This uppercase Cyrillic heading should be reachable with the lowercase `#привет-мир` fragment.
 
 ### Emoji ✨ Heading
 
@@ -57,7 +62,7 @@ This is the first duplicate heading.
 
 ### Duplicate Heading
 
-This is the second duplicate heading and should use the `#duplicate-heading-2` fragment.
+This is the second duplicate heading and should use the `#duplicate-heading-1` fragment.
 
 ## Lists
 

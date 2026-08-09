@@ -445,25 +445,36 @@ void HeadingAnchors() {
     RequireEqual(mdviewer::MakeHeadingAnchor("🚀 Launch"), std::string("launch"), "emoji should be ignored when ASCII text remains");
     RequireEqual(mdviewer::MakeHeadingAnchor("日本語"), std::string("日本語"), "Unicode-only headings should keep their text");
     RequireEqual(mdviewer::MakeHeadingAnchor("Résumé Guide"), std::string("résumé-guide"), "Latin Unicode letters should be preserved");
+    RequireEqual(mdviewer::MakeHeadingAnchor("RÉSUMÉ ÜBER"), std::string("résumé-über"), "uppercase Latin Unicode letters should be lowercased");
+    RequireEqual(mdviewer::MakeHeadingAnchor("ПРИВЕТ Мир"), std::string("привет-мир"), "uppercase Cyrillic letters should be lowercased");
+    RequireEqual(mdviewer::MakeHeadingAnchor("ΘΕΜΑ"), std::string("θεμα"), "uppercase Greek letters should be lowercased");
     RequireEqual(mdviewer::MakeHeadingAnchor("C++ & C#"), std::string("c-c"), "ASCII punctuation should be stripped");
     RequireEqual(mdviewer::MakeHeadingAnchor("Emoji ✨ Heading"), std::string("emoji-heading"), "emoji symbols should be stripped without extra hyphens");
 
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(
         "# Hello\n"
         "## Hello\n"
+        "### Hello\n"
+        "# Hello 1\n"
+        "# Hello-1\n"
         "# 🚀 Launch\n"
         "# 日本語\n"
-        "# Résumé Guide\n");
+        "# RÉSUMÉ GUIDE\n"
+        "# ПРИВЕТ Мир\n");
     const auto layout = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, nullptr, mdviewer::kDefaultBaseFontSize);
     Require(layout.anchors.contains("hello"), "first duplicate heading should use base slug");
-    Require(layout.anchors.contains("hello-2"), "second duplicate heading should get numeric suffix");
+    Require(layout.anchors.contains("hello-1"), "second duplicate heading should start numeric suffixes at one");
+    Require(layout.anchors.contains("hello-2"), "third duplicate heading should increment the numeric suffix");
+    Require(layout.anchors.contains("hello-1-1"), "a generated suffix should not collide with heading text");
+    Require(layout.anchors.contains("hello-1-2"), "later heading text should skip all existing suffix collisions");
     Require(layout.anchors.contains("launch"), "emoji plus ASCII heading should anchor on ASCII text");
     Require(layout.anchors.contains("日本語"), "Unicode-only heading should produce an anchor");
     Require(layout.anchors.contains("résumé-guide"), "Latin Unicode heading should produce an anchor");
-    RequireEqual(layout.outline.size(), static_cast<size_t>(5), "all headings should appear in the document outline");
+    Require(layout.anchors.contains("привет-мир"), "Cyrillic heading should produce a lowercase anchor");
+    RequireEqual(layout.outline.size(), static_cast<size_t>(9), "all headings should appear in the document outline");
     RequireEqual(layout.outline[0].level, 1, "outline should preserve heading level");
-    RequireEqual(layout.outline[1].slug, std::string("hello-2"), "outline should preserve unique duplicate slug");
-    RequireEqual(layout.outline[3].slug, std::string("日本語"), "outline should include Unicode-only heading anchors");
+    RequireEqual(layout.outline[1].slug, std::string("hello-1"), "outline should preserve unique duplicate slug");
+    RequireEqual(layout.outline[6].slug, std::string("日本語"), "outline should include Unicode-only heading anchors");
 
     mdviewer::AppState appState;
     appState.docLayout = layout;
