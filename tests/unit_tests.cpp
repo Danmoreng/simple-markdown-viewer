@@ -395,6 +395,19 @@ void SvgImageRendering() {
     RequireEqual(image->width(), 320, "rasterized SVG should use requested width");
     RequireEqual(image->height(), 160, "rasterized SVG should use requested height");
 
+    cache.BeginLiveResize();
+    const auto liveResizeImage = cache.GetImage(svg.filename().string(), temp.Path(), 200.0f, 100.0f);
+    Require(liveResizeImage.get() == image.get(),
+            "live resize should reuse the previously rendered image instead of creating a scaled variant");
+    RequireEqual(liveResizeImage->width(), 320, "live resize should preserve the cached image width");
+    RequireEqual(liveResizeImage->height(), 160, "live resize should preserve the cached image height");
+    cache.EndLiveResize();
+
+    const auto resizedImage = cache.GetImage(svg.filename().string(), temp.Path(), 200.0f, 100.0f);
+    Require(resizedImage != nullptr, "image should render at its final size after live resize");
+    RequireEqual(resizedImage->width(), 200, "final image should use the requested width after live resize");
+    RequireEqual(resizedImage->height(), 100, "final image should use the requested height after live resize");
+
     const fs::path textSvg = temp.Path() / "text.svg";
     WriteText(
         textSvg,

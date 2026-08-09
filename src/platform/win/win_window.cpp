@@ -2,6 +2,7 @@
 
 #include <windowsx.h>
 
+#include <limits>
 #include <mutex>
 
 #include "platform/win/win_file_dialog.h"
@@ -14,6 +15,31 @@
 namespace mdviewer::win {
 
 namespace {
+
+void RememberRestoredWindowPlacement(HWND hwnd, ViewerController& controller) {
+    if (IsIconic(hwnd) || IsZoomed(hwnd)) {
+        return;
+    }
+
+    RECT bounds = {};
+    if (!GetWindowRect(hwnd, &bounds)) {
+        return;
+    }
+
+    const long long width = static_cast<long long>(bounds.right) - bounds.left;
+    const long long height = static_cast<long long>(bounds.bottom) - bounds.top;
+    if (width <= 0 || height <= 0 ||
+        width > std::numeric_limits<int>::max() || height > std::numeric_limits<int>::max()) {
+        return;
+    }
+
+    controller.SetWindowPlacement(WindowPlacement{
+        bounds.left,
+        bounds.top,
+        static_cast<int>(width),
+        static_cast<int>(height),
+    });
+}
 
 WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
     auto* appPtr = &app;
@@ -147,14 +173,21 @@ bool RegisterMainWindowClass(HINSTANCE instance, WNDPROC windowProc, int appIcon
     return RegisterClassExW(&windowClass) != 0;
 }
 
-HWND CreateMainWindow(HINSTANCE instance, const wchar_t* className, const wchar_t* title, int width, int height) {
+HWND CreateMainWindow(
+    HINSTANCE instance,
+    const wchar_t* className,
+    const wchar_t* title,
+    int x,
+    int y,
+    int width,
+    int height) {
     return CreateWindowExW(
         0,
         className,
         title,
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
+        x,
+        y,
         width,
         height,
         nullptr,
@@ -181,6 +214,8 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             SyncMenuState(hwnd, app.Host());
             return 0;
         case WM_DESTROY:
+            RememberRestoredWindowPlacement(hwnd, app.Controller());
+            app.Controller().SaveConfig();
             StopAutoScroll(hwnd, app.Interaction());
             app.Host().fileWatcher.Stop();
             CleanupMenus();
@@ -275,6 +310,20 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             HandleCaptureChanged(hwnd, app.Interaction(), lParam);
             return 0;
         case WM_SIZE:
+            RememberRestoredWindowPlacement(hwnd, app.Controller());
+            UpdateSurface(hwnd, app.Host());
+            RelayoutCurrentDocument(hwnd, app.Host());
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_ENTERSIZEMOVE:
+            app.Host().imageCache.BeginLiveResize();
+            return 0;
+        case WM_MOVE:
+            RememberRestoredWindowPlacement(hwnd, app.Controller());
+            return 0;
+        case WM_EXITSIZEMOVE:
+            app.Host().imageCache.EndLiveResize();
+            RememberRestoredWindowPlacement(hwnd, app.Controller());
             UpdateSurface(hwnd, app.Host());
             RelayoutCurrentDocument(hwnd, app.Host());
             InvalidateRect(hwnd, nullptr, FALSE);

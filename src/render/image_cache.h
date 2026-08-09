@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -25,6 +26,9 @@ namespace mdviewer {
 class DocumentImageCache {
 public:
     void Clear();
+    void BeginLiveResize();
+    void EndLiveResize();
+    [[nodiscard]] bool IsLiveResize() const { return liveResize_; }
 
     std::pair<float, float> GetImageSize(const std::string& url, const std::filesystem::path& baseDir);
     sk_sp<SkImage> GetImage(
@@ -40,6 +44,8 @@ private:
         sk_sp<SkSVGDOM> svgDom;
         SkSize intrinsicSize = SkSize::Make(0.0f, 0.0f);
         std::map<uint64_t, sk_sp<SkImage>> scaledImages;
+        uint64_t lastScaledImageKey = 0;
+        sk_sp<SkImage> liveResizeImage;
     };
 
     static std::filesystem::path ResolveImagePath(const std::string& url, const std::filesystem::path& baseDir);
@@ -54,6 +60,7 @@ private:
     std::unordered_map<std::string, CachedImageEntry> entries_;
     sk_sp<SkFontMgr> svgFontManager_;
     size_t scaledImageBytes_ = 0;
+    bool liveResize_ = false;
 };
 
 } // namespace mdviewer

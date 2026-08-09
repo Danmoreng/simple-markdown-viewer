@@ -40,7 +40,7 @@ The current implementation already includes:
 - [x] light, sepia, and dark themes
 - [x] runtime document font selection
 - [x] reader zoom in/out
-- [x] persistent config for theme, font, zoom, and recent files
+- [x] persistent config for theme, font, zoom, recent files, and window placement on Windows and Linux
 - [x] Windows and Linux drag-and-drop and native file dialogs
 - [x] Windows live reload when the current file changes
 - [x] a Linux host in-tree and working on the shared controller/render/view stack

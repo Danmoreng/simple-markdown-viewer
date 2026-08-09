@@ -216,6 +216,7 @@ void Render(HWND hwnd, ViewerHostContext& context) {
                 .currentTickCount = GetTickCount64(),
                 .visibleDocumentTop = appState.scrollOffset,
                 .visibleDocumentBottom = appState.scrollOffset + GetViewportHeight(hwnd, context),
+                .freezeImageDimensions = context.imageCache.IsLiveResize(),
                 .scrollbarThumbRect = GetScrollbarThumbRect(hwnd, context),
                 .resolveImage = [&](const std::string& url, float displayWidth, float displayHeight) -> sk_sp<SkImage> {
                     return context.imageCache.GetImage(
@@ -572,9 +573,7 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
     if (!context.controller.Relayout(
             width,
             GetRegularTypeface(context),
-            [&](const DocumentModel& docModel, const std::filesystem::path& preloadBaseDir) {
-                context.imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
-            },
+            {},
             imageSizeProvider)) {
         return;
     }

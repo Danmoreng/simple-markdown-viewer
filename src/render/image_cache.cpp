@@ -70,12 +70,42 @@ void PreloadBlocks(
 void DocumentImageCache::Clear() {
     entries_.clear();
     scaledImageBytes_ = 0;
+    liveResize_ = false;
+}
+
+void DocumentImageCache::BeginLiveResize() {
+    liveResize_ = true;
+    for (auto& [key, entry] : entries_) {
+        (void)key;
+        entry.liveResizeImage.reset();
+        if (entry.lastScaledImageKey != 0) {
+            const auto lastImage = entry.scaledImages.find(entry.lastScaledImageKey);
+            if (lastImage != entry.scaledImages.end()) {
+                entry.liveResizeImage = lastImage->second;
+            }
+        }
+        if (!entry.liveResizeImage && entry.baseImage) {
+            entry.liveResizeImage = entry.baseImage;
+        }
+        if (!entry.liveResizeImage && !entry.scaledImages.empty()) {
+            entry.liveResizeImage = entry.scaledImages.rbegin()->second;
+        }
+    }
+}
+
+void DocumentImageCache::EndLiveResize() {
+    liveResize_ = false;
+    for (auto& [key, entry] : entries_) {
+        (void)key;
+        entry.liveResizeImage.reset();
+    }
 }
 
 void DocumentImageCache::ClearScaledImages() {
     for (auto& [key, entry] : entries_) {
         (void)key;
         entry.scaledImages.clear();
+        entry.lastScaledImageKey = 0;
     }
     scaledImageBytes_ = 0;
 }
@@ -114,6 +144,10 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
         return nullptr;
     }
 
+    if (liveResize_) {
+        return entry->liveResizeImage;
+    }
+
     double safeWidth = displayWidth;
     double safeHeight = displayHeight;
     const double dimensionScale = std::min(
@@ -136,17 +170,23 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
     const int targetWidth = std::max(1, static_cast<int>(std::round(safeWidth)));
     const int targetHeight = std::max(1, static_cast<int>(std::round(safeHeight)));
     if (entry->baseImage && entry->baseImage->width() == targetWidth && entry->baseImage->height() == targetHeight) {
+        entry->lastScaledImageKey = 0;
         return entry->baseImage;
     }
 
     const uint64_t scaledKey = MakeScaledImageKey(static_cast<float>(targetWidth), static_cast<float>(targetHeight));
     auto it = entry->scaledImages.find(scaledKey);
     if (it != entry->scaledImages.end()) {
+        entry->lastScaledImageKey = scaledKey;
         return it->second;
     }
 
     if (entry->svgDom) {
-        return RenderSvg(*entry, targetWidth, targetHeight);
+        auto image = RenderSvg(*entry, targetWidth, targetHeight);
+        if (image) {
+            entry->lastScaledImageKey = scaledKey;
+        }
+        return image;
     }
 
     sk_sp<SkImage> baseImage = entry->baseImage;
@@ -179,6 +219,7 @@ sk_sp<SkImage> DocumentImageCache::GetImage(
             refreshedEntry.scaledImages[scaledKey] = scaledImage;
             scaledImageBytes_ += static_cast<size_t>(byteCount);
         }
+        entry->lastScaledImageKey = scaledKey;
         return scaledImage;
     }
 

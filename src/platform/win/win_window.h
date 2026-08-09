@@ -36,7 +36,14 @@ struct WindowCommandHandlers {
 };
 
 bool RegisterMainWindowClass(HINSTANCE instance, WNDPROC windowProc, int appIconResourceId, const wchar_t* className);
-HWND CreateMainWindow(HINSTANCE instance, const wchar_t* className, const wchar_t* title, int width, int height);
+HWND CreateMainWindow(
+    HINSTANCE instance,
+    const wchar_t* className,
+    const wchar_t* title,
+    int x,
+    int y,
+    int width,
+    int height);
 int RunMessageLoop();
 std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, WinApp& app);
 

@@ -80,7 +80,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Runtime font selection
 - Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
 - Automatic document reload on external file changes while the file is open on Windows
-- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, recent files with opened timestamps, and Linux window placement
+- Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, recent files with opened timestamps, and window placement on Windows and Linux
 - Platform app icons for the Windows executable and Linux window/desktop integration
 
 ## Scope
@@ -199,7 +199,7 @@ Open a file immediately:
 .\build\Release\mdviewer.exe .\README.md
 ```
 
-The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side/width, and recent-file persistence. Linux also stores the last window size and position:
+The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side/width, recent-file persistence, and the last window size and position on Windows and Linux:
 
 - Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
 - Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set

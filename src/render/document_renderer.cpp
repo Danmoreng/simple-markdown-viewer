@@ -737,22 +737,44 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             const float displayH = run.imageHeight;
             const sk_sp<SkImage> image =
                 params.resolveImage ? params.resolveImage(run.imageSource, displayW, displayH) : nullptr;
-            float drawX = currentX;
+            const float renderedWidth = image && params.freezeImageDimensions
+                ? static_cast<float>(image->width())
+                : displayW;
+            const float renderedHeight = image && params.freezeImageDimensions
+                ? static_cast<float>(image->height())
+                : displayH;
+            float layoutX = currentX;
             const float blockW = block.bounds.width();
             if (displayW > blockW * 0.8f) {
-                drawX = block.bounds.left() + (blockW - displayW) * 0.5f;
+                layoutX = block.bounds.left() + (blockW - displayW) * 0.5f;
             }
+            const float layoutY = line.y + (line.height - displayH) / 2.0f;
+            const SkRect imageLayoutRect = SkRect::MakeXYWH(layoutX, layoutY, displayW, displayH);
 
             if (image) {
-                ctx.canvas->drawImageRect(
-                    image,
-                    SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH),
-                    SkSamplingOptions(SkFilterMode::kLinear));
+                const bool imageAlreadyMatchesDisplaySize =
+                    std::abs(renderedWidth - static_cast<float>(image->width())) <= 0.5f &&
+                    std::abs(renderedHeight - static_cast<float>(image->height())) <= 0.5f;
+                if (params.freezeImageDimensions) {
+                    const float frozenX = imageLayoutRect.centerX() - renderedWidth * 0.5f;
+                    const float frozenY = imageLayoutRect.centerY() - renderedHeight * 0.5f;
+                    ctx.canvas->save();
+                    ctx.canvas->clipRect(imageLayoutRect);
+                    ctx.canvas->drawImage(image, frozenX, frozenY);
+                    ctx.canvas->restore();
+                } else if (imageAlreadyMatchesDisplaySize) {
+                    ctx.canvas->drawImage(image, layoutX, layoutY);
+                } else {
+                    ctx.canvas->drawImageRect(
+                        image,
+                        imageLayoutRect,
+                        SkSamplingOptions(SkFilterMode::kLinear));
+                }
             } else {
                 SkPaint placeholderPaint;
                 placeholderPaint.setColor(params.palette.listMarker);
                 placeholderPaint.setStrokeWidth(1.0f);
-                const SkRect rect = SkRect::MakeXYWH(drawX, line.y + (line.height - displayH) / 2.0f, displayW, displayH);
+                const SkRect rect = imageLayoutRect;
                 if (IsRemoteImageSource(run.imageSource)) {
                     SkPaint fillPaint;
                     fillPaint.setAntiAlias(true);
