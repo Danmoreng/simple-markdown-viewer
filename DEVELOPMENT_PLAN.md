@@ -95,8 +95,8 @@ Goal: make link behavior predictable, inspectable, and safer.
 - [x] Reject suspicious or unsupported URL schemes such as `javascript:`, custom app protocols, and shell-like targets instead of passing them to the platform shell.
 - [x] Warn before opening executable local files.
 - [x] Show clear feedback for broken local files and document-section links.
-- [x] Add document/background context menu actions for reload, copy document path, and reveal in file manager.
-- [x] Add link context menu actions for reveal target in file manager when the target is local.
+- [x] Add document/background context menu actions for reload, copy document path, and open in file manager.
+- [x] Add link context menu actions for opening the target in the file manager when the target is local.
 - [x] Add a manual reload command and shortcut.
 - [x] Preserve scroll position after manual or automatic reload when practical.
 - [x] Add remembered scroll position per recent file.

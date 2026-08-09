@@ -76,7 +76,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Mouse text selection and `Ctrl+C` copy
 - In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
-- Native right-click context menu for selection/link actions, reload, document-path copying, and revealing files
+- Native right-click context menu for selection/link actions, reload, document-path copying, and opening files in the file manager
 - Link text remains selectable while links stay clickable
 - Switchable `Light`, `Sepia`, and `Dark` themes
 - Custom client-drawn menu bar
@@ -271,7 +271,7 @@ If the Release application has already been built, use `./package-linux.sh --ski
 - **Links**:
   - `Click`: Open internally (MD/Text) or externally (Web/Other)
   - `Ctrl + Click`: Force open in default system application
-  - `Right Click`: open/copy links and reveal local targets from the native context menu
+  - `Right Click`: open/copy links and open local targets in the file manager from the native context menu
   - Executable local files require confirmation before opening
   - `Hover`: Preview target path in bottom-left overlay
   - `Click and drag`: select link text without opening the link
