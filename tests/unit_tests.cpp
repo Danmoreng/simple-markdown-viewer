@@ -900,6 +900,27 @@ void LayoutSensitiveBehavior() {
             "wide tables should retain natural columns and expose horizontal overflow");
     Require(!wideTable.children.empty() && wideTable.children[0].bounds.width() > wideTable.bounds.width(),
             "table rows should keep their content width behind the clipped viewport");
+    RequireNear(wideTable.fontScale, 1.0f, 0.001f, "interactive tables should never shrink their font to fit");
+
+    const auto printTableLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "| Engine | Checkpoint / KV | Prefill tok/s | TTFT | Effective D2H | ITL | Sampled peak VRAM | Notes |\n"
+            "| - | - | - | - | - | - | - | - |\n"
+            "| gem16 | direct-FP8-NVFP4-checkpoint | 5866.86 | 2792.64 ms | 87.66 | 11.408 ms | 11746 MiB | reproducible-result |\n"),
+        420.0f,
+        typefacePtr,
+        17.0f,
+        nullptr,
+        mdviewer::LayoutOptions{
+            .fitHorizontalOverflow = true,
+            .reserveHorizontalScrollbarSpace = false,
+            .minimumHorizontalFitScale = 0.72f,
+        });
+    const auto& printTable = FirstBlockOfType(printTableLayout, mdviewer::BlockType::Table);
+    Require(printTable.fontScale < 1.0f && printTable.fontScale >= 0.72f,
+            "print tables should shrink only within the configured readability floor");
+    Require(printTable.horizontalContentWidth < wideTable.horizontalContentWidth,
+            "print table fitting should reduce horizontal content width");
 
     mdviewer::AppState renderedTableState;
     renderedTableState.docLayout = wideTableLayout;
@@ -950,6 +971,27 @@ void LayoutSensitiveBehavior() {
     Require(
         overflowingCode.codeContentWidth > overflowingCode.codeViewportWidth,
         "overflowing code should record a horizontal scroll range");
+    RequireNear(overflowingCode.fontScale, 1.0f, 0.001f, "interactive code should never shrink its font to fit");
+
+    const auto printCodeLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "```cpp\n"
+            "const std::string message = \"This deliberately long C++ source line must remain on one visual code line\";\n"
+            "```\n"),
+        320.0f,
+        typefacePtr,
+        17.0f,
+        nullptr,
+        mdviewer::LayoutOptions{
+            .fitHorizontalOverflow = true,
+            .reserveHorizontalScrollbarSpace = false,
+            .minimumHorizontalFitScale = 0.72f,
+        });
+    const auto& printCode = FirstBlockOfType(printCodeLayout, mdviewer::BlockType::CodeBlock);
+    Require(printCode.fontScale < 1.0f && printCode.fontScale >= 0.72f,
+            "print code should shrink only within the configured readability floor");
+    Require(printCode.codeContentWidth < overflowingCode.codeContentWidth,
+            "print code fitting should reduce horizontal content width");
 
     mdviewer::AppState codeScrollState;
     codeScrollState.horizontalScrollbars.push_back(mdviewer::HorizontalScrollbarRegion{

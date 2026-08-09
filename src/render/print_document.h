@@ -23,7 +23,8 @@
 
 namespace mdviewer {
 
-inline constexpr float kPrintFontScale = 0.88f;
+// Tuned so PDF viewers at 100% visually approximate the logical on-screen reader size.
+inline constexpr float kPrintFontScale = 0.60f;
 inline constexpr float kPrintPageMarginTop = 42.0f;
 inline constexpr float kPrintPageMarginBottom = 48.0f;
 inline constexpr float kMinPrintPageAdvance = 72.0f;

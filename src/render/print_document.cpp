@@ -133,7 +133,12 @@ bool PreparePrintDocument(const PrintDocumentRequest& request, PreparedPrintDocu
         request.pageWidth,
         request.layoutTypeface,
         printBaseFontSize,
-        request.imageSizeProvider);
+        request.imageSizeProvider,
+        LayoutOptions{
+            .fitHorizontalOverflow = true,
+            .reserveHorizontalScrollbarSpace = false,
+            .minimumHorizontalFitScale = 0.72f,
+        });
 
     prepared.typefaces = request.typefaces;
     prepared.pages.clear();

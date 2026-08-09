@@ -47,6 +47,7 @@ struct BlockLayout {
     float horizontalViewportWidth = 0.0f;
     bool usesHorizontalScrollOffset = false;
     size_t horizontalScrollOwnerTextStart = 0;
+    float fontScale = 1.0f;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;
@@ -76,6 +77,12 @@ struct DocumentHorizontalInsets {
 
 DocumentHorizontalInsets GetDocumentHorizontalInsets(float viewportWidth);
 
+struct LayoutOptions {
+    bool fitHorizontalOverflow = false;
+    bool reserveHorizontalScrollbarSpace = true;
+    float minimumHorizontalFitScale = 0.72f;
+};
+
 class LayoutEngine {
 public:
     using ImageSizeProvider = std::function<std::pair<float, float>(const std::string& url)>;
@@ -84,7 +91,8 @@ public:
         float width,
         SkTypeface* typeface,
         float baseFontSize,
-        ImageSizeProvider imageSizeProvider = nullptr);
+        ImageSizeProvider imageSizeProvider = nullptr,
+        LayoutOptions options = {});
 };
 
 } // namespace mdviewer

@@ -91,14 +91,22 @@ public:
     std::vector<HeadingOutlineItem> outline;
     SkFont font;
     float baseFontSize;
+    float activeFontScale = 1.0f;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
+    LayoutOptions options;
 
-    LayoutContext(float width, SkTypeface* typeface, float documentBaseFontSize, LayoutEngine::ImageSizeProvider provider)
+    LayoutContext(
+        float width,
+        SkTypeface* typeface,
+        float documentBaseFontSize,
+        LayoutEngine::ImageSizeProvider provider,
+        LayoutOptions layoutOptions)
         : leftMargin(GetDocumentHorizontalInsets(width).left),
           rightMargin(GetDocumentHorizontalInsets(width).right),
           availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)),
           baseFontSize(ClampBaseFontSize(documentBaseFontSize)),
-          imageSizeProvider(provider) {
+          imageSizeProvider(provider),
+          options(layoutOptions) {
         if (typeface) {
             font.setTypeface(sk_ref_sp(typeface));
         }
@@ -125,18 +133,28 @@ public:
             bl.codeLanguage = block.codeLanguage;
             bl.textStart = currentTextOffset;
 
-            float fontSize = GetBlockFontSize(block.type, baseFontSize);
+            float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
+            const float blockLeft = leftMargin + blockIndent;
+            const float blockWidth = std::max(availableWidth - blockIndent, 1.0f);
+            if (block.type == BlockType::CodeBlock && options.fitHorizontalOverflow) {
+                const float codeViewportWidth = std::max(blockWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
+                const float naturalCodeWidth = MeasureInlineRunsWidth(block.inlineRuns, BlockType::CodeBlock);
+                if (naturalCodeWidth > codeViewportWidth + 0.5f) {
+                    bl.fontScale = std::clamp(
+                        codeViewportWidth / naturalCodeWidth,
+                        options.minimumHorizontalFitScale,
+                        1.0f);
+                    activeFontScale = bl.fontScale;
+                }
+            }
 
+            const float fontSize = GetBlockFontSize(block.type, baseFontSize) * activeFontScale;
             font.setSize(fontSize);
             font.setEmbolden(false);
             font.setSkewX(0.0f);
             SkFontMetrics metrics;
             font.getMetrics(&metrics);
-            float lineHeight = metrics.fDescent - metrics.fAscent + metrics.fLeading;
-
-            float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
-            const float blockLeft = leftMargin + blockIndent;
-            const float blockWidth = std::max(availableWidth - blockIndent, 1.0f);
+            const float lineHeight = metrics.fDescent - metrics.fAscent + metrics.fLeading;
 
             if (block.type == BlockType::CodeBlock) {
                 currentY += kCodeBlockOuterMarginY;
@@ -212,6 +230,7 @@ public:
 
             bl.textLength = currentTextOffset - bl.textStart;
             layouts.push_back(std::move(bl));
+            activeFontScale = 1.0f;
             currentY += kBlockSpacing;
         }
     }
@@ -492,7 +511,7 @@ private:
         const BlockType fontBlockType = HasFormatting(formatting, InlineFormatting::Code)
             ? BlockType::CodeBlock
             : blockType;
-        font.setSize(GetBlockFontSize(fontBlockType, baseFontSize));
+        font.setSize(GetBlockFontSize(fontBlockType, baseFontSize) * activeFontScale);
         font.setEmbolden(HasFormatting(formatting, InlineFormatting::Strong));
         font.setSkewX(HasFormatting(formatting, InlineFormatting::Emphasis) ? -0.18f : 0.0f);
     }
@@ -659,8 +678,17 @@ private:
         }
         columnCount = std::max<size_t>(columnCount, 1);
 
-        const std::vector<float> columnWidths = ComputeTableColumnWidths(rows, columnCount, tableWidth);
-        const float tableContentWidth = std::accumulate(columnWidths.begin(), columnWidths.end(), 0.0f);
+        std::vector<float> columnWidths = ComputeTableColumnWidths(rows, columnCount, tableWidth);
+        float tableContentWidth = std::accumulate(columnWidths.begin(), columnWidths.end(), 0.0f);
+        if (options.fitHorizontalOverflow && tableContentWidth > tableWidth + 0.5f) {
+            tableLayout.fontScale = std::clamp(
+                tableWidth / tableContentWidth,
+                options.minimumHorizontalFitScale,
+                1.0f);
+            activeFontScale = tableLayout.fontScale;
+            columnWidths = ComputeTableColumnWidths(rows, columnCount, tableWidth);
+            tableContentWidth = std::accumulate(columnWidths.begin(), columnWidths.end(), 0.0f);
+        }
         const bool horizontallyScrollable = tableContentWidth > tableWidth + 0.5f;
         tableLayout.horizontalContentWidth = tableContentWidth;
         tableLayout.horizontalViewportWidth = tableWidth;
@@ -673,6 +701,7 @@ private:
             rowLayout.textStart = currentTextOffset;
             rowLayout.usesHorizontalScrollOffset = horizontallyScrollable;
             rowLayout.horizontalScrollOwnerTextStart = tableLayout.textStart;
+            rowLayout.fontScale = tableLayout.fontScale;
 
             float rowHeight = 0.0f;
             for (size_t columnIndex = 0; columnIndex < columnCount; ++columnIndex) {
@@ -698,6 +727,7 @@ private:
                 cellLayout.textStart = currentTextOffset;
                 cellLayout.usesHorizontalScrollOffset = horizontallyScrollable;
                 cellLayout.horizontalScrollOwnerTextStart = tableLayout.textStart;
+                cellLayout.fontScale = tableLayout.fontScale;
 
                 const float lineHeight = GetLineHeight(
                     cellType,
@@ -744,10 +774,12 @@ private:
             }
         }
 
-        currentY = rowTop + (horizontallyScrollable ? kHorizontalScrollbarSpace : 0.0f);
+        const bool reserveScrollbarSpace = horizontallyScrollable && options.reserveHorizontalScrollbarSpace;
+        currentY = rowTop + (reserveScrollbarSpace ? kHorizontalScrollbarSpace : 0.0f);
         tableLayout.bounds = SkRect::MakeXYWH(tableLeft, tableTop, tableWidth, currentY - tableTop);
         tableLayout.textLength = currentTextOffset - tableLayout.textStart;
         layouts.push_back(std::move(tableLayout));
+        activeFontScale = 1.0f;
         currentY += kBlockSpacing;
     }
 };
@@ -757,9 +789,10 @@ DocumentLayout LayoutEngine::ComputeLayout(
     float width,
     SkTypeface* typeface,
     float baseFontSize,
-    ImageSizeProvider imageSizeProvider) {
+    ImageSizeProvider imageSizeProvider,
+    LayoutOptions options) {
     DocumentLayout layout;
-    LayoutContext ctx(width, typeface, baseFontSize, imageSizeProvider);
+    LayoutContext ctx(width, typeface, baseFontSize, imageSizeProvider, options);
     ctx.LayoutBlocks(doc.blocks, layout.blocks);
     layout.totalHeight = ctx.currentY + kDocumentBottomPadding;
     layout.plainText = std::move(ctx.plainText);
