@@ -165,13 +165,15 @@ Goal: make the custom-rendered UI safer for everyday and accessibility use.
 
 Goal: support common output workflows without compromising the viewer architecture.
 
-- [ ] Add native print support.
+- [x] Add native print support.
   - [x] Add Windows native print dialog support.
+  - [x] Add Linux GTK print dialog support using the shared paginated renderer.
 - [ ] Add an in-app print preview that uses the shared paginated renderer before opening the native print dialog.
 - [x] Add export to PDF.
 - [ ] Use a print-friendly light palette by default, independent of the active dark theme.
 - [ ] Preserve links in exported PDF if practical.
 - [ ] Handle page breaks for headings, paragraphs, code blocks, tables, and images.
+- [x] Omit interactive horizontal scrollbars from output and shrink wide tables/code blocks within a readability floor before clipping.
 - [ ] Avoid clipping wide tables and long code lines.
 - [ ] Include optional document title and page numbers if implementation cost is reasonable.
 

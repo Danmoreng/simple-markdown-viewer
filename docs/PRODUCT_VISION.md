@@ -50,7 +50,7 @@ The current application already provides:
 - document outline navigation, file history, recent files, link hover previews,
   native file dialogs, drag and drop, themes, runtime font choice, and reader
   zoom;
-- PDF export, plus native print support on Windows;
+- PDF export, plus native print support on Windows and Linux;
 - Windows live reload when the current file changes.
 
 The current baseline is not considered complete. Linux crash hardening, resource
@@ -585,8 +585,8 @@ focused single-window reader UI:
 ### 7.5 Print and Export
 
 Even read-only viewers often need output features. PDF export is implemented.
-Native print is implemented on Windows; Linux and future macOS print integration
-remain platform work.
+Native print is implemented on Windows and Linux; future macOS print integration
+remains platform work.
 
 Desirable features:
 
@@ -596,14 +596,14 @@ Desirable features:
 - Copy selected text as plain text.
 - Copy selected text as Markdown source, optional.
 - Page-break handling for print.
-- Print-friendly treatment of code blocks and tables.
+- Print-friendly treatment of code blocks and tables. Wide blocks currently shrink within a readability floor and then clip without rendering interactive scrollbars.
 - Include document title and page numbers, optional.
 
 Easy-to-miss export issues:
 
 - Dark theme printed with dark background by accident.
-- Wide tables cut off in PDF.
-- Code blocks clipped horizontally.
+- Extremely wide tables still cut off after reaching the print readability floor.
+- Extremely long code lines still clip after reaching the print readability floor.
 - Links not preserved in PDF.
 - Images missing from exported output.
 

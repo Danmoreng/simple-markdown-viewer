@@ -74,6 +74,9 @@ header and `[!IMPORTANT]` alert.
 - [ ] Select a document font, restore the default, and restart to verify persistence.
 - [ ] Zoom with toolbar, keyboard, and Ctrl+wheel; verify reading position is preserved.
 - [ ] Export a document with text, code, and images to PDF and open the result.
+- [ ] Print through the GTK system dialog and verify text, code, and images in the output.
+- [ ] Open menus with F10 and Alt+F/Alt+V/Alt+T; navigate with arrows, Enter, Escape, and recent-file number keys.
+- [ ] Verify menu checkmarks, disabled commands, shortcut labels, the Theme submenu, and recent-file timestamps.
 - [ ] Resize repeatedly and move the window between displays with different scale factors.
 - [ ] Close the app normally and verify no terminal error is printed.
 

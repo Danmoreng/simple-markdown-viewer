@@ -37,7 +37,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - command-line file argument
   - clicking internal file links
 - Save the currently open Markdown document as PDF from `File -> Save as PDF...`
-- Print the currently open Markdown document with the native Windows print dialog from `File -> Print...`
+- Print the currently open Markdown document with the native system print dialog on Windows and Linux from `File -> Print...`
 - Render:
   - paragraphs
   - headings
@@ -218,7 +218,7 @@ cmake --build build --target mdviewer_tests --parallel 2
 ctest --test-dir build --output-on-failure
 ```
 
-For subsequent builds, use `./build.sh --skip-skia`. A build against Skia without its PDF backend can be configured with `./build.sh --disable-pdf`; that build omits the Linux PDF menu command and reports the backend as unavailable through the shared export API.
+For subsequent builds, use `./build.sh --skip-skia`. PDF-enabled Linux Skia builds disable HarfBuzz PDF font subsetting because the pinned subsetter can crash on common system fonts; `--skip-skia` rejects older incompatible Skia output. A build against Skia without its PDF backend can be configured with `./build.sh --disable-pdf`; that build omits the Linux PDF menu command and reports the backend as unavailable through the shared export API.
 
 The Linux release workflow performs a normal build/test pass and a second unit-test pass with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
 
@@ -234,8 +234,8 @@ If the Release application has already been built, use `./package-linux.sh --ski
 
 - `File -> Open...`: open a file
 - `File -> Save as PDF...`: export the currently open Markdown document to PDF
-- `File -> Print...` or `Ctrl+P`: print the currently open Markdown document on Windows
-- `File`: reopen recently opened files on Windows; the newest file appears first with its last-opened date and time
+- `File -> Print...` or `Ctrl+P`: print the currently open Markdown document on Windows or Linux
+- `File`: reopen recently opened files on Windows or Linux; the newest file appears first with its last-opened date and time
 - drag and drop: open a file
 - mouse wheel: scroll
 - `Ctrl` + mouse wheel: zoom document text in and out
@@ -360,7 +360,7 @@ CMakeLists.txt    CMake project definition
 - The app has native Windows and Linux hosts sharing the same document/controller/render/view layers.
 - The menu bar is client-drawn so it can follow the selected theme; shared layout/drawing helpers live in `src/render/menu_renderer.*`.
 - The document zoom affects rendered document typography, not the top menu bar.
-- PDF export uses Skia's PDF backend and the shared document renderer with PDF-specific page margins, page-break handling, and slightly smaller typography than the interactive view.
-- Windows printing uses the native system print dialog and the same paginated rendering path as PDF export. The current Win32/GDI print path does not provide a system-dialog page preview; an in-app print preview is tracked separately.
+- PDF export uses Skia's PDF backend and the shared document renderer with PDF-specific page margins and page-break handling. Export typography is tuned to visually approximate the interactive viewer at 100%. Wide tables and code blocks are reduced locally within a readability limit, then clipped if they still exceed the page; interactive scrollbars are never rendered into output.
+- Windows and Linux printing use native system print dialogs and the same shared paginated renderer as PDF export. The host print paths do not provide an in-app page preview; that remains tracked separately.
 - On Windows, live reload is event-driven via OS file-change notifications rather than polling.
 - Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.
