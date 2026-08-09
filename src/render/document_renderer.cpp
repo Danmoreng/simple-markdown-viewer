@@ -476,11 +476,17 @@ void DrawBlockDecoration(
         }
 
         if (!block.codeLanguage.empty()) {
+            std::string codeLabel = block.codeLanguage;
+            if (block.codeHighlightStatus == syntax::HighlightStatus::TimedOut ||
+                block.codeHighlightStatus == syntax::HighlightStatus::Failed) {
+                codeLabel += " · plain";
+            }
+
             ConfigureDocumentFont(ctx.font, params.typefaces, BlockType::CodeBlock, InlineStyle::Plain, params.baseFontSize);
             ctx.font.setSize(std::max(params.baseFontSize * 0.7f, 10.0f));
 
             SkRect labelBounds;
-            ctx.font.measureText(block.codeLanguage.c_str(), block.codeLanguage.size(), SkTextEncoding::kUTF8, &labelBounds);
+            ctx.font.measureText(codeLabel.c_str(), codeLabel.size(), SkTextEncoding::kUTF8, &labelBounds);
             const float labelPaddingX = 6.0f;
             const float labelHeight = 20.0f;
             const float labelWidth = labelBounds.width() + (labelPaddingX * 2.0f);
@@ -498,7 +504,7 @@ void DrawBlockDecoration(
 
             ctx.paint.setColor(params.palette.codeText);
             ctx.canvas->drawString(
-                block.codeLanguage.c_str(),
+                codeLabel.c_str(),
                 labelRect.left() + labelPaddingX,
                 labelRect.top() + labelHeight - 6.0f,
                 ctx.font,

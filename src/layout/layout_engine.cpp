@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <numeric>
 #include <unordered_map>
+#include <utility>
 
 #include "app/heading_anchor.h"
 #include "render/syntax/tree_sitter_highlighter.h"
@@ -134,12 +135,16 @@ public:
                 currentY += 20.0f;
             } else {
                 const float inlineTop = currentY;
-                const std::vector<InlineRun> highlightedCodeRuns =
-                    block.type == BlockType::CodeBlock
-                        ? syntax::HighlightCodeBlock(block.codeLanguage, block.inlineRuns)
-                        : std::vector<InlineRun>{};
-                const std::vector<InlineRun>& layoutRuns =
-                    block.type == BlockType::CodeBlock ? highlightedCodeRuns : block.inlineRuns;
+                std::vector<InlineRun> highlightedCodeRuns;
+                if (block.type == BlockType::CodeBlock) {
+                    syntax::HighlightResult highlightResult =
+                        syntax::HighlightCodeBlock(block.codeLanguage, block.inlineRuns);
+                    highlightedCodeRuns = std::move(highlightResult.runs);
+                    bl.codeHighlightStatus = highlightResult.status;
+                }
+                const std::vector<InlineRun>& layoutRuns = block.type == BlockType::CodeBlock
+                    ? highlightedCodeRuns
+                    : block.inlineRuns;
                 const float inlineHeight = LayoutRuns(
                     layoutRuns,
                     bl.lines,

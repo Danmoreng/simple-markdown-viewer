@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -19,6 +20,7 @@
 #include "render/image_cache.h"
 #include "render/menu_renderer.h"
 #include "render/pdf_exporter.h"
+#include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
 #include "util/skia_font_utils.h"
 #include "util/utf8.h"
@@ -85,6 +87,14 @@ void WriteText(const fs::path& path, const std::string& text) {
     Require(output.is_open(), "could not open " + path.string() + " for writing");
     output << text;
     Require(output.good(), "could not write " + path.string());
+}
+
+std::string MergeInlineRunText(const std::vector<mdviewer::InlineRun>& runs) {
+    std::string text;
+    for (const auto& run : runs) {
+        text += run.text;
+    }
+    return text;
 }
 
 bool HasBlockType(const mdviewer::DocumentLayout& layout, mdviewer::BlockType type) {
@@ -606,6 +616,49 @@ void MenuLayoutHitTesting() {
     RequireEqual(mdviewer::HitTestDropdownLayout(dropdown, 30.0f, 20.0f, 140.0f), -1, "point outside dropdown should miss");
 }
 
+void SyntaxHighlightingCacheAndFallback() {
+    using mdviewer::syntax::HighlightStatus;
+
+    mdviewer::syntax::ClearHighlightCache();
+    const std::vector<mdviewer::InlineRun> codeRuns = {
+        {mdviewer::InlineStyle::Plain, "class Widget { public: Widget(); };\n", ""},
+    };
+    mdviewer::syntax::HighlightOptions generousOptions;
+    generousOptions.timeBudget = std::chrono::seconds(5);
+
+    const auto first = mdviewer::syntax::HighlightCodeBlock("cpp", codeRuns, generousOptions);
+    Require(
+        first.status == HighlightStatus::Highlighted,
+        "known C++ code should be highlighted (status " +
+            std::to_string(static_cast<int>(first.status)) + ")");
+    RequireEqual(
+        MergeInlineRunText(first.runs),
+        MergeInlineRunText(codeRuns),
+        "syntax highlighting should preserve the exact source text");
+
+    const auto second = mdviewer::syntax::HighlightCodeBlock("c++", codeRuns, generousOptions);
+    Require(second.status == HighlightStatus::Highlighted, "language aliases should reuse highlighted output");
+    const auto cacheStats = mdviewer::syntax::GetHighlightCacheStats();
+    RequireEqual(cacheStats.misses, static_cast<size_t>(1), "first highlight should miss the cache");
+    RequireEqual(cacheStats.hits, static_cast<size_t>(1), "equivalent language alias should hit the cache");
+    RequireEqual(cacheStats.entries, static_cast<size_t>(1), "cache should store one canonical result");
+
+    mdviewer::syntax::HighlightOptions immediateTimeout;
+    immediateTimeout.timeBudget = std::chrono::milliseconds(0);
+    immediateTimeout.useCache = false;
+    const auto timedOut = mdviewer::syntax::HighlightCodeBlock("cpp", codeRuns, immediateTimeout);
+    Require(timedOut.status == HighlightStatus::TimedOut, "expired highlight work should report a timeout");
+    RequireEqual(
+        MergeInlineRunText(timedOut.runs),
+        MergeInlineRunText(codeRuns),
+        "timed-out highlighting should fall back to the original plain code");
+
+    const auto unsupported = mdviewer::syntax::HighlightCodeBlock("not-a-language", codeRuns, generousOptions);
+    Require(
+        unsupported.status == HighlightStatus::UnsupportedLanguage,
+        "unknown language tags should remain an expected plain-text fallback");
+}
+
 void ScrollAnchorPreservesReadingPosition() {
     std::ostringstream source;
     for (int index = 0; index < 30; ++index) {
@@ -690,6 +743,7 @@ int main() {
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
         {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},
+        {"SyntaxHighlightingCacheAndFallback", SyntaxHighlightingCacheAndFallback},
         {"ScrollAnchorPreservesReadingPosition", ScrollAnchorPreservesReadingPosition},
     };
 

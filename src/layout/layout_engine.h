@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include "layout/document_model.h"
+#include "render/syntax/tree_sitter_highlighter.h"
 #include "include/core/SkRect.h"
 
 class SkTypeface;
@@ -36,6 +37,7 @@ struct BlockLayout {
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;
+    syntax::HighlightStatus codeHighlightStatus = syntax::HighlightStatus::NotRequested;
     SkRect bounds;
     size_t textStart = 0;
     size_t textLength = 0;

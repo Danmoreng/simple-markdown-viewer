@@ -174,6 +174,9 @@ Goal: keep the app responsive with large or generated Markdown files.
 - [ ] Consider incremental or cancellable layout for very large documents.
 - [ ] Add graceful feedback for files too large to render comfortably.
 - [ ] Cache render artifacts where useful without producing stale output after reload.
+- [x] Cache syntax-highlighting results by canonical language and exact source content so relayout does not reparse unchanged code blocks.
+- [x] Resolve sorted, overlapping syntax-highlight ranges in one linear pass after sorting.
+- [x] Cancel unusually slow syntax-highlighting work and keep the code block readable as visibly marked plain text.
 - [ ] Add performance fixtures for huge tables, long code blocks, many headings, many links, and many images.
 
 ## Milestone 10: Linux Hardening
