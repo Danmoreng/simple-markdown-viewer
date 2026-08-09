@@ -198,10 +198,12 @@ Currently supported table behavior:
 - Code inside cells.
 - Links inside cells.
 - Images inside cells where the shared image path can resolve them.
+- Bounded useful column widths with per-table horizontal scrolling when the
+  table is wider than the viewport.
+- Safe UTF-8 boundary wrapping for very long unbroken cell content.
 
 Remaining table work:
 
-- Wide-table horizontal scrolling.
 - Sticky table header, optional for long tables.
 - Copy table as plain text, Markdown, or tab-separated text.
 - Clear behavior for malformed tables.

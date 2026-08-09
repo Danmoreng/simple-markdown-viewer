@@ -48,13 +48,21 @@ tar -xzf dist/mdviewer-linux-x64.tar.gz -C /tmp/mdviewer-release-test
 
 ## 3. Manual viewer checks
 
-Use `test-docs/markdown-rendering-fixture.md`, this repository's `README.md`,
-and at least one real document containing relative links and local images.
+Use `test-docs/markdown-rendering-fixture.md`,
+`test-docs/html-and-table-overflow.md`, this repository's `README.md`, and at
+least one real document containing relative links and local images. When
+available, the gem16 README is the reference fixture for the GitHub-style HTML
+header and `[!IMPORTANT]` alert.
 
 - [ ] Start with no file and open a document through `File -> Open...`.
 - [ ] Start with a path argument containing spaces.
 - [ ] Drop a Markdown file onto the window.
 - [ ] Scroll from start to end with the wheel; verify smooth rendering.
+- [ ] Verify aligned HTML paragraphs/headings, requested local image sizes, and labeled placeholders for remote images.
+- [ ] Verify `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` render with distinct accents, titles, and icons.
+- [ ] Shrink the window and verify long unbroken tokens remain inside the document viewport.
+- [ ] Scroll a wide table horizontally using its thumb, Shift+wheel, and touchpad input where available; verify links and selection remain aligned after scrolling.
+- [ ] Scroll a long code block horizontally, move the pointer out of the block, and verify the app remains stable.
 - [ ] Select ASCII and non-ASCII text; drag rapidly and verify selection remains responsive.
 - [ ] Copy selected text with `Ctrl+C` and verify it in another application.
 - [ ] Open search with `Ctrl+F`; test next, previous, backspace, and Escape.
