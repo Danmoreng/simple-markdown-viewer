@@ -10,6 +10,7 @@
 #include "app/heading_anchor.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_file_watcher.h"
+#include "platform/win/win_message_dialog.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
 #include "render/pdf_exporter.h"
@@ -48,6 +49,25 @@ std::filesystem::path NormalizePathForCompare(const std::filesystem::path& path)
 
 bool SamePath(const std::filesystem::path& left, const std::filesystem::path& right) {
     return NormalizePathForCompare(left) == NormalizePathForCompare(right);
+}
+
+std::string PathToUtf8(const std::filesystem::path& path) {
+    const auto utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
+
+void ShowMissingLocalPath(HWND hwnd, const std::filesystem::path& path) {
+    ShowErrorMessage(
+        hwnd,
+        "Link not found",
+        "The linked file or folder could not be found:\n\n" + PathToUtf8(path));
+}
+
+void ShowMissingFragment(HWND hwnd, const std::string& fragment) {
+    ShowErrorMessage(
+        hwnd,
+        "Section not found",
+        "The linked section could not be found in the document:\n\n#" + fragment);
 }
 
 bool ScrollToFragment(HWND hwnd, ViewerHostContext& context, const std::string& fragment) {
@@ -533,11 +553,18 @@ void HandleLinkClick(HWND hwnd, ViewerHostContext& context, const std::string& u
 
     const auto target = context.controller.ResolveLinkTarget(url, forceExternal);
     switch (target.kind) {
+        case LinkTargetKind::MissingLocalPath:
+            ShowMissingLocalPath(hwnd, target.path);
+            break;
         case LinkTargetKind::InternalDocument:
             if (SamePath(target.path, State(context).currentFilePath)) {
-                ScrollToFragment(hwnd, context, target.fragment);
+                if (!target.fragment.empty() && !ScrollToFragment(hwnd, context, target.fragment)) {
+                    ShowMissingFragment(hwnd, target.fragment);
+                }
             } else if (LoadFile(hwnd, context, target.path)) {
-                ScrollToFragment(hwnd, context, target.fragment);
+                if (!target.fragment.empty() && !ScrollToFragment(hwnd, context, target.fragment)) {
+                    ShowMissingFragment(hwnd, target.fragment);
+                }
             }
             break;
         case LinkTargetKind::ExternalUrl:

@@ -247,6 +247,7 @@ if(WIN32)
         src/platform/win/win_interaction.cpp
         src/platform/win/win_main.cpp
         src/platform/win/win_menu.cpp
+        src/platform/win/win_message_dialog.cpp
         src/platform/win/win_context_menu.cpp
         src/platform/win/win_shell.cpp
         src/platform/win/win_surface.cpp
@@ -263,6 +264,7 @@ elseif(UNIX AND NOT APPLE)
         src/platform/linux/linux_interaction.cpp
         src/platform/linux/linux_main.cpp
         src/platform/linux/linux_menu.cpp
+        src/platform/linux/linux_message_dialog.cpp
         src/platform/linux/linux_print.cpp
         src/platform/linux/linux_context_menu.cpp
         src/platform/linux/linux_shell.cpp

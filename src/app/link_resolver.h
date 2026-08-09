@@ -7,6 +7,7 @@ namespace mdviewer {
 
 enum class LinkTargetKind {
     Invalid,
+    MissingLocalPath,
     InternalDocument,
     ExternalUrl,
     ExternalPath

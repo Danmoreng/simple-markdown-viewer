@@ -94,7 +94,7 @@ Goal: make link behavior predictable, inspectable, and safer.
 
 - [x] Reject suspicious or unsupported URL schemes such as `javascript:`, custom app protocols, and shell-like targets instead of passing them to the platform shell.
 - [ ] Warn before opening executable local files or clearly external local paths.
-- [ ] Show clear feedback for broken local links.
+- [x] Show clear feedback for broken local files and document-section links.
 - [ ] Add document/background context menu actions for reload, copy document path, and reveal in file manager.
 - [ ] Add link context menu actions for reveal target in file manager when the target is local.
 - [ ] Add a manual reload command and shortcut.

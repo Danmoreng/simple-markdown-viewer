@@ -353,7 +353,16 @@ void LinkResolution() {
     Require(target.kind == mdviewer::LinkTargetKind::InternalDocument, "extensionless known text file should open internally");
 
     target = mdviewer::ResolveLinkTarget(current, "missing.md", false);
-    Require(target.kind == mdviewer::LinkTargetKind::Invalid, "missing file should be invalid");
+    Require(target.kind == mdviewer::LinkTargetKind::MissingLocalPath, "missing local file should be reported distinctly");
+    RequireEqual(target.path.lexically_normal(), (current.parent_path() / "missing.md").lexically_normal(),
+                 "missing local file should preserve the document-relative target path");
+
+    const auto missingFileUtf8 = (root / "missing file.md").generic_u8string();
+    target = mdviewer::ResolveLinkTarget(
+        current,
+        "file://" + std::string(missingFileUtf8.begin(), missingFileUtf8.end()),
+        false);
+    Require(target.kind == mdviewer::LinkTargetKind::MissingLocalPath, "missing file URL should be reported distinctly");
 
     target = mdviewer::ResolveLinkTarget(current, "https://example.com/a%20b#frag", false);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalUrl, "https link should open externally");
@@ -361,6 +370,9 @@ void LinkResolution() {
 
     target = mdviewer::ResolveLinkTarget(current, "javascript:alert(1)", false);
     Require(target.kind == mdviewer::LinkTargetKind::Invalid, "unsafe unsupported scheme should be invalid");
+
+    target = mdviewer::ResolveLinkTarget(current, "custom-app:open", false);
+    Require(target.kind == mdviewer::LinkTargetKind::Invalid, "custom URL scheme should remain invalid rather than looking like a missing file");
 
     target = mdviewer::ResolveLinkTarget(current, binary.string(), false);
     Require(target.kind == mdviewer::LinkTargetKind::ExternalPath, "existing binary path should open as external path");

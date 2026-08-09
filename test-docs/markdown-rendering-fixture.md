@@ -34,7 +34,9 @@ Use these links to verify heading fragment navigation:
 [Cyrillic uppercase heading](#привет-мир),
 [emoji-stripped heading](#emoji-heading),
 [punctuation heading](#c-c),
-[duplicate heading](#duplicate-heading-1).
+[duplicate heading](#duplicate-heading-1),
+[missing local file](missing-document.md),
+[missing section](#this-section-does-not-exist).
 
 ### 日本語
 

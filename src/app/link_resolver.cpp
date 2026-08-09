@@ -1,6 +1,7 @@
 #include "app/link_resolver.h"
 
 #include <array>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 
@@ -51,6 +52,30 @@ bool ShouldOpenInternally(const std::filesystem::path& path, bool forceExternal)
     return ProbeFileIsText(path);
 }
 
+bool HasUnsupportedScheme(const std::string& path) {
+    const size_t colon = path.find(':');
+    if (colon == std::string::npos) {
+        return false;
+    }
+
+#ifdef _WIN32
+    if (colon == 1 && std::isalpha(static_cast<unsigned char>(path[0]))) {
+        return false;
+    }
+#endif
+
+    if (colon == 0 || !std::isalpha(static_cast<unsigned char>(path[0]))) {
+        return false;
+    }
+    for (size_t index = 1; index < colon; ++index) {
+        const auto ch = static_cast<unsigned char>(path[index]);
+        if (!std::isalnum(ch) && ch != '+' && ch != '-' && ch != '.') {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 LinkTarget ResolveLinkTarget(
@@ -91,6 +116,9 @@ LinkTarget ResolveLinkTarget(
         }
 
         std::filesystem::path targetPath(localPath);
+        if (!std::filesystem::exists(targetPath)) {
+            return {LinkTargetKind::MissingLocalPath, {}, targetPath, fragment};
+        }
         if (ShouldOpenInternally(targetPath, forceExternal)) {
             return {LinkTargetKind::InternalDocument, {}, targetPath, fragment};
         }
@@ -101,13 +129,18 @@ LinkTarget ResolveLinkTarget(
         return {LinkTargetKind::InternalDocument, {}, currentFilePath, fragment};
     }
 
-    std::filesystem::path targetPath = currentFilePath.parent_path() / UrlDecode(pathPart);
+    if (HasUnsupportedScheme(pathPart)) {
+        return {};
+    }
+
+    const std::filesystem::path documentRelativePath = currentFilePath.parent_path() / UrlDecode(pathPart);
+    std::filesystem::path targetPath = documentRelativePath;
     if (!std::filesystem::exists(targetPath)) {
         targetPath = std::filesystem::path(UrlDecode(pathPart));
     }
 
     if (!std::filesystem::exists(targetPath)) {
-        return {};
+        return {LinkTargetKind::MissingLocalPath, {}, documentRelativePath, fragment};
     }
 
     if (ShouldOpenInternally(targetPath, forceExternal)) {
