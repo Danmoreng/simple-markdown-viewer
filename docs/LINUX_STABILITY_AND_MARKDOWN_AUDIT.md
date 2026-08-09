@@ -237,7 +237,7 @@ as muted source display rather than silently triggering external work.
 After stability work and the inline-model correction:
 
 - footnotes with reference/back-reference navigation;
-- GitHub alerts (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`);
+- completed GitHub alerts (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`);
 - front matter recognition;
 - `.mdown` and `.mkd` extensions;
 - remote images behind an explicit safe policy;
@@ -257,9 +257,9 @@ explicit repository context.
    broader content-complexity thresholds remain.
 6. Add minimized crash fixtures and parser/layout fuzz or property tests.
 7. Completed: correct Markdown normalization, nested inline semantics, and soft/hard breaks.
-8. Implement the safe HTML allowlist.
-9. Code-block overflow is complete; footnotes, alerts, front matter, table
-   overflow, and long-token handling remain.
+8. Completed: implement the first safe HTML allowlist.
+9. Completed: code/table overflow, long-token handling, and GitHub alerts;
+   footnotes and front matter remain.
 
 ## Suggested Linux Crash Capture
 

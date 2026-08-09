@@ -181,8 +181,8 @@ Currently supported GFM features:
 - Fenced code language tags.
 - Heading anchors.
 
-Footnotes and GitHub alerts remain planned compatibility additions rather than
-current features.
+GitHub alerts are supported for `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and
+`CAUTION`. Footnotes remain a planned compatibility addition.
 
 Task list checkboxes should be visibly read-only. Users should not think they can toggle them unless editing is intentionally supported elsewhere.
 
@@ -438,11 +438,13 @@ Examples:
 - GitHub alerts such as `[!NOTE]`, `[!TIP]`, `[!WARNING]`.
 - Wiki links like `[[Page Name]]`.
 
-These do not all need full support, but the viewer should handle them gracefully. GitHub-style alerts are particularly worth considering because they are increasingly common in README and documentation files.
+These do not all need full support, but the viewer should handle them gracefully.
+GitHub-style alerts are rendered natively with a colored accent, title, and icon.
 
 Repository-context expansion for usernames, issue numbers, or commit hashes is
 not currently planned because the viewer has no repository or network identity
-context. GitHub alerts are a planned document-local feature.
+context. GitHub alerts remain entirely document-local and require no repository
+or network context.
 
 ## 6. Document Navigation Features
 
@@ -921,7 +923,7 @@ code. The most important remaining quality work is:
    scrolling, and safely wrap long unbroken tokens.
 4. Completed for the common GitHub header pattern: implement a strict native
    HTML subset for aligned paragraphs/headings, links, images, and line breaks.
-5. Add front matter, footnotes, and GitHub alerts.
+5. GitHub alerts are complete; add front matter and footnotes.
 6. Treat math and diagrams as optional enhancements with source fallback.
 
 ## 16. Highest-Value Usability Perks
@@ -1026,7 +1028,7 @@ grouped into three horizons:
 ### Next
 
 - Additional safe HTML extensions where real documents justify them.
-- Front matter, footnotes, and GitHub alerts.
+- Front matter and footnotes.
 - Table copy fidelity, search, keyboard, and accessibility improvements.
 - Cross-platform reload, print, and error-state polish.
 

@@ -36,6 +36,7 @@ struct BlockLayout {
     BlockType type;
     TextAlign align = TextAlign::Default;
     TaskListState taskListState = TaskListState::None;
+    AlertKind alertKind = AlertKind::None;
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;

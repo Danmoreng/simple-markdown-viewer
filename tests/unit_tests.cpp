@@ -100,6 +100,14 @@ std::string MergeInlineRunText(const std::vector<mdviewer::InlineRun>& runs) {
     return text;
 }
 
+std::string MergeBlockText(const mdviewer::Block& block) {
+    std::string text = MergeInlineRunText(block.inlineRuns);
+    for (const auto& child : block.children) {
+        text += MergeBlockText(child);
+    }
+    return text;
+}
+
 bool HasBlockType(const mdviewer::DocumentLayout& layout, mdviewer::BlockType type) {
     return std::any_of(layout.blocks.begin(), layout.blocks.end(), [type](const mdviewer::BlockLayout& block) {
         return block.type == type;
@@ -744,6 +752,68 @@ void SafeHtmlSubset() {
     Require(layout.blocks[2].lines.size() >= 2, "HTML br should force a second rendered line");
 }
 
+void GithubAlerts() {
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
+        "> [!NOTE]\n> Note body.\n\n"
+        "> [!TIP]\n> Tip body.\n\n"
+        "> [!IMPORTANT]\n> Important body.\n\n"
+        "> [!WARNING]\n> Warning body.\n\n"
+        "> [!CAUTION]\n> Caution body.\n\n"
+        "> Ordinary quotation.\n");
+    const std::vector<mdviewer::AlertKind> expected = {
+        mdviewer::AlertKind::Note,
+        mdviewer::AlertKind::Tip,
+        mdviewer::AlertKind::Important,
+        mdviewer::AlertKind::Warning,
+        mdviewer::AlertKind::Caution,
+    };
+    RequireEqual(document.blocks.size(), static_cast<size_t>(6), "five alerts and one ordinary quote should remain separate blocks");
+    for (size_t index = 0; index < expected.size(); ++index) {
+        const auto& block = document.blocks[index];
+        Require(block.type == mdviewer::BlockType::Blockquote, "GitHub alert should retain blockquote structure");
+        Require(block.alertKind == expected[index], "GitHub alert marker should map to its native alert kind");
+        const std::string text = MergeBlockText(block);
+        Require(text.find("[!") == std::string::npos, "visual alert marker should be removed from document content");
+        Require(text.find("body.") != std::string::npos, "alert body should remain intact");
+    }
+    Require(document.blocks.back().alertKind == mdviewer::AlertKind::None,
+            "ordinary blockquotes should keep ordinary blockquote styling");
+
+    const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    const auto layout = mdviewer::LayoutEngine::ComputeLayout(document, 680.0f, typeface.get(), 17.0f);
+    RequireEqual(layout.blocks.size(), document.blocks.size(), "every alert should produce a layout block");
+    Require(layout.blocks[2].alertKind == mdviewer::AlertKind::Important,
+            "important styling should survive into the renderer model");
+    Require(!layout.blocks[2].children.empty(), "important alert should retain its content layout");
+    Require(layout.blocks[2].children.front().bounds.top() > layout.blocks[2].bounds.top() + 16.0f,
+            "alert layout should reserve a title row for icon and label");
+
+    mdviewer::AppState renderState;
+    renderState.docLayout = layout;
+    renderState.outlineCollapsed = true;
+    const int height = static_cast<int>(std::ceil(layout.totalHeight + 20.0f));
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(680, height));
+    Require(surface != nullptr, "alert rendering regression should create a raster surface");
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = surface->getCanvas(),
+        .appState = &renderState,
+        .palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark),
+        .typefaces = mdviewer::DocumentTypefaceSet{
+            .fontMgr = fontMgr.get(),
+            .regular = typeface.get(),
+            .bold = typeface.get(),
+            .heading = typeface.get(),
+            .code = typeface.get(),
+        },
+        .baseFontSize = 17.0f,
+        .viewportHeight = static_cast<float>(height),
+        .surfaceWidth = 680.0f,
+        .surfaceHeight = static_cast<float>(height),
+        .visibleDocumentBottom = layout.totalHeight,
+    });
+}
+
 void LayoutSensitiveBehavior() {
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(
         "# Title\n\n"
@@ -1170,6 +1240,7 @@ int main() {
         {"DocumentSizeLimit", DocumentSizeLimit},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"SafeHtmlSubset", SafeHtmlSubset},
+        {"GithubAlerts", GithubAlerts},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
         {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},

@@ -40,6 +40,7 @@ constexpr float kTableCellPaddingY = 8.0f;
 constexpr float kMinTableColumnWidth = 80.0f;
 constexpr float kMaxTableColumnWidth = 420.0f;
 constexpr float kHorizontalScrollbarSpace = 12.0f;
+constexpr float kAlertTitleGap = 4.0f;
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
@@ -105,7 +106,11 @@ public:
         }
     }
 
-    void LayoutBlocks(const std::vector<Block>& blocks, std::vector<BlockLayout>& layouts, float indent = 0.0f) {
+    void LayoutBlocks(
+        const std::vector<Block>& blocks,
+        std::vector<BlockLayout>& layouts,
+        float indent = 0.0f,
+        AlertKind inheritedAlertKind = AlertKind::None) {
         for (const auto& block : blocks) {
             if (block.type == BlockType::Table) {
                 LayoutTable(block, layouts, indent);
@@ -116,6 +121,7 @@ public:
             bl.type = block.type;
             bl.align = block.align;
             bl.taskListState = block.taskListState;
+            bl.alertKind = block.alertKind != AlertKind::None ? block.alertKind : inheritedAlertKind;
             bl.orderedListStart = block.orderedListStart;
             bl.orderedListDelimiter = block.orderedListDelimiter;
             bl.codeLanguage = block.codeLanguage;
@@ -179,6 +185,9 @@ public:
                     block.type == BlockType::CodeBlock,
                     &laidOutContentWidth);
                 currentY = inlineTop + inlineHeight;
+                if (block.type == BlockType::Blockquote && block.alertKind != AlertKind::None) {
+                    currentY += lineHeight + kAlertTitleGap;
+                }
                 if (block.type == BlockType::CodeBlock) {
                     bl.codeContentWidth = laidOutContentWidth;
                     bl.codeViewportWidth = contentWidth;
@@ -189,7 +198,7 @@ public:
                 }
 
                 if (!block.children.empty()) {
-                    LayoutBlocks(block.children, bl.children, blockIndent + 20.0f);
+                    LayoutBlocks(block.children, bl.children, blockIndent + 20.0f, bl.alertKind);
                 }
             }
 

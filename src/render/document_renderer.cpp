@@ -18,6 +18,7 @@
 #include "include/core/SkData.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
 #include "include/core/SkSamplingOptions.h"
 #pragma warning(pop)
 
@@ -35,6 +36,96 @@ constexpr float kListMarkerGap = 16.0f;
 constexpr float kOrderedListMarkerTextGap = 10.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableBorderWidth = 1.0f;
+
+const char* GetAlertTitle(AlertKind kind) {
+    switch (kind) {
+        case AlertKind::Note: return "Note";
+        case AlertKind::Tip: return "Tip";
+        case AlertKind::Important: return "Important";
+        case AlertKind::Warning: return "Warning";
+        case AlertKind::Caution: return "Caution";
+        case AlertKind::None:
+        default: return "";
+    }
+}
+
+SkColor GetAlertColor(AlertKind kind, const ThemePalette& palette) {
+    const int backgroundBrightness =
+        static_cast<int>(SkColorGetR(palette.windowBackground)) +
+        static_cast<int>(SkColorGetG(palette.windowBackground)) +
+        static_cast<int>(SkColorGetB(palette.windowBackground));
+    const bool dark = backgroundBrightness < (128 * 3);
+    switch (kind) {
+        case AlertKind::Note: return dark ? SkColorSetRGB(68, 147, 248) : SkColorSetRGB(9, 105, 218);
+        case AlertKind::Tip: return dark ? SkColorSetRGB(63, 185, 80) : SkColorSetRGB(26, 127, 55);
+        case AlertKind::Important: return dark ? SkColorSetRGB(171, 125, 248) : SkColorSetRGB(130, 80, 223);
+        case AlertKind::Warning: return dark ? SkColorSetRGB(210, 153, 34) : SkColorSetRGB(154, 103, 0);
+        case AlertKind::Caution: return dark ? SkColorSetRGB(248, 81, 73) : SkColorSetRGB(209, 36, 47);
+        case AlertKind::None:
+        default: return palette.blockquoteAccent;
+    }
+}
+
+void DrawAlertExclamation(SkCanvas* canvas, float centerX, float top, SkPaint& paint) {
+    paint.setStrokeWidth(1.8f);
+    canvas->drawLine(centerX, top, centerX, top + 5.0f, paint);
+    paint.setStyle(SkPaint::kFill_Style);
+    canvas->drawCircle(centerX, top + 8.0f, 1.1f, paint);
+}
+
+void DrawAlertIcon(SkCanvas* canvas, AlertKind kind, float x, float y, float size, SkColor color) {
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(color);
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(1.7f);
+    const float centerX = x + (size * 0.5f);
+    const float centerY = y + (size * 0.5f);
+
+    switch (kind) {
+        case AlertKind::Note:
+            canvas->drawCircle(centerX, centerY, size * 0.42f, paint);
+            canvas->drawLine(centerX, y + 7.0f, centerX, y + 12.0f, paint);
+            paint.setStyle(SkPaint::kFill_Style);
+            canvas->drawCircle(centerX, y + 4.5f, 1.1f, paint);
+            break;
+        case AlertKind::Tip:
+            canvas->drawCircle(centerX, y + 6.5f, 4.7f, paint);
+            canvas->drawLine(x + 6.0f, y + 11.0f, x + 6.0f, y + 13.0f, paint);
+            canvas->drawLine(x + 10.0f, y + 11.0f, x + 10.0f, y + 13.0f, paint);
+            canvas->drawLine(x + 6.0f, y + 13.5f, x + 10.0f, y + 13.5f, paint);
+            break;
+        case AlertKind::Important: {
+            const SkRect bubble = SkRect::MakeXYWH(x + 1.0f, y + 1.5f, size - 2.0f, size - 5.0f);
+            canvas->drawRoundRect(bubble, 2.0f, 2.0f, paint);
+            canvas->drawLine(x + 5.0f, bubble.bottom(), x + 4.0f, y + size - 1.0f, paint);
+            canvas->drawLine(x + 4.0f, y + size - 1.0f, x + 8.0f, bubble.bottom(), paint);
+            DrawAlertExclamation(canvas, centerX, y + 4.0f, paint);
+            break;
+        }
+        case AlertKind::Warning:
+            canvas->drawLine(centerX, y + 1.0f, x + size - 1.0f, y + size - 1.0f, paint);
+            canvas->drawLine(x + size - 1.0f, y + size - 1.0f, x + 1.0f, y + size - 1.0f, paint);
+            canvas->drawLine(x + 1.0f, y + size - 1.0f, centerX, y + 1.0f, paint);
+            DrawAlertExclamation(canvas, centerX, y + 5.0f, paint);
+            break;
+        case AlertKind::Caution: {
+            const float inset = size * 0.28f;
+            const SkPoint points[] = {
+                {x + inset, y}, {x + size - inset, y}, {x + size, y + inset},
+                {x + size, y + size - inset}, {x + size - inset, y + size},
+                {x + inset, y + size}, {x, y + size - inset}, {x, y + inset},
+            };
+            for (size_t index = 0; index < 8; ++index) {
+                canvas->drawLine(points[index], points[(index + 1) % 8], paint);
+            }
+            DrawAlertExclamation(canvas, centerX, y + 4.0f, paint);
+            break;
+        }
+        case AlertKind::None:
+            break;
+    }
+}
 
 bool IsRemoteImageSource(std::string_view source) {
     return source.starts_with("https://") || source.starts_with("http://");
@@ -524,9 +615,10 @@ void DrawBlockDecoration(
     }
 
     if (block.type == BlockType::Blockquote) {
+        const SkColor accentColor = GetAlertColor(block.alertKind, params.palette);
         SkPaint accentPaint;
         accentPaint.setAntiAlias(true);
-        accentPaint.setColor(params.palette.blockquoteAccent);
+        accentPaint.setColor(accentColor);
         ctx.canvas->drawRoundRect(
             SkRect::MakeXYWH(
                 block.bounds.left(),
@@ -536,6 +628,27 @@ void DrawBlockDecoration(
             2.0f,
             2.0f,
             accentPaint);
+        if (block.alertKind != AlertKind::None) {
+            const float iconSize = 16.0f;
+            const float titleLeft = block.bounds.left() + kBlockquoteTextInset;
+            DrawAlertIcon(ctx.canvas, block.alertKind, titleLeft, block.bounds.top() + 1.0f, iconSize, accentColor);
+
+            ConfigureDocumentFont(
+                ctx.font,
+                params.typefaces,
+                BlockType::Paragraph,
+                InlineFormatting::Strong,
+                params.baseFontSize);
+            ctx.font.setSize(std::max(params.baseFontSize * 0.84f, 12.0f));
+            ctx.paint.setColor(accentColor);
+            const char* title = GetAlertTitle(block.alertKind);
+            ctx.canvas->drawString(
+                title,
+                titleLeft + iconSize + 7.0f,
+                block.bounds.top() + ctx.font.getSize() + 1.0f,
+                ctx.font,
+                ctx.paint);
+        }
         return;
     }
 

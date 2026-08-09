@@ -116,7 +116,7 @@ Goal: improve fidelity for real-world documentation without turning the app into
 - [ ] Extend the safe subset where useful with `<kbd>`, `<sub>`, `<sup>`, `<details>`, and `<summary>`.
 - [x] Show unsupported or unsafe HTML such as scripts, event handlers, iframes, arbitrary attributes, and external embeds as source without executing it.
 - [ ] Add footnote rendering and reference/back-reference navigation if the parser support is sufficient.
-- [ ] Consider GitHub-style alerts/admonitions such as `[!NOTE]`, `[!TIP]`, and `[!WARNING]`.
+- [x] Render GitHub-style `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and `[!CAUTION]` alerts with native colors, titles, and icons.
 - [ ] Expand recognized Markdown-related extensions to include `.mdown`, `.mkd`, and possibly `.mdx` as a partial/fallback mode.
 
 ## Milestone 5: Tables, Images, and Copy Fidelity

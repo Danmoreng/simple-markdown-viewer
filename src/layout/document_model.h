@@ -94,10 +94,20 @@ struct InlineRun {
     float imageRequestedHeight = 0.0f;
 };
 
+enum class AlertKind {
+    None,
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+};
+
 struct Block {
     BlockType type;
     TextAlign align = TextAlign::Default;
     TaskListState taskListState = TaskListState::None;
+    AlertKind alertKind = AlertKind::None;
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;

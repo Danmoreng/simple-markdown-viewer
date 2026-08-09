@@ -16,6 +16,23 @@
 
 The remote badge images above are deliberately not downloaded. They should appear as compact labeled placeholders, and the linked badge remains clickable.
 
+## GitHub alerts
+
+> [!NOTE]
+> Useful context that readers should notice.
+
+> [!TIP]
+> A practical recommendation.
+
+> [!IMPORTANT]
+> Essential information required for successful use.
+
+> [!WARNING]
+> Something requires attention before proceeding.
+
+> [!CAUTION]
+> A potentially harmful consequence deserves special care.
+
 ## Wide table
 
 Shrink the window until this table gets its own horizontal scrollbar. Columns should keep a useful width and cell text may wrap within a bounded column.

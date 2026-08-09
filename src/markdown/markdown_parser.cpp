@@ -581,6 +581,61 @@ static void ExpandSafeHtmlBlocks(std::vector<Block>& blocks) {
     }
 }
 
+static AlertKind AlertKindFromMarker(std::string_view marker) {
+    const std::string normalized = LowerAscii(marker);
+    if (normalized == "[!note]") return AlertKind::Note;
+    if (normalized == "[!tip]") return AlertKind::Tip;
+    if (normalized == "[!important]") return AlertKind::Important;
+    if (normalized == "[!warning]") return AlertKind::Warning;
+    if (normalized == "[!caution]") return AlertKind::Caution;
+    return AlertKind::None;
+}
+
+static AlertKind RemoveAlertMarker(Block& paragraph) {
+    if (paragraph.type != BlockType::Paragraph || paragraph.inlineRuns.empty() ||
+        paragraph.inlineRuns.front().kind != InlineKind::Text) {
+        return AlertKind::None;
+    }
+
+    std::string marker = paragraph.inlineRuns.front().text;
+    marker.erase(marker.begin(), std::find_if(marker.begin(), marker.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    marker.erase(std::find_if(marker.rbegin(), marker.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), marker.end());
+    const AlertKind kind = AlertKindFromMarker(marker);
+    if (kind == AlertKind::None) {
+        return AlertKind::None;
+    }
+
+    paragraph.inlineRuns.erase(paragraph.inlineRuns.begin());
+    if (!paragraph.inlineRuns.empty() &&
+        (paragraph.inlineRuns.front().kind == InlineKind::SoftBreak ||
+         paragraph.inlineRuns.front().kind == InlineKind::HardBreak)) {
+        paragraph.inlineRuns.erase(paragraph.inlineRuns.begin());
+    }
+    return kind;
+}
+
+static void ExpandGithubAlerts(std::vector<Block>& blocks) {
+    for (auto& block : blocks) {
+        if (!block.children.empty()) {
+            ExpandGithubAlerts(block.children);
+        }
+        if (block.type != BlockType::Blockquote || block.children.empty()) {
+            continue;
+        }
+
+        block.alertKind = RemoveAlertMarker(block.children.front());
+        if (block.alertKind != AlertKind::None &&
+            block.children.front().inlineRuns.empty() &&
+            block.children.front().children.empty()) {
+            block.children.erase(block.children.begin());
+        }
+    }
+}
+
 static int LeaveSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     (void)type;
     (void)detail;
@@ -716,6 +771,7 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
     }
 
     ExpandSafeHtmlBlocks(ctx.doc.blocks);
+    ExpandGithubAlerts(ctx.doc.blocks);
     return std::move(ctx.doc);
 }
 

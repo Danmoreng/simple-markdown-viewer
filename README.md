@@ -50,6 +50,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - combinable emphasis, strong text, strikethrough, inline code, and links
   - CommonMark soft breaks as flowing whitespace and explicit hard breaks as visible line breaks
   - a browser-free HTML allowlist for GitHub-style centered paragraphs/headings, links, local images, and `<br>`; unsupported or unsafe HTML remains visible as source
+  - GitHub-style note, tip, important, warning, and caution alerts with native colors and icons
   - decoded Markdown entities
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size; SVG HTML `<foreignObject>` content is not supported
 - Navigation:
