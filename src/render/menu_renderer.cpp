@@ -112,9 +112,19 @@ float MeasureDropdownWidth(const std::vector<DropdownItem>& items, SkTypeface* t
         if (item.isSeparator) {
             continue;
         }
-        SkRect bounds;
-        menuFont.measureText(item.label.c_str(), item.label.size(), SkTextEncoding::kUTF8, &bounds);
-        maxWidth = std::max(maxWidth, bounds.width() + 40.0f);
+        SkRect labelBounds;
+        SkRect shortcutBounds;
+        menuFont.measureText(item.label.c_str(), item.label.size(), SkTextEncoding::kUTF8, &labelBounds);
+        if (!item.shortcut.empty()) {
+            menuFont.measureText(
+                item.shortcut.c_str(),
+                item.shortcut.size(),
+                SkTextEncoding::kUTF8,
+                &shortcutBounds);
+        }
+        const float shortcutSpace = item.shortcut.empty() ? 0.0f : shortcutBounds.width() + 28.0f;
+        const float submenuSpace = item.hasSubmenu ? 18.0f : 0.0f;
+        maxWidth = std::max(maxWidth, labelBounds.width() + shortcutSpace + submenuSpace + 58.0f);
     }
 
     return maxWidth;
@@ -260,18 +270,59 @@ void DrawDropdown(
             continue;
         }
 
-        const bool isHighlighted = (static_cast<int>(i) == hoveredItemIndex);
+        const bool isHighlighted = items[i].enabled && static_cast<int>(i) == hoveredItemIndex;
         if (isHighlighted) {
             SkPaint hp;
             hp.setColor(palette.menuSelectedBackground);
             canvas.drawRect(SkRect::MakeXYWH(x + 2, itemY + 2, maxWidth - 4, itemHeight - 4), hp);
         }
 
+        const SkColor textColor = !items[i].enabled
+            ? palette.menuDisabledText
+            : (isHighlighted ? palette.menuSelectedText : palette.menuText);
         SkPaint tp;
         tp.setAntiAlias(true);
-        tp.setColor(isHighlighted ? palette.menuSelectedText : palette.menuText);
-        canvas.drawSimpleText(items[i].label.c_str(), items[i].label.size(), SkTextEncoding::kUTF8,
-                             x + 10, itemY + textCenterOff, menuFont, tp);
+        tp.setColor(textColor);
+
+        if (items[i].checked) {
+            SkPaint checkPaint;
+            checkPaint.setAntiAlias(true);
+            checkPaint.setColor(textColor);
+            checkPaint.setStyle(SkPaint::kStroke_Style);
+            checkPaint.setStrokeWidth(2.0f);
+            SkPathBuilder checkPath;
+            checkPath.moveTo(x + 9.0f, itemY + 15.0f);
+            checkPath.lineTo(x + 13.0f, itemY + 19.0f);
+            checkPath.lineTo(x + 20.0f, itemY + 10.0f);
+            canvas.drawPath(checkPath.detach(), checkPaint);
+        }
+
+        canvas.drawSimpleText(
+            items[i].label.c_str(),
+            items[i].label.size(),
+            SkTextEncoding::kUTF8,
+            x + 28.0f,
+            itemY + textCenterOff,
+            menuFont,
+            tp);
+
+        if (!items[i].shortcut.empty()) {
+            const float shortcutWidth = menuFont.measureText(
+                items[i].shortcut.c_str(),
+                items[i].shortcut.size(),
+                SkTextEncoding::kUTF8);
+            canvas.drawSimpleText(
+                items[i].shortcut.c_str(),
+                items[i].shortcut.size(),
+                SkTextEncoding::kUTF8,
+                x + maxWidth - shortcutWidth - (items[i].hasSubmenu ? 28.0f : 12.0f),
+                itemY + textCenterOff,
+                menuFont,
+                tp);
+        }
+        if (items[i].hasSubmenu) {
+            DrawArrow(canvas, x + maxWidth - 12.0f, itemY + itemHeight * 0.5f, 7.0f, true, textColor);
+        }
     }
 }
 

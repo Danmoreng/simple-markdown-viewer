@@ -1084,9 +1084,9 @@ void MenuLayoutHitTesting() {
     RequireEqual(mdviewer::MenuBarStateIndexFromHit(hit), -1, "miss should map to no hover");
 
     const std::vector<mdviewer::DropdownItem> items = {
-        {"Open", false},
-        {"", true},
-        {"Exit", false},
+        {"Open", "Ctrl+O", false},
+        {"", "", true},
+        {"Exit", "", false},
     };
     const SkRect dropdown = mdviewer::ComputeDropdownLayout(12.0f, 42.0f, items, nullptr);
     RequireNear(dropdown.left(), 12.0f, 0.001f, "dropdown x should be preserved");

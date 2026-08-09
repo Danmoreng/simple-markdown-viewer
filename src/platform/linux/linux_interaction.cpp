@@ -3,6 +3,7 @@
 #include "platform/linux/linux_viewer_host.h"
 #include "platform/linux/linux_context_menu.h"
 #include "platform/linux/linux_menu.h"
+#include "platform/linux/linux_print.h"
 #include "platform/linux/linux_clipboard.h"
 #include "platform/linux/linux_file_dialog.h"
 #include "platform/linux/linux_font_dialog.h"
@@ -77,7 +78,7 @@ SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
     const auto layout = GetMenuBarLayout(window, app);
     if (menuIndex < 0 || menuIndex >= static_cast<int>(layout.itemRects.size())) return SkRect::MakeEmpty();
 
-    auto menus = GetLinuxMenus(app.Controller().GetRecentFiles());
+    auto menus = GetLinuxMenus(app.Controller());
     if (menuIndex >= static_cast<int>(menus.size())) return SkRect::MakeEmpty();
 
     const float x = layout.itemRects[menuIndex].left();
@@ -91,6 +92,39 @@ SkRect GetDropdownRect(GLFWwindow* window, LinuxApp& app, int menuIndex) {
         y,
         GetLinuxDropdownItems(menus[menuIndex]),
         tf);
+}
+
+SkRect GetSubmenuRect(GLFWwindow* window, LinuxApp& app) {
+    const auto& menuState = GetAppState(app.GetHostContext()).menuBarState;
+    const auto menus = GetLinuxMenus(app.Controller());
+    if (menuState.activeIndex < 0 || menuState.activeIndex >= static_cast<int>(menus.size())) {
+        return SkRect::MakeEmpty();
+    }
+    const auto& items = menus[menuState.activeIndex].items;
+    if (menuState.submenuParentItemIndex < 0 ||
+        menuState.submenuParentItemIndex >= static_cast<int>(items.size()) ||
+        items[menuState.submenuParentItemIndex].children.empty()) {
+        return SkRect::MakeEmpty();
+    }
+
+    auto* typeface = GetMenuTypeface(app.GetHostContext());
+    if (!typeface) {
+        return SkRect::MakeEmpty();
+    }
+    const SkRect parentRect = GetDropdownRect(window, app, menuState.activeIndex);
+    return ComputeDropdownLayout(
+        parentRect.right(),
+        parentRect.top() + menuState.submenuParentItemIndex * kDropdownItemHeight,
+        GetLinuxDropdownItems(items[menuState.submenuParentItemIndex].children),
+        typeface);
+}
+
+int HitTestSubmenu(GLFWwindow* window, LinuxApp& app, double x, double y) {
+    return HitTestDropdownLayout(
+        GetSubmenuRect(window, app),
+        kDropdownItemHeight,
+        static_cast<float>(x),
+        static_cast<float>(y));
 }
 
 MenuBarHitTestResult HitTestMenuBar(GLFWwindow* window, LinuxApp& app, double x, double y) {
@@ -185,6 +219,9 @@ void ExecuteMenuCommand(
             if (!commandPath.empty()) {
                 LoadFile(window, host, commandPath);
             }
+            break;
+        case MenuCommand::Print:
+            PrintCurrentDocument(host);
             break;
         case MenuCommand::SaveAsPdf: {
             const auto& appState = GetAppState(host);
@@ -304,9 +341,46 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
     glfwSetCursor(window, hoverOutlineResize ? gOutlineResizeCursor : nullptr);
     
     if (appState.menuBarState.activeIndex != -1) {
+        if (ypos <= GetContentTopInset()) {
+            const MenuBarHitTestResult menuHit = HitTestMenuBar(window, *app, xpos, ypos);
+            if (menuHit.target == MenuBarHitTarget::MenuItem &&
+                appState.menuBarState.activeIndex != menuHit.menuIndex) {
+                appState.menuBarState.activeIndex = menuHit.menuIndex;
+                appState.menuBarState.hoveredItemIndex = -1;
+                appState.menuBarState.submenuParentItemIndex = -1;
+                appState.menuBarState.hoveredSubmenuItemIndex = -1;
+                appState.needsRepaint = true;
+            }
+            return;
+        }
+
+        const auto menus = GetLinuxMenus(app->Controller());
+        const auto& items = menus[appState.menuBarState.activeIndex].items;
+        int submenuItemIdx = HitTestSubmenu(window, *app, xpos, ypos);
+        if (submenuItemIdx >= 0) {
+            const auto& submenuItems = items[appState.menuBarState.submenuParentItemIndex].children;
+            if (submenuItemIdx >= static_cast<int>(submenuItems.size()) ||
+                submenuItems[submenuItemIdx].isSeparator || !submenuItems[submenuItemIdx].enabled) {
+                submenuItemIdx = -1;
+            }
+            if (appState.menuBarState.hoveredSubmenuItemIndex != submenuItemIdx) {
+                appState.menuBarState.hoveredSubmenuItemIndex = submenuItemIdx;
+                appState.needsRepaint = true;
+            }
+            return;
+        }
+
         int itemIdx = HitTestDropdown(window, *app, xpos, ypos);
-        if (appState.menuBarState.hoveredItemIndex != itemIdx) {
+        if (itemIdx >= 0 &&
+            (itemIdx >= static_cast<int>(items.size()) || items[itemIdx].isSeparator || !items[itemIdx].enabled)) {
+            itemIdx = -1;
+        }
+        const int submenuParent = itemIdx >= 0 && !items[itemIdx].children.empty() ? itemIdx : -1;
+        if (appState.menuBarState.hoveredItemIndex != itemIdx ||
+            appState.menuBarState.submenuParentItemIndex != submenuParent) {
             appState.menuBarState.hoveredItemIndex = itemIdx;
+            appState.menuBarState.submenuParentItemIndex = submenuParent;
+            appState.menuBarState.hoveredSubmenuItemIndex = -1;
             appState.needsRepaint = true;
         }
         return;
@@ -392,20 +466,43 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
         }
 
         if (appState.menuBarState.activeIndex != -1) {
-            int itemIdx = HitTestDropdown(window, *app, xpos, ypos);
-            if (itemIdx != -1) {
-                auto menus = GetLinuxMenus(app->Controller().GetRecentFiles());
-                auto& menu = menus[appState.menuBarState.activeIndex];
-                if (itemIdx < static_cast<int>(menu.items.size()) && !menu.items[itemIdx].isSeparator) {
-                    ExecuteMenuCommand(
-                        window,
-                        *app,
-                        menu.items[itemIdx].command,
-                        menu.items[itemIdx].path);
+            auto menus = GetLinuxMenus(app->Controller());
+            auto& menu = menus[appState.menuBarState.activeIndex];
+            const int submenuItemIdx = HitTestSubmenu(window, *app, xpos, ypos);
+            if (submenuItemIdx >= 0 && appState.menuBarState.submenuParentItemIndex >= 0) {
+                const auto& submenuItems =
+                    menu.items[appState.menuBarState.submenuParentItemIndex].children;
+                if (submenuItemIdx < static_cast<int>(submenuItems.size()) &&
+                    !submenuItems[submenuItemIdx].isSeparator && submenuItems[submenuItemIdx].enabled) {
+                    const MenuItem item = submenuItems[submenuItemIdx];
+                    appState.menuBarState.activeIndex = -1;
+                    appState.menuBarState.hoveredItemIndex = -1;
+                    appState.menuBarState.submenuParentItemIndex = -1;
+                    appState.menuBarState.hoveredSubmenuItemIndex = -1;
+                    ExecuteMenuCommand(window, *app, item.command, item.path);
                 }
+                appState.needsRepaint = true;
+                return;
+            }
+
+            const int itemIdx = HitTestDropdown(window, *app, xpos, ypos);
+            if (itemIdx >= 0 && itemIdx < static_cast<int>(menu.items.size()) &&
+                !menu.items[itemIdx].isSeparator && menu.items[itemIdx].enabled &&
+                !menu.items[itemIdx].children.empty()) {
+                appState.menuBarState.hoveredItemIndex = itemIdx;
+                appState.menuBarState.submenuParentItemIndex = itemIdx;
+                appState.menuBarState.hoveredSubmenuItemIndex = -1;
+                appState.needsRepaint = true;
+                return;
+            }
+            if (itemIdx >= 0 && itemIdx < static_cast<int>(menu.items.size()) &&
+                !menu.items[itemIdx].isSeparator && menu.items[itemIdx].enabled) {
+                ExecuteMenuCommand(window, *app, menu.items[itemIdx].command, menu.items[itemIdx].path);
             }
             appState.menuBarState.activeIndex = -1;
             appState.menuBarState.hoveredItemIndex = -1;
+            appState.menuBarState.submenuParentItemIndex = -1;
+            appState.menuBarState.hoveredSubmenuItemIndex = -1;
             appState.needsRepaint = true;
             return;
         }
@@ -428,6 +525,8 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
                 case MenuBarHitTarget::MenuItem:
                     appState.menuBarState.activeIndex = menuHit.menuIndex;
                     appState.menuBarState.hoveredItemIndex = -1;
+                    appState.menuBarState.submenuParentItemIndex = -1;
+                    appState.menuBarState.hoveredSubmenuItemIndex = -1;
                     appState.needsRepaint = true;
                     break;
                 case MenuBarHitTarget::None:
@@ -630,6 +729,139 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app || (action != GLFW_PRESS && action != GLFW_REPEAT)) return;
 
+    auto& menuState = GetAppState(app->GetHostContext()).menuBarState;
+    const bool altDown = (mods & GLFW_MOD_ALT) != 0;
+    const bool requestedThemeMenu = altDown && key == GLFW_KEY_T;
+    int requestedMenu = -1;
+    if (key == GLFW_KEY_F10 || (altDown && key == GLFW_KEY_F)) {
+        requestedMenu = 0;
+    } else if (altDown && (key == GLFW_KEY_V || key == GLFW_KEY_T)) {
+        requestedMenu = 1;
+    }
+    if (requestedMenu >= 0) {
+        menuState.activeIndex = requestedMenu;
+        menuState.hoveredItemIndex = -1;
+        menuState.submenuParentItemIndex = -1;
+        menuState.hoveredSubmenuItemIndex = -1;
+        if (requestedThemeMenu) {
+            const auto menus = GetLinuxMenus(app->Controller());
+            const auto& viewItems = menus[requestedMenu].items;
+            for (size_t index = 0; index < viewItems.size(); ++index) {
+                if (!viewItems[index].children.empty()) {
+                    menuState.hoveredItemIndex = static_cast<int>(index);
+                    menuState.submenuParentItemIndex = static_cast<int>(index);
+                    break;
+                }
+            }
+        }
+        GetAppState(app->GetHostContext()).needsRepaint = true;
+        return;
+    }
+
+    if (menuState.activeIndex >= 0) {
+        const auto menus = GetLinuxMenus(app->Controller());
+        auto isSelectable = [](const MenuItem& item) {
+            return !item.isSeparator && item.enabled;
+        };
+        auto moveSelection = [&](const std::vector<MenuItem>& items, int& selectedIndex, int direction) {
+            if (items.empty()) return;
+            int index = selectedIndex;
+            for (size_t attempt = 0; attempt < items.size(); ++attempt) {
+                index = (index + direction + static_cast<int>(items.size())) % static_cast<int>(items.size());
+                if (isSelectable(items[index])) {
+                    selectedIndex = index;
+                    return;
+                }
+            }
+        };
+        auto closeMenus = [&]() {
+            menuState.activeIndex = -1;
+            menuState.hoveredItemIndex = -1;
+            menuState.submenuParentItemIndex = -1;
+            menuState.hoveredSubmenuItemIndex = -1;
+        };
+
+        const auto& mainItems = menus[menuState.activeIndex].items;
+        if (menuState.activeIndex == 0 && key >= GLFW_KEY_1 && key <= GLFW_KEY_8) {
+            const size_t requestedRecentIndex = static_cast<size_t>(key - GLFW_KEY_1);
+            size_t recentIndex = 0;
+            for (const auto& item : mainItems) {
+                if (item.command != MenuCommand::OpenRecentFile) {
+                    continue;
+                }
+                if (recentIndex == requestedRecentIndex) {
+                    closeMenus();
+                    ExecuteMenuCommand(window, *app, item.command, item.path);
+                    GetAppState(app->GetHostContext()).needsRepaint = true;
+                    return;
+                }
+                ++recentIndex;
+            }
+        }
+
+        const bool submenuOpen = menuState.submenuParentItemIndex >= 0;
+        const std::vector<MenuItem>* submenuItems = submenuOpen
+            ? &mainItems[menuState.submenuParentItemIndex].children
+            : nullptr;
+
+        if (key == GLFW_KEY_ESCAPE) {
+            if (submenuOpen) {
+                menuState.submenuParentItemIndex = -1;
+                menuState.hoveredSubmenuItemIndex = -1;
+            } else {
+                closeMenus();
+            }
+        } else if (key == GLFW_KEY_RIGHT && !submenuOpen && menuState.hoveredItemIndex >= 0 &&
+            !mainItems[menuState.hoveredItemIndex].children.empty()) {
+            menuState.submenuParentItemIndex = menuState.hoveredItemIndex;
+            menuState.hoveredSubmenuItemIndex = -1;
+            moveSelection(
+                mainItems[menuState.submenuParentItemIndex].children,
+                menuState.hoveredSubmenuItemIndex,
+                1);
+        } else if (key == GLFW_KEY_LEFT && submenuOpen) {
+            menuState.submenuParentItemIndex = -1;
+            menuState.hoveredSubmenuItemIndex = -1;
+        } else if (key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT) {
+            const int direction = key == GLFW_KEY_RIGHT ? 1 : -1;
+            menuState.activeIndex =
+                (menuState.activeIndex + direction + static_cast<int>(menus.size())) % static_cast<int>(menus.size());
+            menuState.hoveredItemIndex = -1;
+            menuState.submenuParentItemIndex = -1;
+            menuState.hoveredSubmenuItemIndex = -1;
+        } else if (key == GLFW_KEY_DOWN) {
+            if (submenuItems) {
+                moveSelection(*submenuItems, menuState.hoveredSubmenuItemIndex, 1);
+            } else {
+                moveSelection(mainItems, menuState.hoveredItemIndex, 1);
+            }
+        } else if (key == GLFW_KEY_UP) {
+            if (submenuItems) {
+                moveSelection(*submenuItems, menuState.hoveredSubmenuItemIndex, -1);
+            } else {
+                moveSelection(mainItems, menuState.hoveredItemIndex, -1);
+            }
+        } else if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
+            if (submenuItems && menuState.hoveredSubmenuItemIndex >= 0) {
+                const MenuItem item = (*submenuItems)[menuState.hoveredSubmenuItemIndex];
+                closeMenus();
+                ExecuteMenuCommand(window, *app, item.command, item.path);
+            } else if (menuState.hoveredItemIndex >= 0) {
+                const MenuItem item = mainItems[menuState.hoveredItemIndex];
+                if (!item.children.empty()) {
+                    menuState.submenuParentItemIndex = menuState.hoveredItemIndex;
+                    menuState.hoveredSubmenuItemIndex = -1;
+                    moveSelection(item.children, menuState.hoveredSubmenuItemIndex, 1);
+                } else {
+                    closeMenus();
+                    ExecuteMenuCommand(window, *app, item.command, item.path);
+                }
+            }
+        }
+        GetAppState(app->GetHostContext()).needsRepaint = true;
+        return;
+    }
+
     KeyEvent ev;
     ev.key = InteractionKey::Unknown;
     ev.ctrl = (mods & GLFW_MOD_CONTROL);
@@ -650,6 +882,11 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
                 ev.key = InteractionKey::ToggleOutline;
             } else if (ev.ctrl) {
                 ExecuteMenuCommand(window, *app, MenuCommand::OpenFile);
+            }
+            break;
+        case GLFW_KEY_P:
+            if (ev.ctrl && app->Controller().HasCurrentFile()) {
+                ExecuteMenuCommand(window, *app, MenuCommand::Print);
             }
             break;
         case GLFW_KEY_ENTER:

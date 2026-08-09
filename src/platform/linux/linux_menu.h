@@ -21,6 +21,7 @@ enum class MenuCommand {
     OutlineRight = 1008,
     SaveAsPdf = 1009,
     OpenRecentFile = 1010,
+    Print = 1011,
     ThemeLight = 1101,
     ThemeSepia = 1102,
     ThemeDark = 1103
@@ -31,6 +32,10 @@ struct MenuItem {
     MenuCommand command = MenuCommand::None;
     bool isSeparator = false;
     std::filesystem::path path;
+    std::string shortcut;
+    bool enabled = true;
+    bool checked = false;
+    std::vector<MenuItem> children;
 };
 
 struct MenuDropdown {
@@ -38,8 +43,9 @@ struct MenuDropdown {
     std::vector<MenuItem> items;
 };
 
-std::vector<MenuDropdown> GetLinuxMenus(const std::vector<RecentFileEntry>& recentFiles);
+std::vector<MenuDropdown> GetLinuxMenus(const ViewerController& controller);
 const std::vector<MenuBarItem>& GetLinuxMenuBarItems();
 std::vector<DropdownItem> GetLinuxDropdownItems(const MenuDropdown& menu);
+std::vector<DropdownItem> GetLinuxDropdownItems(const std::vector<MenuItem>& items);
 
 } // namespace mdviewer::linux_platform

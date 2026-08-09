@@ -188,7 +188,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
 
     // Render active dropdown
     if (appState.menuBarState.activeIndex >= 0) {
-        auto menus = GetLinuxMenus(context.controller.GetRecentFiles());
+        auto menus = GetLinuxMenus(context.controller);
         if (appState.menuBarState.activeIndex < static_cast<int>(menus.size())) {
             const auto& menu = menus[appState.menuBarState.activeIndex];
             const std::vector<DropdownItem> dropItems = GetLinuxDropdownItems(menu);
@@ -207,6 +207,20 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
                 appState.menuBarState.hoveredItemIndex,
                 GetMenuTypeface(context),
                 palette);
+
+            const int submenuParent = appState.menuBarState.submenuParentItemIndex;
+            if (submenuParent >= 0 && submenuParent < static_cast<int>(menu.items.size()) &&
+                !menu.items[submenuParent].children.empty()) {
+                const float dropdownWidth = MeasureDropdownWidth(dropItems, GetMenuTypeface(context));
+                DrawDropdown(
+                    *canvas,
+                    currentX + dropdownWidth,
+                    GetContentTopInset() + submenuParent * 30.0f,
+                    GetLinuxDropdownItems(menu.items[submenuParent].children),
+                    appState.menuBarState.hoveredSubmenuItemIndex,
+                    GetMenuTypeface(context),
+                    palette);
+            }
         }
     }
     canvas->restore();

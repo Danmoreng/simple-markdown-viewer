@@ -253,6 +253,7 @@ elseif(UNIX AND NOT APPLE)
         src/platform/linux/linux_interaction.cpp
         src/platform/linux/linux_main.cpp
         src/platform/linux/linux_menu.cpp
+        src/platform/linux/linux_print.cpp
         src/platform/linux/linux_context_menu.cpp
         src/platform/linux/linux_shell.cpp
         src/platform/linux/linux_surface.cpp

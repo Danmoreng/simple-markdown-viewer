@@ -72,7 +72,7 @@ Important Linux files:
 - `src/platform/linux/linux_viewer_host.*`: Linux document load, relayout, render, theme/font/zoom orchestration
 - `src/platform/linux/linux_interaction.*`: GLFW input translation
 - `src/platform/linux/linux_menu.*`: Linux dropdown command model
-- `src/platform/linux/linux_context_menu.*`, `linux_file_dialog.*`, `linux_font_dialog.*`: GTK-backed native helpers
+- `src/platform/linux/linux_context_menu.*`, `linux_file_dialog.*`, `linux_font_dialog.*`, `linux_print.*`: GTK-backed native helpers
 - `src/platform/linux/linux_clipboard.*`, `linux_shell.*`, `linux_surface.*`: Linux platform services
 
 ## Build On Windows

@@ -21,6 +21,8 @@ struct MenuBarState {
     int hoveredIndex = -1;
     int activeIndex = -1;
     int hoveredItemIndex = -1;
+    int submenuParentItemIndex = -1;
+    int hoveredSubmenuItemIndex = -1;
     bool canGoBack = false;
     bool canGoForward = false;
     bool canZoomIn = false;
@@ -29,7 +31,11 @@ struct MenuBarState {
 
 struct DropdownItem {
     std::string label;
+    std::string shortcut;
     bool isSeparator = false;
+    bool enabled = true;
+    bool checked = false;
+    bool hasSubmenu = false;
 };
 
 enum class MenuBarHitTarget {
