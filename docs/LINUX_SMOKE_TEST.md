@@ -68,7 +68,9 @@ header and `[!IMPORTANT]` alert.
 - [ ] Open search with `Ctrl+F`; test next, previous, backspace, and Escape.
 - [ ] Open a real relative Markdown link and use Back/Forward to return.
 - [ ] Open an HTTPS link and verify the default browser receives the exact URL.
-- [ ] Right-click selected text and links; verify all enabled context-menu actions.
+- [ ] Right-click selected text, links, images, tables, and document background; verify the menu opens without blocking and all enabled context-menu actions work.
+- [ ] Click directly on a linked image, then click the free space beside it; verify only the image bounds activate the link or expose image/link context actions.
+- [ ] Start middle-button auto-scroll, vary its speed above and below the origin, then stop it with middle-click, left-click, wheel, and Escape.
 - [ ] Toggle and navigate the outline on both the left and right sides.
 - [ ] Change Light, Sepia, and Dark themes.
 - [ ] Select a document font, restore the default, and restart to verify persistence.
@@ -77,7 +79,8 @@ header and `[!IMPORTANT]` alert.
 - [ ] Print through the GTK system dialog and verify text, code, and images in the output.
 - [ ] Open menus with F10 and Alt+F/Alt+V/Alt+T; navigate with arrows, Enter, Escape, and recent-file number keys.
 - [ ] Verify menu checkmarks, disabled commands, shortcut labels, the Theme submenu, and recent-file timestamps.
-- [ ] Resize repeatedly and move the window between displays with different scale factors.
+- [ ] Resize repeatedly and move the window between displays with different scale factors; verify resize work does not continue after the drag ends.
+- [ ] Drag the outline width rapidly in both directions; verify it remains responsive, settles immediately on release, and persists after restart.
 - [ ] Close the app normally and verify no terminal error is printed.
 
 ## 4. Known desktop integration boundary
