@@ -385,6 +385,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
 
     bool toggledOutline = false;
     bool startedOutlinePointerDrag = false;
+    bool startedOutlineResize = false;
     {
         std::lock_guard<std::mutex> outlineLock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
@@ -404,6 +405,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
             appState.isResizingOutline = true;
             appState.needsRepaint = true;
             startedOutlinePointerDrag = true;
+            startedOutlineResize = true;
         } else if (const auto outlineThumb = GetOutlineScrollbarThumbRect(
                        appState,
                        surfaceWidth,
@@ -457,6 +459,9 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         StopAutoScroll(hwnd, context);
         SetFocus(hwnd);
         SetCapture(hwnd);
+        if (startedOutlineResize) {
+            context.host.imageCache.BeginLiveResize();
+        }
         InvalidateRect(hwnd, nullptr, FALSE);
         return true;
     }
@@ -702,6 +707,8 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
     if (endedOutlineDrag) {
         ReleaseCapture();
         if (endedOutlineResize) {
+            context.host.imageCache.EndLiveResize();
+            RelayoutCurrentDocument(hwnd, context.host);
             context.host.controller.SaveConfig();
         }
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1024,6 +1031,8 @@ bool HandleCaptureChanged(HWND hwnd, ViewerInteractionContext& context, LPARAM c
             ClearPendingLinkState(appState);
         }
         if (endedOutlineResize) {
+            context.host.imageCache.EndLiveResize();
+            RelayoutCurrentDocument(hwnd, context.host);
             context.host.controller.SaveConfig();
         }
         InvalidateRect(hwnd, nullptr, FALSE);
