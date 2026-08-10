@@ -19,6 +19,8 @@ namespace {
 
 constexpr int kInitialWindowWidth = 900;
 constexpr int kInitialWindowHeight = 1200;
+constexpr uint64_t kResizeFrameIntervalMs = 17; // Approximately 60 FPS.
+constexpr uint64_t kResizeLayoutIntervalMs = 34; // Approximately 30 FPS.
 
 uint64_t GetCurrentTickCountMs() {
     return static_cast<uint64_t>(glfwGetTime() * 1000.0);
@@ -164,6 +166,35 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
                 appState.zoomFeedbackTimeout = 0;
                 appState.needsRepaint = true;
             }
+            auto& surfaceContext = app.SurfaceContext();
+            if (surfaceContext.resizeFramePending &&
+                surfaceContext.nextResizeFrameTimeMs <= nowMs) {
+                surfaceContext.resizeFramePending = false;
+                surfaceContext.nextResizeFrameTimeMs = nowMs + kResizeFrameIntervalMs;
+                if (EnsureSurfaceSize(window, surfaceContext)) {
+                    // Present the existing layout first. This is much cheaper than
+                    // relayout and keeps the client-drawn menu bar anchored to the
+                    // newest window surface at display-frame cadence.
+                    Render(window, app.GetHostContext());
+                    PresentSurface(window, surfaceContext);
+                    appState.needsRepaint = false;
+                }
+            }
+            if (surfaceContext.resizeLayoutPending &&
+                surfaceContext.nextResizeLayoutTimeMs <= nowMs) {
+                surfaceContext.resizeLayoutPending = false;
+                surfaceContext.nextResizeLayoutTimeMs = nowMs + kResizeLayoutIntervalMs;
+                if (EnsureSurfaceSize(window, surfaceContext)) {
+                    RelayoutCurrentDocument(window, app.GetHostContext());
+                    appState.needsRepaint = true;
+                }
+            }
+            if (surfaceContext.liveResizeEndTimeMs > 0 &&
+                surfaceContext.liveResizeEndTimeMs <= nowMs) {
+                surfaceContext.liveResizeEndTimeMs = 0;
+                app.GetHostContext().imageCache.EndLiveResize();
+                appState.needsRepaint = true;
+            }
 
             if (appState.needsRepaint) {
                 appState.needsRepaint = false;
@@ -173,11 +204,22 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
                 }
             }
 
-            const uint64_t nextFeedbackTimeout = std::min(
-                appState.copiedFeedbackTimeout > nowMs ? appState.copiedFeedbackTimeout : UINT64_MAX,
-                appState.zoomFeedbackTimeout > nowMs ? appState.zoomFeedbackTimeout : UINT64_MAX);
+            const uint64_t waitNowMs = GetCurrentTickCountMs();
+            const uint64_t nextFeedbackTimeout = std::min({
+                appState.copiedFeedbackTimeout > waitNowMs ? appState.copiedFeedbackTimeout : UINT64_MAX,
+                appState.zoomFeedbackTimeout > waitNowMs ? appState.zoomFeedbackTimeout : UINT64_MAX,
+                surfaceContext.liveResizeEndTimeMs > waitNowMs
+                    ? surfaceContext.liveResizeEndTimeMs
+                    : UINT64_MAX,
+                surfaceContext.resizeFramePending
+                    ? std::max(surfaceContext.nextResizeFrameTimeMs, waitNowMs)
+                    : UINT64_MAX,
+                surfaceContext.resizeLayoutPending
+                    ? std::max(surfaceContext.nextResizeLayoutTimeMs, waitNowMs)
+                    : UINT64_MAX,
+            });
             if (nextFeedbackTimeout != UINT64_MAX) {
-                const double timeoutSeconds = static_cast<double>(nextFeedbackTimeout - nowMs) / 1000.0;
+                const double timeoutSeconds = static_cast<double>(nextFeedbackTimeout - waitNowMs) / 1000.0;
                 glfwWaitEventsTimeout(timeoutSeconds);
             } else {
                 glfwWaitEvents();

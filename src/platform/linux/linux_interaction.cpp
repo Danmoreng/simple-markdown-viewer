@@ -39,6 +39,24 @@ std::string PathToUtf8(const std::filesystem::path& path) {
     return std::string(utf8.begin(), utf8.end());
 }
 
+void ScheduleLiveRelayout(LinuxApp& app, uint64_t nowMs) {
+    auto& surfaceContext = app.SurfaceContext();
+    auto hostContext = app.GetHostContext();
+    if (!hostContext.imageCache.IsLiveResize()) {
+        hostContext.imageCache.BeginLiveResize();
+    }
+
+    surfaceContext.resizeFramePending = true;
+    surfaceContext.resizeLayoutPending = true;
+    if (surfaceContext.nextResizeFrameTimeMs == 0) {
+        surfaceContext.nextResizeFrameTimeMs = nowMs;
+    }
+    if (surfaceContext.nextResizeLayoutTimeMs == 0) {
+        surfaceContext.nextResizeLayoutTimeMs = nowMs;
+    }
+    surfaceContext.liveResizeEndTimeMs = nowMs + 150;
+}
+
 float GetLogicalWindowWidth(GLFWwindow* window) {
     int width = 0;
     int height = 0;
@@ -343,10 +361,9 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
 
     if (appState.isResizingOutline) {
         if (ResizeOutlineSidebar(appState, static_cast<float>(xpos), surfaceWidth)) {
-            RelayoutCurrentDocument(window, app->GetHostContext());
+            ScheduleLiveRelayout(*app, static_cast<uint64_t>(glfwGetTime() * 1000.0));
         }
         glfwSetCursor(window, gOutlineResizeCursor);
-        appState.needsRepaint = true;
         return;
     }
     if (appState.isDraggingOutlineScrollbar) {
@@ -738,6 +755,12 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
         if (endedOutlineResize || appState.isDraggingOutlineScrollbar) {
             EndOutlinePointerDrag(appState);
             if (endedOutlineResize) {
+                const uint64_t nowMs = static_cast<uint64_t>(glfwGetTime() * 1000.0);
+                ScheduleLiveRelayout(*app, nowMs);
+                auto& surfaceContext = app->SurfaceContext();
+                surfaceContext.nextResizeFrameTimeMs = nowMs;
+                surfaceContext.nextResizeLayoutTimeMs = nowMs;
+                surfaceContext.liveResizeEndTimeMs = nowMs;
                 app->GetHostContext().controller.SaveConfig();
             }
             appState.needsRepaint = true;
@@ -1053,10 +1076,17 @@ void OnCharImpl(GLFWwindow* window, unsigned int codepoint) {
 }
 
 void OnFramebufferSizeImpl(GLFWwindow* window, int width, int height) {
+    (void)width;
+    (void)height;
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
-    EnsureSurfaceSize(window, app->SurfaceContext());
-    RelayoutCurrentDocument(window, app->GetHostContext());
+
+    const uint64_t nowMs = static_cast<uint64_t>(glfwGetTime() * 1000.0);
+    ScheduleLiveRelayout(*app, nowMs);
+
+    // Relayout and rendering are deliberately deferred to the outer event loop.
+    // Configure events can arrive much faster than layout can run, so processing
+    // them here creates a large CPU backlog after the user stops dragging.
 }
 
 void OnDropImpl(GLFWwindow* window, int count, const char** paths) {

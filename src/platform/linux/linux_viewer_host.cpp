@@ -181,6 +181,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
     params.currentTickCount = static_cast<uint64_t>(glfwGetTime() * 1000.0);
     params.visibleDocumentTop = appState.scrollOffset;
     params.visibleDocumentBottom = appState.scrollOffset + params.viewportHeight;
+    params.freezeImageDimensions = context.imageCache.IsLiveResize();
     params.scrollbarThumbRect = GetScrollbarThumbRect(window, context);
     
     params.resolveImage = [&context, &appState](const std::string& url, float dw, float dh) {
@@ -403,9 +404,7 @@ void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
     context.controller.Relayout(
         contentWidth,
         GetRegularTypeface(context),
-        [&context](const DocumentModel& doc, const std::filesystem::path& base) {
-            context.imageCache.PreloadDocumentImages(doc, base);
-        },
+        {},
         [&context, currentPath](const std::string& url) {
             return context.imageCache.GetImageSize(url, currentPath.parent_path());
         });
