@@ -16,6 +16,7 @@ struct LinuxSurfaceContext {
     uint64_t nextResizeFrameTimeMs = 0;
     uint64_t nextResizeLayoutTimeMs = 0;
     uint64_t liveResizeEndTimeMs = 0;
+    uint64_t nextAutoScrollTickTimeMs = 0;
 };
 
 bool InitializeSkia(GLFWwindow* window, LinuxSurfaceContext& context);

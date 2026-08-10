@@ -57,6 +57,26 @@ void ScheduleLiveRelayout(LinuxApp& app, uint64_t nowMs) {
     surfaceContext.liveResizeEndTimeMs = nowMs + 150;
 }
 
+void StopAutoScroll(LinuxApp& app) {
+    auto& appState = GetAppState(app.GetHostContext());
+    StopAutoScrollState(appState);
+    app.SurfaceContext().nextAutoScrollTickTimeMs = 0;
+    appState.needsRepaint = true;
+}
+
+void ToggleAutoScroll(LinuxApp& app, float x, float y) {
+    auto& appState = GetAppState(app.GetHostContext());
+    if (appState.isAutoScrolling) {
+        StopAutoScroll(app);
+        return;
+    }
+
+    StartAutoScrollState(appState, x, y);
+    app.SurfaceContext().nextAutoScrollTickTimeMs =
+        static_cast<uint64_t>(glfwGetTime() * 1000.0);
+    appState.needsRepaint = true;
+}
+
 float GetLogicalWindowWidth(GLFWwindow* window) {
     int width = 0;
     int height = 0;
@@ -382,6 +402,10 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
         appState.needsRepaint = true;
         return;
     }
+    if (appState.isAutoScrolling) {
+        UpdateAutoScrollCursor(appState, static_cast<float>(xpos), static_cast<float>(ypos));
+        return;
+    }
 
     const bool hoverOutlineResize = HitTestOutlineResizeHandle(
         appState,
@@ -484,7 +508,17 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
     // real pointer button held on the GLFW window and can prevent GTK from
     // completing its popup grab with a normal mouse (synthetic clicks release
     // too quickly to expose this).
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS) {
+        if (ypos >= GetContentTopInset()) {
+            ToggleAutoScroll(*app, static_cast<float>(xpos), static_cast<float>(ypos));
+        }
+        return;
+    }
+
     if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE) {
+        if (appState.isAutoScrolling) {
+            StopAutoScroll(*app);
+        }
         if (ypos < GetContentTopInset()) {
             return;
         }
@@ -553,6 +587,9 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
     if (button != GLFW_MOUSE_BUTTON_LEFT) return;
 
     if (action == GLFW_PRESS) {
+        if (appState.isAutoScrolling) {
+            StopAutoScroll(*app);
+        }
         if (appState.searchActive && appState.searchCloseButtonRect.contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
             CloseSearch(appState);
             appState.needsRepaint = true;
@@ -782,6 +819,11 @@ void OnScrollImpl(GLFWwindow* window, double xoffset, double yoffset) {
     auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
+    auto& appState = GetAppState(app->GetHostContext());
+    if (appState.isAutoScrolling) {
+        StopAutoScroll(*app);
+    }
+
     const bool ctrlDown =
         glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
         glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
@@ -794,7 +836,6 @@ void OnScrollImpl(GLFWwindow* window, double xoffset, double yoffset) {
         return;
     }
 
-    auto& appState = GetAppState(app->GetHostContext());
     double cursorX = 0.0;
     double cursorY = 0.0;
     glfwGetCursorPos(window, &cursorX, &cursorY);
@@ -1019,6 +1060,7 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
     }
 
     auto result = HandleKeyDown(GetAppState(app->GetHostContext()), ev);
+    if (result.stopAutoScroll) StopAutoScroll(*app);
     if (result.goBack) GoBack(window, app->GetHostContext());
     if (result.goForward) GoForward(window, app->GetHostContext());
     if (result.copySelection && CopySelection(window, *app)) {

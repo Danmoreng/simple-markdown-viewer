@@ -12,6 +12,7 @@
 #include "platform/linux/linux_surface.h"
 #include "platform/linux/linux_viewer_host.h"
 #include "platform/linux/linux_window_icon.h"
+#include "view/document_interaction.h"
 
 namespace mdviewer::linux_platform {
 
@@ -21,6 +22,8 @@ constexpr int kInitialWindowWidth = 900;
 constexpr int kInitialWindowHeight = 1200;
 constexpr uint64_t kResizeFrameIntervalMs = 17; // Approximately 60 FPS.
 constexpr uint64_t kResizeLayoutIntervalMs = 34; // Approximately 30 FPS.
+constexpr uint64_t kAutoScrollTickIntervalMs = 16;
+constexpr float kAutoScrollDeadZone = 2.0f;
 
 uint64_t GetCurrentTickCountMs() {
     return static_cast<uint64_t>(glfwGetTime() * 1000.0);
@@ -167,6 +170,17 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
                 appState.needsRepaint = true;
             }
             auto& surfaceContext = app.SurfaceContext();
+            if (appState.isAutoScrolling) {
+                if (surfaceContext.nextAutoScrollTickTimeMs == 0 ||
+                    surfaceContext.nextAutoScrollTickTimeMs <= nowMs) {
+                    if (TickAutoScroll(appState, GetMaxScroll(window, app.GetHostContext()), kAutoScrollDeadZone)) {
+                        appState.needsRepaint = true;
+                    }
+                    surfaceContext.nextAutoScrollTickTimeMs = nowMs + kAutoScrollTickIntervalMs;
+                }
+            } else {
+                surfaceContext.nextAutoScrollTickTimeMs = 0;
+            }
             if (surfaceContext.resizeFramePending &&
                 surfaceContext.nextResizeFrameTimeMs <= nowMs) {
                 surfaceContext.resizeFramePending = false;
@@ -216,6 +230,9 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
                     : UINT64_MAX,
                 surfaceContext.resizeLayoutPending
                     ? std::max(surfaceContext.nextResizeLayoutTimeMs, waitNowMs)
+                    : UINT64_MAX,
+                appState.isAutoScrolling
+                    ? std::max(surfaceContext.nextAutoScrollTickTimeMs, waitNowMs)
                     : UINT64_MAX,
             });
             if (nextFeedbackTimeout != UINT64_MAX) {
