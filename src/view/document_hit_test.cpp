@@ -18,6 +18,13 @@ size_t GetRunTextEnd(const RunLayout& run) {
     return run.textStart + run.text.size();
 }
 
+void ClearImageHit(DocumentTextHit& hit) {
+    hit.url.clear();
+    hit.linkTarget.clear();
+    hit.imageSource.clear();
+    hit.kind = InlineKind::Text;
+}
+
 float GetVerticalDistance(const LineLayout& line, float documentY) {
     if (documentY < line.y) {
         return line.y - documentY;
@@ -118,7 +125,7 @@ DocumentTextHit HitTestLine(
                 if (x >= imageX && x <= imageX + run.imageWidth) {
                     hit.imageSource = run.imageSource;
                 } else {
-                    hit.kind = InlineKind::Text;
+                    ClearImageHit(hit);
                 }
             }
             return hit;
@@ -155,8 +162,7 @@ DocumentTextHit HitTestDocument(
 
     DocumentTextHit hit = HitTestLine(*closest.block, *closest.line, x, callbacks);
     if (closest.distance > 0.0f && hit.kind == InlineKind::Image) {
-        hit.kind = InlineKind::Text;
-        hit.imageSource.clear();
+        ClearImageHit(hit);
     }
     if (table != nullptr) {
         hit.tableTsv = table->tableTsv;

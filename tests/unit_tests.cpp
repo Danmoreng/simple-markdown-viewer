@@ -1200,7 +1200,7 @@ void LayoutSensitiveBehavior() {
         ">literal\n"
         "int main() { return 0; }\n"
         "```\n\n"
-        "![diagram](diagram.png)\n");
+        "[![diagram](diagram.png)](https://example.com/full-diagram)\n");
 
     const auto imageProvider = [](const std::string& url) {
         return url == "diagram.png" ? std::pair<float, float>{640.0f, 320.0f} : std::pair<float, float>{0.0f, 0.0f};
@@ -1262,6 +1262,19 @@ void LayoutSensitiveBehavior() {
         contextHitCallbacks);
     Require(imageHit.kind == mdviewer::InlineKind::Image, "hit testing an image should retain image semantics");
     RequireEqual(imageHit.imageSource, std::string("diagram.png"), "image hit testing should expose the image source separately");
+    RequireEqual(imageHit.url, std::string("https://example.com/full-diagram"), "a linked image should expose its link inside the image bounds");
+
+    const auto besideImageHit = mdviewer::HitTestDocument(
+        normal,
+        0.0f,
+        30.0f,
+        imageX + imageRun.imageWidth + 20.0f,
+        imageBlock.lines[0].y + 30.0f + (imageBlock.lines[0].height * 0.5f),
+        contextHitCallbacks);
+    Require(besideImageHit.kind == mdviewer::InlineKind::Text, "free space beside an image should not retain image semantics");
+    Require(besideImageHit.url.empty(), "free space beside a linked image should not activate its link");
+    Require(besideImageHit.linkTarget.empty(), "free space beside a linked image should not expose its link target");
+    Require(besideImageHit.imageSource.empty(), "free space beside an image should not expose its source");
 
     const auto csvLayout = mdviewer::LayoutEngine::ComputeLayout(
         mdviewer::MarkdownParser::Parse(
