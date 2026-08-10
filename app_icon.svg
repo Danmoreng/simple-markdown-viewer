@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Simple Markdown Viewer</title>
+  <desc id="desc">A white letter M framed by text lines on a dark rounded square.</desc>
+  <defs>
+    <linearGradient id="background" x1="32" y1="20" x2="224" y2="236" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#46535f"/>
+      <stop offset="0.55" stop-color="#34404a"/>
+      <stop offset="1" stop-color="#27313a"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="64" y1="74" x2="192" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8edf2"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="248" height="248" rx="47" fill="url(#background)"/>
+  <rect x="5.5" y="5.5" width="245" height="245" rx="45.5" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="3"/>
+
+  <g fill="none" stroke="#d9e0e6" stroke-width="5" stroke-linecap="round">
+    <path d="M38 45H218"/>
+    <path d="M38 211H218"/>
+    <path d="M38 91H218"/>
+    <path d="M38 128H218"/>
+    <path d="M38 165H218"/>
+  </g>
+
+  <!-- The text lines continue behind the letter. Repainting the M silhouette
+       with the identical background gradient creates a clean, transparent
+       padding area without introducing a flat-colored halo. -->
+  <path fill="url(#background)" stroke="url(#background)" stroke-width="10" stroke-linejoin="round"
+        d="M65 177V77H91L128 132L165 77H191V177H165V119L139 158H117L91 119V177H65Z"/>
+  <!-- Restore the lower text line between the two stems. The M ends above this
+       segment, so a short straight overlay keeps the line edge level while
+       retaining explicit horizontal and vertical padding around the mark. -->
+  <path d="M96 165H160" fill="none" stroke="#d9e0e6" stroke-width="5" stroke-linecap="butt"/>
+  <path fill="url(#mark)" d="M65 177V77H91L128 132L165 77H191V177H165V119L139 158H117L91 119V177H65Z"/>
+</svg>

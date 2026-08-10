@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../app_icon.png" alt="Simple Markdown Viewer logo" width="160">
+  <img src="../app_icon.svg" alt="Simple Markdown Viewer logo" width="160">
 </p>
 
 <h1 align="center">Native GitHub-style HTML subset</h1>

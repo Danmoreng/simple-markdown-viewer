@@ -519,6 +519,17 @@ void SvgImageRendering() {
     RequireEqual(image->width(), 320, "rasterized SVG should use requested width");
     RequireEqual(image->height(), 160, "rasterized SVG should use requested height");
 
+    const fs::path viewBoxOnlySvg = temp.Path() / "viewbox-only.svg";
+    WriteText(
+        viewBoxOnlySvg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 128\">"
+        "<rect width=\"256\" height=\"128\" fill=\"#33404a\"/></svg>");
+    const auto [viewBoxWidth, viewBoxHeight] = cache.GetImageSize(viewBoxOnlySvg.filename().string(), temp.Path());
+    RequireNear(viewBoxWidth, 256.0f, 0.01f, "viewBox-only SVG should use its viewBox width as intrinsic width");
+    RequireNear(viewBoxHeight, 128.0f, 0.01f, "viewBox-only SVG should use its viewBox height as intrinsic height");
+    Require(cache.GetImage(viewBoxOnlySvg.filename().string(), temp.Path(), 256.0f, 128.0f) != nullptr,
+            "viewBox-only SVG should rasterize through Skia");
+
     cache.BeginLiveResize();
     const auto liveResizeImage = cache.GetImage(svg.filename().string(), temp.Path(), 200.0f, 100.0f);
     Require(liveResizeImage.get() == image.get(),

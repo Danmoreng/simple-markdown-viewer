@@ -18,6 +18,7 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "modules/skshaper/include/SkShaper_factory.h"
+#include "modules/svg/include/SkSVGSVG.h"
 #pragma warning(pop)
 
 namespace mdviewer {
@@ -304,6 +305,13 @@ DocumentImageCache::CachedImageEntry* DocumentImageCache::GetOrLoadEntry(
                 entry.svgDom = builder.make(stream);
                 if (entry.svgDom) {
                     entry.intrinsicSize = entry.svgDom->containerSize();
+                    if ((entry.intrinsicSize.width() <= 0.0f || entry.intrinsicSize.height() <= 0.0f) &&
+                        entry.svgDom->getRoot() && entry.svgDom->getRoot()->getViewBox()) {
+                        const SkRect& viewBox = *entry.svgDom->getRoot()->getViewBox();
+                        if (viewBox.width() > 0.0f && viewBox.height() > 0.0f) {
+                            entry.intrinsicSize = SkSize::Make(viewBox.width(), viewBox.height());
+                        }
+                    }
                     const double pixelCount = static_cast<double>(entry.intrinsicSize.width()) *
                         static_cast<double>(entry.intrinsicSize.height());
                     if (!std::isfinite(pixelCount) || entry.intrinsicSize.width() <= 0.0f ||

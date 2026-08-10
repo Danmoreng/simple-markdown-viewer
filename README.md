@@ -2,7 +2,7 @@
 
 Simple Markdown Viewer is a native, read-only Markdown viewer with Windows and Linux hosts built on shared viewer logic.
 
-Download the latest ready-to-run Windows build from the repository's `Releases` page.
+Download the latest ready-to-run Windows or Linux build from the repository's `Releases` page.
 
 It is built with:
 
@@ -15,19 +15,16 @@ It is built with:
 
 ## Screenshot
 
-![Simple Markdown Viewer screenshot](assets/screenshot.png)
+![Simple Markdown Viewer rendering native HTML, details, alerts, and an outline in the dark theme](assets/screenshot.png)
 
 ## Download
 
-If you just want to use the app, go to `Releases` and download the latest `mdviewer-windows-x64.zip`.
+Ready-to-run archives are published on the repository's `Releases` page:
 
-The release archive contains:
+- **Windows x64:** download `mdviewer-windows-x64.zip`, extract it, and run `mdviewer.exe`.
+- **Linux x86-64:** download `mdviewer-linux-x64.tar.gz`, extract it, and run `mdviewer-linux-x64/run-mdviewer.sh`.
 
-- `mdviewer.exe`
-- `LICENSE`
-- `THIRD_PARTY_NOTICES`
-
-Extract the zip to a folder of your choice and run `mdviewer.exe`.
+Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and this README. The Linux archive also includes desktop-entry and icon metadata under `share/`; it relies on normal distribution-provided GTK3, OpenGL, X11, fontconfig, freetype, and C/C++ runtime libraries.
 
 ## Features
 
@@ -53,9 +50,11 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - a browser-free HTML allowlist for GitHub-style centered paragraphs/headings, links, local images, `<br>`, keyboard keys, subscript/superscript, and native collapsible details; unsupported or unsafe HTML remains visible as source
   - GitHub-style note, tip, important, warning, and caution alerts with native colors and icons
   - decoded Markdown entities
-  - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, and no forced upscaling beyond intrinsic size; SVG HTML `<foreignObject>` content is not supported
+  - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, requested HTML dimensions, and no forced upscaling beyond intrinsic size; SVGs may derive their intrinsic size from `width`/`height` or `viewBox`, while SVG HTML `<foreignObject>` content is not supported
 - Navigation:
-  - **Full browsing history** (back/forward)
+  - **Full browsing history** (back/forward) with per-document reading-position restoration
+  - Generated nested heading outline that highlights the current section and can be collapsed, placed on either side, resized, scrolled independently, and navigated by keyboard
+  - GitHub-compatible Unicode heading anchors with deterministic suffixes for duplicate headings
   - Toolbar navigation buttons
   - Mouse side-button support on Windows
 - Link Handling:
@@ -64,13 +63,14 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
   - Robust detection for extensionless files (like `LICENSE`)
   - Clear feedback for missing local files and heading fragments
   - Confirmation before opening executable local files
+  - Rejection of suspicious or unsupported schemes instead of passing them to the operating system
   - **Link hover preview** at the bottom-left
   - `Ctrl+Click` to force any link to open externally
 - Smooth scrolling with:
   - mouse wheel
   - custom scrollbar
-  - middle-mouse auto-scroll on Windows
-- Responsive document margins that reclaim reading width in narrow windows
+  - browser-style middle-mouse auto-scroll on Windows and Linux
+- Responsive document margins and live relayout while resizing the window or outline; cached image dimensions avoid repeated image scaling during a resize
 - Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
 - Remote images are not fetched inside the app; HTML badges and other remote images use labeled placeholders and can still be opened explicitly
 - Mouse text selection and `Ctrl+C` copy
@@ -90,9 +90,7 @@ Extract the zip to a folder of your choice and run `mdviewer.exe`.
 - Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, recent files with opened timestamps and scroll positions, and window placement on Windows and Linux
 - Platform app icons for the Windows executable and Linux window/desktop integration
 
-## Scope
-
-Current scope:
+## Product Scope
 
 - native Windows and Linux hosts
 - read-only
@@ -106,45 +104,17 @@ Out of scope:
 - multi-document workspace UI
 - full rich-text editor behavior
 
-## Architecture Status
+## How It Works
 
-The codebase is no longer centered around one large Windows source file.
+The viewer parses Markdown into a shared document model, computes native layout, and draws the document and themed menu bar with Skia. It does not embed a browser or WebView. Windows and Linux share document loading, parsing, layout, rendering, themes, typography, image handling, syntax highlighting, selection, search, history, link policy, configuration, and most interaction behavior.
 
-Current structure:
+The Win32 and GLFW/GTK hosts translate native events and provide platform services such as windows, dialogs, printing, clipboard access, shell integration, drag and drop, timers, and surface presentation. Tree-sitter highlighting supports `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, `bash`/`sh`, `rust`, `go`, and `csharp`; unknown language tags render as plain code.
 
-- `src/app/`: shared application state, config, document loading, link resolution, and controller logic
-- `src/render/`: shared themes, typography, document rendering, typeface management, and image caching
-- `src/render/syntax/`: Tree-sitter code-block highlighting and language/query mapping
-- `src/view/`: shared hit testing and document interaction helpers
-- `src/platform/win/`: Win32 host code split into bootstrap, window dispatch, menus, dialogs, clipboard, shell, surface, host orchestration, and input translation
-- `src/platform/linux/`: Linux host code built on the same shared controller, rendering, and interaction layers
+Windows and Linux archives are built from the same CMake project and published together for version tags.
 
-Important Windows files:
+## Building from Source
 
-- `win_main.cpp`: process startup and bootstrap
-- `win_app.cpp`: owns controller/surface/cache wiring for the Windows host
-- `win_window.cpp`: main window message dispatch
-- `win_viewer_host.cpp`: document load, relayout, render, theme/font/zoom orchestration
-- `win_interaction.cpp`: pointer, keyboard, wheel, drag, and timer behavior
-- `win_menu.cpp`: Win32 `HMENU` resources, owner-draw popup menus, recent-file menu rebuilding, and command IDs
-
-Linux host files:
-
-- `linux_main.cpp`: GLFW startup and event loop
-- `linux_app.cpp`: app-scoped controller/config wiring
-- `linux_viewer_host.cpp`: document load, relayout, render, theme/font/zoom orchestration
-- `linux_interaction.cpp`: GLFW input translation into shared interaction/controller actions
-- `linux_menu.cpp`: Linux dropdown command models
-- `linux_context_menu.cpp`, `linux_file_dialog.cpp`, `linux_font_dialog.cpp`: GTK-backed native helpers
-- `linux_clipboard.cpp`, `linux_shell.cpp`, `linux_surface.cpp`: platform services
-
-Recent refactor work moved top-bar layout, drawing, toolbar hit testing, and dropdown drawing into shared rendering code in `src/render/menu_renderer.*`. Platform hosts still own native popup/dropdown command plumbing and event translation. The menu UI typeface is independent from the document font. Windows also has native file watching for live reload.
-
-Code block syntax highlighting is implemented in the shared layout/rendering path. Fenced code block languages currently supported by Tree-sitter are `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, `bash`/`sh`, `rust`, `go`, and `csharp`; unknown languages fall back to plain code rendering.
-
-Windows has release packaging today. Linux is implemented in-tree and builds from the same CMake project on Linux.
-
-## Windows Build Requirements
+### Windows Requirements
 
 - Windows
 - Visual Studio 2022 with C++ build tools
@@ -154,7 +124,7 @@ Windows has release packaging today. Linux is implemented in-tree and builds fro
 
 The PowerShell build script imports the Visual Studio environment automatically with `vswhere` and `vcvars64.bat`.
 
-## Building On Windows
+### Build on Windows
 
 First build, including dependency setup:
 
@@ -176,48 +146,9 @@ Useful variants:
 .\build.ps1 -RunSmokeTest
 ```
 
-## GitHub Builds And Releases
+### Build on Linux
 
-- Normal branch pushes and pull requests do not run GitHub builds; development builds and tests are run locally.
-- GitHub Actions builds Windows and Linux only for pushed release tags matching `v*`, or when a workflow is started manually.
-- The Windows release workflow prefers a prebuilt Skia bundle so it does not normally rebuild Skia from source. Skia source builds use the exact commit in `ci/skia-revision.txt`; Windows bundle maintenance is documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md).
-- The prebuilt Skia bundle must be built with `skia_enable_pdf=true` for PDF export support.
-- Release workflow runs upload `mdviewer-windows-x64.zip` and `mdviewer-linux-x64.tar.gz` as build artifacts.
-- Pushing a tag like `v0.1.5` creates or updates a GitHub release and attaches both platform archives plus the Linux SHA-256 checksum after their respective builds succeed.
-- Release archives contain the executable, `LICENSE`, `THIRD_PARTY_NOTICES`, and supporting platform metadata where applicable.
-
-Default output:
-
-```text
-build/Release/mdviewer.exe
-```
-
-## Running
-
-Launch the viewer:
-
-```powershell
-.\build\Release\mdviewer.exe
-```
-
-Open a file immediately:
-
-```powershell
-.\build\Release\mdviewer.exe .\README.md
-```
-
-The app stores `mdviewer.ini` in the per-user config directory and uses it for theme, font, zoom, outline side/width, recent-file timestamps and scroll positions, and the last window size and position on Windows and Linux:
-
-- Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
-- Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini` when `XDG_CONFIG_HOME` is not set
-
-For compatibility, if the per-user file does not exist, the app can still load a legacy `mdviewer.ini` next to the executable. Future saves go to the per-user path.
-
-## Linux Build Notes
-
-The Linux host is compiled from the same CMake target on Linux. It uses GLFW for the window/event loop and GTK3 for native dialogs/context menus, alongside the same Skia, md4c, utf8proc, and Tree-sitter dependencies.
-
-Build Skia and the PDF-enabled viewer, then run the tests:
+The Linux host uses GLFW for the window and event loop plus GTK3 for native dialogs, printing, and context menus. Build the PDF-enabled application and run the tests with:
 
 ```bash
 ./build.sh
@@ -225,17 +156,38 @@ cmake --build build --target mdviewer_tests --parallel 2
 ctest --test-dir build --output-on-failure
 ```
 
-For subsequent builds, use `./build.sh --skip-skia`. PDF-enabled Linux Skia builds disable HarfBuzz PDF font subsetting because the pinned subsetter can crash on common system fonts; `--skip-skia` rejects older incompatible Skia output. A build against Skia without its PDF backend can be configured with `./build.sh --disable-pdf`; that build omits the Linux PDF menu command and reports the backend as unavailable through the shared export API.
+Use `./build.sh --skip-skia` after Skia has already been built. Use `./build.sh --disable-pdf` only with a Skia build that does not include its PDF backend.
 
-The Linux release workflow performs a normal build/test pass and a second unit-test pass with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
+Create a stripped Linux archive with `./package-linux.sh`, or `./package-linux.sh --skip-build` after a Release build. The archive and checksum are written to `dist/mdviewer-linux-x64.tar.gz` and `dist/mdviewer-linux-x64.tar.gz.sha256`. See [`docs/LINUX_SMOKE_TEST.md`](docs/LINUX_SMOKE_TEST.md) for release validation.
 
-Create a stripped Linux release archive with:
+### Run local builds
 
-```bash
-./package-linux.sh
+Windows:
+
+```powershell
+.\build\Release\mdviewer.exe
+.\build\Release\mdviewer.exe .\README.md
 ```
 
-If the Release application has already been built, use `./package-linux.sh --skip-build`. The resulting archive and checksum are written to `dist/mdviewer-linux-x64.tar.gz` and `dist/mdviewer-linux-x64.tar.gz.sha256`. Skia, md4c, utf8proc, GLFW, and Tree-sitter are linked into the executable; GTK3, OpenGL, X11, fontconfig, freetype, and standard C/C++ runtime libraries remain distribution-provided dependencies. See [`docs/LINUX_SMOKE_TEST.md`](docs/LINUX_SMOKE_TEST.md) for release validation and manual desktop checks.
+Linux:
+
+```bash
+./build/mdviewer
+./build/mdviewer README.md
+```
+
+## Configuration
+
+The app stores `mdviewer.ini` in the per-user config directory. It persists the selected theme and font, zoom, outline side and width, recent files with timestamps and reading positions, and window placement:
+
+- Windows: `%APPDATA%\Simple Markdown Viewer\mdviewer.ini`
+- Linux: `$XDG_CONFIG_HOME/simple-markdown-viewer/mdviewer.ini`, or `~/.config/simple-markdown-viewer/mdviewer.ini`
+
+If no per-user configuration exists, the app can import a legacy `mdviewer.ini` next to the executable. All subsequent saves use the per-user path.
+
+## GitHub Builds and Releases
+
+GitHub Actions builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal and sanitizer test passes. A tag such as `v0.2.0` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
 
 ## Controls
 
@@ -248,15 +200,15 @@ If the Release application has already been built, use `./package-linux.sh --ski
 - mouse wheel: scroll
 - `Ctrl` + mouse wheel: zoom document text in and out
 - Code blocks: drag the horizontal scrollbar, use a horizontal touchpad gesture, or hold `Shift` while using the mouse wheel
-- middle mouse button: auto-scroll mode on Windows
+- middle mouse button: toggle browser-style auto-scroll mode on Windows or Linux; move above or below the origin to control direction and speed, then stop with middle-click, left-click, wheel, or `Escape`
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
 - `Ctrl+F`: search within the current document
-- `F5`: reload the current document while preserving the reading position when practical
 - `Enter` / `Shift+Enter`: move to the next or previous search match while search is open
 - `Escape`: close search
 - Search close button: click the `x` button in the search box
-- right click: open a native context menu with selection, link, reload, document-path, and file-manager actions
+- `F10`, `Alt+F`, `Alt+V`, or `Alt+T`: open the application menus; navigate with arrows, `Enter`, and `Escape`, or use number keys for recent files
+- right click: open a native context menu with selection, link, image, table, reload, document-path, and file-manager actions
 - external file save: reload the currently open document automatically on Windows
 - `View -> Select Font...`: choose the reading font
 - `View -> Theme`: switch between light, sepia, and dark themes
@@ -284,7 +236,7 @@ If the Release application has already been built, use `./package-linux.sh --ski
 
 ## Dependencies
 
-Direct dependencies used by the current build:
+Direct dependencies:
 
 - `Skia`
   - role: 2D rendering, text drawing, and PDF generation
@@ -358,6 +310,10 @@ src/
 resources/
   app.rc
   app_icon.ico
+  linux/mdviewer.png
+
+app_icon.svg      Canonical vector application logo
+app_icon.png      High-resolution PNG rendered from the SVG
 
 assets/
   screenshot.png
@@ -376,6 +332,5 @@ CMakeLists.txt    CMake project definition
 - The menu bar is client-drawn so it can follow the selected theme; shared layout/drawing helpers live in `src/render/menu_renderer.*`.
 - The document zoom affects rendered document typography, not the top menu bar.
 - PDF export uses Skia's PDF backend and the shared document renderer with PDF-specific page margins and page-break handling. Export typography is tuned to visually approximate the interactive viewer at 100%. Wide tables and code blocks are reduced locally within a readability limit, then clipped if they still exceed the page; interactive scrollbars are never rendered into output.
-- Windows and Linux printing use native system print dialogs and the same shared paginated renderer as PDF export. The host print paths do not provide an in-app page preview; that remains tracked separately.
+- Windows and Linux printing use native system print dialogs and the same shared paginated renderer as PDF export; the app does not provide an in-app print preview.
 - On Windows, live reload is event-driven via OS file-change notifications rather than polling.
-- Recent refactor work moved config, controller, rendering support, interaction logic, and most host orchestration out of the old monolithic Windows entry file.
