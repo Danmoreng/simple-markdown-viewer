@@ -29,6 +29,36 @@ void OnMenuDeactivate(GtkMenuShell* shell, gpointer userData) {
     QuitPopupLoop(static_cast<PopupState*>(userData));
 }
 
+GdkEvent* CreatePopupTriggerEvent() {
+    GdkDisplay* display = gdk_display_get_default();
+    GdkSeat* seat = display ? gdk_display_get_default_seat(display) : nullptr;
+    GdkDevice* pointer = seat ? gdk_seat_get_pointer(seat) : nullptr;
+    if (!pointer) {
+        return nullptr;
+    }
+
+    GdkScreen* screen = nullptr;
+    gint rootX = 0;
+    gint rootY = 0;
+    gdk_device_get_position(pointer, &screen, &rootX, &rootY);
+    GdkWindow* rootWindow = screen ? gdk_screen_get_root_window(screen) : nullptr;
+    if (!rootWindow) {
+        return nullptr;
+    }
+
+    GdkEvent* event = gdk_event_new(GDK_BUTTON_PRESS);
+    event->button.window = GDK_WINDOW(g_object_ref(rootWindow));
+    event->button.send_event = TRUE;
+    event->button.time = GDK_CURRENT_TIME;
+    event->button.x = rootX;
+    event->button.y = rootY;
+    event->button.x_root = rootX;
+    event->button.y_root = rootY;
+    event->button.button = 3;
+    gdk_event_set_device(event, pointer);
+    return event;
+}
+
 } // namespace
 
 std::optional<DocumentContextCommand> ShowDocumentContextMenu(const DocumentContextMenu& menu) {
@@ -63,8 +93,17 @@ std::optional<DocumentContextCommand> ShowDocumentContextMenu(const DocumentCont
     g_signal_connect(popup, "deactivate", G_CALLBACK(OnMenuDeactivate), &state);
 
     gtk_widget_show_all(popup);
-    gtk_menu_popup_at_pointer(GTK_MENU(popup), nullptr);
-    gtk_main();
+    GdkEvent* triggerEvent = CreatePopupTriggerEvent();
+    if (!triggerEvent) {
+        gtk_widget_destroy(popup);
+        return std::nullopt;
+    }
+
+    gtk_menu_popup_at_pointer(GTK_MENU(popup), triggerEvent);
+    gdk_event_free(triggerEvent);
+    if (!state.closed) {
+        gtk_main();
+    }
 
     gtk_widget_destroy(popup);
     while (gtk_events_pending()) {

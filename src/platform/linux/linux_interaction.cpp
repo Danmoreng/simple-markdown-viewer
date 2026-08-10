@@ -462,7 +462,12 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
 
-    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+    // Open the GTK popup only after the physical button has been released.
+    // Entering GTK's nested menu loop from GLFW's press callback leaves the
+    // real pointer button held on the GLFW window and can prevent GTK from
+    // completing its popup grab with a normal mouse (synthetic clicks release
+    // too quickly to expose this).
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE) {
         if (ypos < GetContentTopInset()) {
             return;
         }
