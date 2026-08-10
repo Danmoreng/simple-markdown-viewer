@@ -1,8 +1,10 @@
 #include "render/image_cache.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <cmath>
+#include <optional>
 #include <string_view>
 
 #include "util/skia_font_utils.h"
@@ -18,7 +20,6 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "modules/skshaper/include/SkShaper_factory.h"
-#include "modules/svg/include/SkSVGSVG.h"
 #pragma warning(pop)
 
 namespace mdviewer {
@@ -47,6 +48,85 @@ bool IsRemoteImageUrl(std::string_view url) {
         return static_cast<char>(std::tolower(value));
     });
     return lowered.starts_with("https://") || lowered.starts_with("http://");
+}
+
+bool IsSvgAttributeBoundary(char value) {
+    return std::isspace(static_cast<unsigned char>(value)) || value == '<';
+}
+
+std::optional<std::string_view> FindSvgRootAttribute(std::string_view source, std::string_view name) {
+    const size_t rootStart = source.find("<svg");
+    if (rootStart == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const size_t rootEnd = source.find('>', rootStart + 4);
+    if (rootEnd == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    size_t position = rootStart + 4;
+    while ((position = source.find(name, position)) != std::string_view::npos && position < rootEnd) {
+        const size_t nameEnd = position + name.size();
+        if ((position == rootStart + 4 || IsSvgAttributeBoundary(source[position - 1])) &&
+            nameEnd < rootEnd &&
+            (std::isspace(static_cast<unsigned char>(source[nameEnd])) || source[nameEnd] == '=')) {
+            size_t valueStart = nameEnd;
+            while (valueStart < rootEnd && std::isspace(static_cast<unsigned char>(source[valueStart]))) {
+                ++valueStart;
+            }
+            if (valueStart >= rootEnd || source[valueStart] != '=') {
+                return std::nullopt;
+            }
+            ++valueStart;
+            while (valueStart < rootEnd && std::isspace(static_cast<unsigned char>(source[valueStart]))) {
+                ++valueStart;
+            }
+            if (valueStart >= rootEnd || (source[valueStart] != '\'' && source[valueStart] != '"')) {
+                return std::nullopt;
+            }
+            const char quote = source[valueStart++];
+            const size_t valueEnd = source.find(quote, valueStart);
+            if (valueEnd == std::string_view::npos || valueEnd > rootEnd) {
+                return std::nullopt;
+            }
+            return source.substr(valueStart, valueEnd - valueStart);
+        }
+        position = nameEnd;
+    }
+    return std::nullopt;
+}
+
+std::optional<SkSize> ReadSvgViewBoxSize(const std::filesystem::path& imagePath) {
+    const auto data = SkData::MakeFromFileName(imagePath.string().c_str());
+    if (!data || data->size() == 0 || data->size() > kMaxSvgFileBytes) {
+        return std::nullopt;
+    }
+    const std::string_view source(static_cast<const char*>(data->data()), data->size());
+    const auto value = FindSvgRootAttribute(source, "viewBox");
+    if (!value) {
+        return std::nullopt;
+    }
+
+    float numbers[4] = {};
+    size_t position = 0;
+    for (float& number : numbers) {
+        while (position < value->size() &&
+            (std::isspace(static_cast<unsigned char>((*value)[position])) || (*value)[position] == ',')) {
+            ++position;
+        }
+        const char* begin = value->data() + position;
+        const char* end = value->data() + value->size();
+        const auto result = std::from_chars(begin, end, number, std::chars_format::general);
+        if (result.ec != std::errc{} || result.ptr == begin || !std::isfinite(number)) {
+            return std::nullopt;
+        }
+        position = static_cast<size_t>(result.ptr - value->data());
+    }
+
+    if (numbers[2] <= 0.0f || numbers[3] <= 0.0f) {
+        return std::nullopt;
+    }
+    return SkSize::Make(numbers[2], numbers[3]);
 }
 
 void PreloadBlocks(
@@ -305,11 +385,9 @@ DocumentImageCache::CachedImageEntry* DocumentImageCache::GetOrLoadEntry(
                 entry.svgDom = builder.make(stream);
                 if (entry.svgDom) {
                     entry.intrinsicSize = entry.svgDom->containerSize();
-                    if ((entry.intrinsicSize.width() <= 0.0f || entry.intrinsicSize.height() <= 0.0f) &&
-                        entry.svgDom->getRoot() && entry.svgDom->getRoot()->getViewBox()) {
-                        const SkRect& viewBox = *entry.svgDom->getRoot()->getViewBox();
-                        if (viewBox.width() > 0.0f && viewBox.height() > 0.0f) {
-                            entry.intrinsicSize = SkSize::Make(viewBox.width(), viewBox.height());
+                    if (entry.intrinsicSize.width() <= 0.0f || entry.intrinsicSize.height() <= 0.0f) {
+                        if (const auto viewBoxSize = ReadSvgViewBoxSize(imagePath)) {
+                            entry.intrinsicSize = *viewBoxSize;
                         }
                     }
                     const double pixelCount = static_cast<double>(entry.intrinsicSize.width()) *
