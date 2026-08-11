@@ -76,6 +76,10 @@ jobs:
           $stageDir = "dist\mdviewer-windows-x64"
           New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
           Copy-Item "build\Release\mdviewer.exe" "$stageDir\mdviewer.exe"
+          if (-not (Test-Path "build\Release\res\.clatexmath-res_root")) {
+            throw "MicroTeX runtime resources are missing from the Windows build."
+          }
+          Copy-Item "build\Release\res" "$stageDir\res" -Recurse
           Copy-Item "LICENSE" "$stageDir\LICENSE"
           Copy-Item "THIRD_PARTY_NOTICES" "$stageDir\THIRD_PARTY_NOTICES"
           if (Test-Path "README.md") {
