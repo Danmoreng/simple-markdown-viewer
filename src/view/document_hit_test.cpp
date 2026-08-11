@@ -111,7 +111,13 @@ DocumentTextHit HitTestLine(
         fallbackPosition = GetRunTextEnd(run);
 
         if (x <= runEndX || runIndex + 1 == line.runs.size()) {
-            hit.position = callbacks.find_text_position_in_run(block, line, run, x - currentX);
+            if (run.kind == InlineKind::Math) {
+                hit.position = x - currentX < runWidth * 0.5f
+                    ? run.textStart
+                    : run.textStart + run.text.size();
+            } else {
+                hit.position = callbacks.find_text_position_in_run(block, line, run, x - currentX);
+            }
             hit.valid = true;
             hit.url = run.linkTarget.empty() ? run.imageSource : run.linkTarget;
             hit.formatting = run.formatting;

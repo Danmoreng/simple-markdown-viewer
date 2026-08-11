@@ -13,6 +13,7 @@
 #include "platform/linux/linux_viewer_host.h"
 #include "platform/linux/linux_window_icon.h"
 #include "view/document_interaction.h"
+#include "render/math_renderer.h"
 
 namespace mdviewer::linux_platform {
 
@@ -104,6 +105,7 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
     glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "mdviewer");
 
     LinuxApp app;
+    SetMathResourceRoot(LinuxApp::GetLegacyExecutableConfigPath().parent_path() / "res");
     app.Controller().SetConfigPath(LinuxApp::GetUserConfigPath());
     app.Controller().SetLegacyConfigPath(LinuxApp::GetLegacyExecutableConfigPath());
     app.Controller().LoadConfig();

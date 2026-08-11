@@ -1644,6 +1644,162 @@ void SyntaxHighlightingCacheAndFallback() {
         "unknown language tags should remain an expected plain-text fallback");
 }
 
+void LatexMathParsingLayoutAndFallback() {
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
+        "Euler: $e^{i\\pi}+1=0$ is inline.\n\n"
+        "$$\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$\n\n"
+        "Code stays literal: `$not_math$`.\n\n"
+        "Linked formula: [$x^2$](https://example.com/math).\n\n"
+        "Ordinary currency: $5.00.\n");
+
+    RequireEqual(document.blocks.size(), static_cast<size_t>(5), "math fixture should produce five paragraphs");
+    const auto findMathRun = [](const mdviewer::Block& block) -> const mdviewer::InlineRun* {
+        const auto found = std::find_if(block.inlineRuns.begin(), block.inlineRuns.end(), [](const auto& run) {
+            return run.kind == mdviewer::InlineKind::Math;
+        });
+        return found == block.inlineRuns.end() ? nullptr : &*found;
+    };
+
+    const mdviewer::InlineRun* inlineMath = findMathRun(document.blocks[0]);
+    Require(inlineMath != nullptr, "md4c should recognize inline dollar math");
+    RequireEqual(inlineMath->mathSource, std::string("e^{i\\pi}+1=0"), "inline math should retain delimiter-free render source");
+    RequireEqual(inlineMath->text, std::string("$e^{i\\pi}+1=0$"), "inline math should retain copyable Markdown source");
+    Require(!inlineMath->mathDisplay, "single-dollar math should use inline style");
+
+    const mdviewer::InlineRun* displayMath = findMathRun(document.blocks[1]);
+    Require(displayMath != nullptr && displayMath->mathDisplay, "double-dollar math should use display style");
+    RequireEqual(
+        displayMath->mathSource,
+        std::string("\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}"),
+        "display math should preserve TeX commands");
+
+    Require(findMathRun(document.blocks[2]) == nullptr, "inline code should suppress math parsing");
+    const mdviewer::InlineRun* linkedMath = findMathRun(document.blocks[3]);
+    Require(linkedMath != nullptr, "math should remain available inside links");
+    RequireEqual(linkedMath->linkTarget, std::string("https://example.com/math"), "math should retain its link target");
+    Require(findMathRun(document.blocks[4]) == nullptr, "a normal unmatched currency dollar should remain ordinary text without escaping");
+
+    const mdviewer::DocumentModel ordinaryDollars = mdviewer::MarkdownParser::Parse(
+        "One unmatched dollar: $5.00.\n\n"
+        "Two ordinary prices: $5.00 and $10.00.\n\n"
+        "Shell variables: $HOME and $PATH.\n\n"
+        "A dollar-wrapped word stays literal: $sale$.\n\n"
+        "An unmatched double marker stays literal: $$.\n\n"
+        "Intentional math remains: $x$ and $x + y$.\n");
+    RequireEqual(ordinaryDollars.blocks.size(), static_cast<size_t>(6), "dollar regression fixture should produce six paragraphs");
+    for (size_t index = 0; index < 5; ++index) {
+        Require(
+            findMathRun(ordinaryDollars.blocks[index]) == nullptr,
+            "ordinary prices, shell variables, words, and unmatched dollars must remain Markdown text");
+    }
+    RequireEqual(
+        std::count_if(
+            ordinaryDollars.blocks[5].inlineRuns.begin(),
+            ordinaryDollars.blocks[5].inlineRuns.end(),
+            [](const auto& run) { return run.kind == mdviewer::InlineKind::Math; }),
+        static_cast<std::ptrdiff_t>(2),
+        "unambiguous inline formulas should still render as math");
+
+    const mdviewer::DocumentModel matrixDocument = mdviewer::MarkdownParser::Parse(
+        "$$\n"
+        "A = \\begin{pmatrix}\n"
+        "  a & b \\\\ \n"
+        "  c & d\n"
+        "\\end{pmatrix}\n"
+        "$$\n");
+    RequireEqual(matrixDocument.blocks.size(), static_cast<size_t>(1), "multiline matrix should remain one paragraph");
+    RequireEqual(matrixDocument.blocks[0].inlineRuns.size(), static_cast<size_t>(1), "all md4c callbacks inside one math span should aggregate into one run");
+    const auto& matrixRun = matrixDocument.blocks[0].inlineRuns.front();
+    Require(matrixRun.kind == mdviewer::InlineKind::Math && matrixRun.mathDisplay, "multiline matrix should remain one display-math run");
+    Require(
+        matrixRun.mathSource.find("\\begin{pmatrix}") != std::string::npos &&
+            matrixRun.mathSource.find("\\end{pmatrix}") != std::string::npos &&
+            matrixRun.mathSource.find("a & b \\\\") != std::string::npos,
+        "multiline matrix callbacks should preserve the complete TeX environment");
+
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontManager);
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        document, 760.0f, typeface.get(), 17.0f);
+    const mdviewer::DocumentLayout matrixLayout = mdviewer::LayoutEngine::ComputeLayout(
+        matrixDocument, 760.0f, typeface.get(), 17.0f);
+    Require(
+        matrixLayout.blocks.size() == 1 && matrixLayout.blocks[0].lines.size() == 1 &&
+            matrixLayout.blocks[0].lines[0].runs.size() == 1 &&
+            matrixLayout.blocks[0].lines[0].runs[0].mathLayout.valid,
+        "multiline pmatrix should produce one valid native math layout");
+    Require(
+        layout.plainText.find("$e^{i\\pi}+1=0$") != std::string::npos &&
+            layout.plainText.find("$$\\frac") != std::string::npos,
+        "copy/search text should preserve both kinds of math delimiters");
+
+    const mdviewer::RunLayout* inlineLayout = nullptr;
+    for (const auto& run : layout.blocks[0].lines.front().runs) {
+        if (run.kind == mdviewer::InlineKind::Math) inlineLayout = &run;
+    }
+    Require(inlineLayout != nullptr && inlineLayout->mathLayout.valid, "inline formula should produce native MicroTeX layout");
+    Require(inlineLayout->visualWidth > 0.0f, "inline formula should reserve visual width");
+    const sk_sp<SkSurface> mathSurface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(320, 120));
+    Require(mathSurface != nullptr, "math drawing regression should create a raster surface");
+    mathSurface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    mdviewer::DrawMath(
+        mathSurface->getCanvas(),
+        inlineLayout->mathLayout,
+        8.0f,
+        8.0f,
+        SK_ColorBLACK);
+    SkPixmap mathPixels;
+    Require(mathSurface->peekPixels(&mathPixels), "math drawing pixels should be readable");
+    bool hasMathPixel = false;
+    for (int y = 0; y < mathPixels.height() && !hasMathPixel; ++y) {
+        for (int x = 0; x < mathPixels.width(); ++x) {
+            if (SkColorGetA(*mathPixels.addr32(x, y)) != 0) {
+                hasMathPixel = true;
+                break;
+            }
+        }
+    }
+    Require(hasMathPixel, "native MicroTeX drawing should produce visible Skia pixels");
+
+    const auto& displayLine = layout.blocks[1].lines.front();
+    RequireEqual(displayLine.runs.size(), static_cast<size_t>(1), "display formula should occupy a dedicated line");
+    Require(displayLine.runs.front().mathLayout.valid, "display formula should produce native MicroTeX layout");
+    Require(displayLine.x > layout.blocks[1].bounds.left(), "display formula should be centered in its content width");
+
+    const std::vector<std::string> representativeMath = {
+        "\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}",
+        "\\begin{pmatrix}a & b \\\\ c & d\\end{pmatrix}",
+        "\\left\\lVert \\vec{v} \\right\\rVert = \\sqrt{x^2+y^2}",
+    };
+    for (const auto& source : representativeMath) {
+        Require(
+            mdviewer::LayoutMath(source, true, 17.0f, 600.0f).valid,
+            "representative operators, matrices, accents, and delimiters should be supported");
+    }
+
+    mdviewer::HitTestCallbacks callbacks;
+    callbacks.get_run_visual_width = [](const auto&, const auto&, const auto& run) { return run.visualWidth; };
+    callbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) {
+        return run.textStart;
+    };
+    callbacks.get_block_horizontal_scroll = [](const auto&) { return 0.0f; };
+    const mdviewer::DocumentTextHit rightHalfHit = mdviewer::HitTestDocument(
+        layout,
+        0.0f,
+        0.0f,
+        displayLine.x + displayLine.runs.front().visualWidth * 0.75f,
+        displayLine.y + displayLine.height * 0.5f,
+        callbacks);
+    RequireEqual(
+        rightHalfHit.position,
+        displayLine.runs.front().textStart + displayLine.runs.front().text.size(),
+        "math hit testing should treat a formula as one atomic selectable run");
+
+    const mdviewer::MathLayout oversized = mdviewer::LayoutMath(
+        std::string(8193, 'x'), false, 17.0f, 600.0f);
+    Require(!oversized.valid, "oversized math input should use the safe source fallback");
+}
+
 void ScrollAnchorPreservesReadingPosition() {
     std::ostringstream source;
     for (int index = 0; index < 30; ++index) {
@@ -1733,6 +1889,7 @@ int main() {
         {"PdfExportWritesFile", PdfExportWritesFile},
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},
         {"SyntaxHighlightingCacheAndFallback", SyntaxHighlightingCacheAndFallback},
+        {"LatexMathParsingLayoutAndFallback", LatexMathParsingLayoutAndFallback},
         {"ScrollAnchorPreservesReadingPosition", ScrollAnchorPreservesReadingPosition},
     };
 

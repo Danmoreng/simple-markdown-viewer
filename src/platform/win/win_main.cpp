@@ -15,6 +15,7 @@
 #include "platform/win/win_crash_handler.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_window.h"
+#include "render/math_renderer.h"
 
 namespace {
     mdviewer::win::WinApp g_app;
@@ -90,6 +91,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     mdviewer::win::InstallCrashHandler(mdviewer::win::WinApp::GetUserConfigPath().parent_path());
+    mdviewer::SetMathResourceRoot(
+        mdviewer::win::WinApp::GetLegacyExecutableConfigPath().parent_path() / L"res");
 
     g_app.Controller().SetConfigPath(mdviewer::win::WinApp::GetUserConfigPath());
     g_app.Controller().SetLegacyConfigPath(mdviewer::win::WinApp::GetLegacyExecutableConfigPath());

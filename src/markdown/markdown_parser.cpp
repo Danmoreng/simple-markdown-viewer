@@ -459,6 +459,13 @@ struct ParserContext {
         std::string source;
     };
     std::vector<ImageContext> imageStack;
+    struct MathContext {
+        bool active = false;
+        bool display = false;
+        Block* block = nullptr;
+        size_t runIndex = 0;
+    };
+    std::vector<MathContext> mathStack;
     struct InlineHtmlContext {
         std::string tagName;
         InlineFormatting formatting = InlineFormatting::None;
@@ -470,6 +477,7 @@ struct ParserContext {
         formattingStack.push_back(InlineFormatting::None);
         linkTargetStack.push_back("");
         imageStack.push_back({});
+        mathStack.push_back({});
         inlineHtmlStack.push_back({});
     }
 
@@ -693,6 +701,19 @@ static int LeaveBlockImpl(MD_BLOCKTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
+static bool IsLikelyInlineMath(std::string_view source) {
+    source = TrimAscii(source);
+    if (source.size() == 1 && std::isalpha(static_cast<unsigned char>(source.front()))) {
+        return true;
+    }
+
+    // Dollar-delimited prose and identifiers are common in otherwise normal
+    // Markdown (prices, shell variables, template text). Require an actual TeX
+    // command or mathematical syntax before changing their presentation.
+    return source.find('\\') != std::string_view::npos ||
+        source.find_first_of("^_{}=+*/<>|&") != std::string_view::npos;
+}
+
 static int EnterSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     auto* ctx = static_cast<ParserContext*>(userdata);
     if (ctx->formattingStack.size() >= kMaxMarkdownNestingDepth) {
@@ -717,6 +738,23 @@ static int EnterSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
         image.source = AttributeToString(img->src);
     }
     ctx->imageStack.push_back(std::move(image));
+
+    ParserContext::MathContext math = ctx->mathStack.back();
+    if (type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY) {
+        math.active = true;
+        math.display = type == MD_SPAN_LATEXMATH_DISPLAY;
+        math.block = ctx->CurrentBlock();
+        if (math.block != nullptr) {
+            math.runIndex = math.block->inlineRuns.size();
+            math.block->inlineRuns.push_back(InlineRun{
+                .formatting = ctx->formattingStack.back() | ctx->inlineHtmlStack.back().formatting,
+                .kind = InlineKind::Math,
+                .linkTarget = ctx->linkTargetStack.back(),
+                .mathDisplay = math.display,
+            });
+        }
+    }
+    ctx->mathStack.push_back(math);
 
     return 0;
 }
@@ -1234,9 +1272,22 @@ static void ExpandGithubAlerts(std::vector<Block>& blocks) {
 }
 
 static int LeaveSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
-    (void)type;
     (void)detail;
     auto* ctx = static_cast<ParserContext*>(userdata);
+    if ((type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY) &&
+        !ctx->mathStack.empty()) {
+        const ParserContext::MathContext& math = ctx->mathStack.back();
+        if (math.active && math.block != nullptr && math.runIndex < math.block->inlineRuns.size()) {
+            InlineRun& run = math.block->inlineRuns[math.runIndex];
+            const std::string delimiter = math.display ? "$$" : "$";
+            run.text = delimiter + run.mathSource + delimiter;
+            if (!math.display && !IsLikelyInlineMath(run.mathSource)) {
+                run.kind = InlineKind::Text;
+                run.mathSource.clear();
+                run.mathDisplay = false;
+            }
+        }
+    }
     if (ctx->formattingStack.size() > 1) {
         ctx->formattingStack.pop_back();
     }
@@ -1245,6 +1296,9 @@ static int LeaveSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     }
     if (ctx->imageStack.size() > 1) {
         ctx->imageStack.pop_back();
+    }
+    if (ctx->mathStack.size() > 1) {
+        ctx->mathStack.pop_back();
     }
     return 0;
 }
@@ -1284,6 +1338,13 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
                 str.assign(text, size);
             }
             break;
+        }
+        case MD_TEXT_LATEXMATH: {
+            const ParserContext::MathContext& math = ctx->mathStack.back();
+            if (math.active && math.block != nullptr && math.runIndex < math.block->inlineRuns.size()) {
+                math.block->inlineRuns[math.runIndex].mathSource.append(text, size);
+            }
+            return 0;
         }
         default:
             str.assign(text, size);
@@ -1358,7 +1419,7 @@ DocumentModel MarkdownParser::Parse(const std::string& source) {
     ParserContext ctx;
     MD_PARSER parser = {0};
     parser.abi_version = 0;
-    parser.flags = MD_DIALECT_GITHUB | MD_FLAG_PERMISSIVEATXHEADERS;
+    parser.flags = MD_DIALECT_GITHUB | MD_FLAG_PERMISSIVEATXHEADERS | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = EnterBlockCallback;
     parser.leave_block = LeaveBlockCallback;
     parser.enter_span = EnterSpanCallback;

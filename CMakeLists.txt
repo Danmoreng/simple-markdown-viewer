@@ -24,6 +24,38 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
+# MicroTeX - Native TeX math layout. md4c recognizes the delimiters while
+# MicroTeX turns the formula source into a platform-independent box tree.
+set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    tinyxml2
+    GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+    GIT_TAG        9.0.0
+)
+FetchContent_Declare(
+    microtex
+    GIT_REPOSITORY https://github.com/NanoMichael/MicroTeX.git
+    GIT_TAG        0e3707f6dafebb121d98b53c64364d16fefe481d
+    SOURCE_SUBDIR  cmake-unused
+)
+FetchContent_MakeAvailable(tinyxml2 microtex)
+
+file(GLOB_RECURSE MICROTEX_SOURCES CONFIGURE_DEPENDS
+    "${microtex_SOURCE_DIR}/src/atom/*.cpp"
+    "${microtex_SOURCE_DIR}/src/box/*.cpp"
+    "${microtex_SOURCE_DIR}/src/core/*.cpp"
+    "${microtex_SOURCE_DIR}/src/fonts/*.cpp"
+    "${microtex_SOURCE_DIR}/src/res/*.cpp"
+    "${microtex_SOURCE_DIR}/src/utils/*.cpp"
+)
+list(APPEND MICROTEX_SOURCES
+    "${microtex_SOURCE_DIR}/src/latex.cpp"
+    "${microtex_SOURCE_DIR}/src/render.cpp")
+add_library(microtex STATIC ${MICROTEX_SOURCES})
+target_include_directories(microtex PUBLIC "${microtex_SOURCE_DIR}/src")
+target_link_libraries(microtex PRIVATE tinyxml2::tinyxml2)
+target_compile_features(microtex PUBLIC cxx_std_17)
+
 # utf8proc - Portable Unicode case conversion for GitHub-style heading anchors.
 set(UTF8PROC_INSTALL OFF CACHE BOOL "" FORCE)
 set(UTF8PROC_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -223,6 +255,8 @@ set(SOURCES
     src/render/document_typefaces.cpp
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
+    src/render/math_renderer.cpp
+    src/render/microtex_skia_adapter.cpp
     src/render/pdf_exporter.cpp
     src/render/print_document.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
@@ -288,7 +322,7 @@ endif()
 target_compile_definitions(mdviewer PRIVATE
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
 
-target_link_libraries(mdviewer PRIVATE utf8proc)
+target_link_libraries(mdviewer PRIVATE utf8proc microtex)
 
 target_include_directories(mdviewer PRIVATE 
     src
@@ -380,7 +414,20 @@ if(MSVC)
     set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set_property(TARGET utf8proc PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET tinyxml2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET microtex PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+
+add_custom_command(TARGET mdviewer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:mdviewer>/res"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:mdviewer>/res"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${microtex_SOURCE_DIR}/res/fonts"
+        "$<TARGET_FILE_DIR:mdviewer>/res/fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${microtex_SOURCE_DIR}/res/.clatexmath-res_root"
+        "${microtex_SOURCE_DIR}/res/RES_README"
+        "$<TARGET_FILE_DIR:mdviewer>/res")
 
 add_executable(mdviewer_tests
     tests/unit_tests.cpp
@@ -394,6 +441,8 @@ add_executable(mdviewer_tests
     src/render/document_renderer.cpp
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
+    src/render/math_renderer.cpp
+    src/render/microtex_skia_adapter.cpp
     src/render/pdf_exporter.cpp
     src/render/print_document.cpp
     src/render/syntax/tree_sitter_highlighter.cpp
@@ -414,7 +463,7 @@ add_executable(mdviewer_tests
 target_compile_definitions(mdviewer_tests PRIVATE
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
 
-target_link_libraries(mdviewer_tests PRIVATE utf8proc)
+target_link_libraries(mdviewer_tests PRIVATE utf8proc microtex)
 
 target_include_directories(mdviewer_tests PRIVATE
     src
@@ -492,6 +541,17 @@ if(MSVC)
     set_property(TARGET mdviewer_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
+add_custom_command(TARGET mdviewer_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:mdviewer_tests>/res"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:mdviewer_tests>/res"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${microtex_SOURCE_DIR}/res/fonts"
+        "$<TARGET_FILE_DIR:mdviewer_tests>/res/fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${microtex_SOURCE_DIR}/res/.clatexmath-res_root"
+        "${microtex_SOURCE_DIR}/res/RES_README"
+        "$<TARGET_FILE_DIR:mdviewer_tests>/res")
+
 if(MDVIEWER_ENABLE_SANITIZERS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         foreach(target mdviewer mdviewer_tests)
@@ -510,3 +570,5 @@ if(MDVIEWER_ENABLE_SANITIZERS)
 endif()
 
 add_test(NAME mdviewer_unit_tests COMMAND mdviewer_tests)
+set_tests_properties(mdviewer_unit_tests PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:mdviewer_tests>")

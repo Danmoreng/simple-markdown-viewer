@@ -45,6 +45,7 @@ The current implementation already includes:
 - [x] Windows live reload when the current file changes
 - [x] a Linux host in-tree and working on the shared controller/render/view stack
 - [x] shared custom top-bar layout, drawing, toolbar hit testing, and dropdown drawing in `src/render/menu_renderer.*`
+- [x] native browser-free LaTeX math rendering with conservative dollar-sign handling and source-preserving interaction
 
 ## Milestone 1: Plan Hygiene and Test Coverage
 
@@ -225,7 +226,17 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
   - [ ] Cache rendered diagrams by source hash.
   - [ ] Fall back to the original code block plus an error message when rendering fails.
   - [ ] Defer this until the Rust/Cargo build dependency and CI/release impact are acceptable.
-- [ ] Optional math rendering with safe fallback and copy-source support.
+- [x] Native browser-free math rendering for Markdown.
+  - [x] Recognize md4c `$...$` and `$$...$$` math spans without a Markdown source-rewriting pass.
+  - [x] Keep normal prices, shell variables, unmatched dollar signs, and dollar-wrapped prose as ordinary Markdown text through conservative inline-math classification.
+  - [x] Aggregate multiline md4c callbacks into one formula so environments such as matrices remain intact.
+  - [x] Render inline and centered display mathematics through pinned MicroTeX and the shared Skia renderer on Windows and Linux.
+  - [x] Support common mathematical notation including fractions, roots, scripts, large operators, matrices, accents, and scalable delimiters.
+  - [x] Preserve copyable formula source with delimiters for selection, search, copying, links, and atomic hit testing.
+  - [x] Reuse the shared Skia formula renderer for normal viewing, print, and PDF output.
+  - [x] Bound formula source size/nesting and retain unsupported or failed formulas as visible source fallback.
+  - [x] Package the required math fonts and their license notices with application runtime resources.
+  - [x] Add parser, layout, drawing, interaction, ordinary-dollar, multiline-matrix, and runtime regression coverage plus a manual fixture.
 - [ ] Definition lists.
 - [ ] Wiki links.
 - [ ] Command palette.
@@ -243,4 +254,5 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [x] Should local links outside the current document tree require confirmation? No; warn only for executable local files.
 - [ ] Should print/export preserve the active theme or always use a print-friendly theme?
 - [ ] What level of accessibility is expected for a custom-rendered document surface?
-- [ ] Should diagrams and math become first-class features or stay optional enhancements?
+- [ ] Should diagrams become a first-class feature or stay an optional enhancement?
+- [x] Should math become a first-class feature or stay an optional enhancement? Treat native math rendering as a built-in Markdown feature with conservative recognition and source fallback.

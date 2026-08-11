@@ -71,6 +71,7 @@ mkdir -p \
 
 cp "$BINARY" "$STAGE_DIR/bin/mdviewer"
 strip --strip-unneeded "$STAGE_DIR/bin/mdviewer"
+cp -R "$BUILD_DIR/res" "$STAGE_DIR/bin/res"
 cp LICENSE THIRD_PARTY_NOTICES README.md "$STAGE_DIR/"
 cp resources/linux/mdviewer.desktop "$STAGE_DIR/share/applications/"
 cp resources/linux/mdviewer.png "$STAGE_DIR/share/icons/hicolor/128x128/apps/mdviewer.png"

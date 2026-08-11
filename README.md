@@ -12,6 +12,7 @@ It is built with:
 - md4c for Markdown parsing
 - utf8proc for portable Unicode heading anchors
 - Tree-sitter for parser-based code syntax highlighting
+- MicroTeX for native LaTeX math layout
 
 ## Screenshot
 
@@ -49,6 +50,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
   - CommonMark soft breaks as flowing whitespace and explicit hard breaks as visible line breaks
   - a browser-free HTML allowlist for GitHub-style centered paragraphs/headings, links, local images, `<br>`, keyboard keys, subscript/superscript, and native collapsible details; unsupported or unsafe HTML remains visible as source
   - GitHub-style note, tip, important, warning, and caution alerts with native colors and icons
+  - native, browser-free LaTeX mathematics in conservatively recognized `$...$` and explicit `$$...$$`, including fractions, roots, scripts, large operators, matrices, accents, scalable delimiters, selection/search/copy source preservation, and a visible source fallback; ordinary prices, shell variables, unmatched dollar signs, and dollar-wrapped prose remain text
   - decoded Markdown entities
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, requested HTML dimensions, and no forced upscaling beyond intrinsic size; SVGs may derive their intrinsic size from `width`/`height` or `viewBox`, while SVG HTML `<foreignObject>` content is not supported
 - Navigation:
@@ -252,6 +254,16 @@ Direct dependencies:
   - version: `v2.11.3`
   - license: MIT, including Unicode data under the bundled Unicode data license
   - local license file: `build/_deps/utf8proc-src/LICENSE.md`
+- `MicroTeX`
+  - role: native TeX math layout rendered through Skia
+  - version: commit `0e3707f6dafebb121d98b53c64364d16fefe481d`
+  - license: MIT; bundled math-font licenses are copied with the runtime resources
+  - local license file: `build/_deps/microtex-src/LICENSE`
+- `tinyxml2`
+  - role: loading MicroTeX's bundled font metadata
+  - version: `9.0.0`
+  - license: Zlib
+  - local license file: `build/_deps/tinyxml2-src/LICENSE.txt`
 - `Tree-sitter`
   - role: parser-based syntax highlighting for fenced code blocks
   - license: MIT

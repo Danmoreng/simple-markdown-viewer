@@ -90,7 +90,7 @@ std::string TrimTableCell(std::string value) {
 
 void AppendTableCellText(const Block& block, std::string& output) {
     for (const auto& run : block.inlineRuns) {
-        if (run.kind == InlineKind::Text || run.kind == InlineKind::Image) {
+        if (run.kind == InlineKind::Text || run.kind == InlineKind::Image || run.kind == InlineKind::Math) {
             output += run.text;
         } else if (!output.empty() && output.back() != ' ') {
             output.push_back(' ');
@@ -495,6 +495,68 @@ private:
                 currentLineWidth = 0.0f;
                 continue;
             }
+            if (run.kind == InlineKind::Math) {
+                if (run.mathDisplay && !currentLine.runs.empty()) {
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
+                    PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
+                    currentX = 0.0f;
+                    currentLineWidth = 0.0f;
+                }
+
+                ConfigureInlineFont(blockType, run.formatting);
+                MathLayout mathLayout = LayoutMath(
+                    run.mathSource,
+                    run.mathDisplay,
+                    font.getSize(),
+                    wrapWidth);
+                const float fallbackWidth = std::min(
+                    font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8),
+                    wrapWidth);
+                const float mathWidth = mathLayout.valid ? mathLayout.width : fallbackWidth;
+                const float mathHeight = mathLayout.valid ? mathLayout.height : lineHeight;
+
+                if (!run.mathDisplay && currentX + mathWidth > wrapWidth && currentX > 0.0f) {
+                    maxContentWidth = std::max(maxContentWidth, currentLineWidth);
+                    PushCurrentLine(lines, currentLine, lineY, lineHeight, contentLeft, wrapWidth, currentLineWidth, align);
+                    currentX = 0.0f;
+                    currentLineWidth = 0.0f;
+                }
+
+                currentLine.runs.push_back(RunLayout{
+                    .formatting = run.formatting,
+                    .kind = InlineKind::Math,
+                    .syntaxRole = run.syntaxRole,
+                    .text = run.text,
+                    .mathSource = run.mathSource,
+                    .textStart = currentTextOffset,
+                    .visualWidth = mathWidth,
+                    .mathDisplay = run.mathDisplay,
+                    .mathLayout = std::move(mathLayout),
+                    .linkTarget = run.linkTarget,
+                });
+                currentLine.textLength += run.text.size();
+                plainText += run.text;
+                currentTextOffset += run.text.size();
+                currentLine.height = std::max(currentLine.height, mathHeight + (run.mathDisplay ? 10.0f : 2.0f));
+                currentLineWidth = currentX + mathWidth;
+                currentX = currentLineWidth;
+                maxContentWidth = std::max(maxContentWidth, currentLineWidth);
+
+                if (run.mathDisplay) {
+                    PushCurrentLine(
+                        lines,
+                        currentLine,
+                        lineY,
+                        lineHeight,
+                        contentLeft,
+                        wrapWidth,
+                        currentLineWidth,
+                        TextAlign::Center);
+                    currentX = 0.0f;
+                    currentLineWidth = 0.0f;
+                }
+                continue;
+            }
             if (run.kind == InlineKind::Image) {
                 float imgDisplayW, imgDisplayH;
                 float actualW = 0.0f, actualH = 0.0f;
@@ -719,7 +781,7 @@ private:
     void AddHeadingAnchor(const Block& block, float y) {
         std::string text;
         for (const auto& run : block.inlineRuns) {
-            if (run.kind == InlineKind::Text) {
+            if (run.kind == InlineKind::Text || run.kind == InlineKind::Math) {
                 text += run.text;
             } else if (run.kind == InlineKind::SoftBreak || run.kind == InlineKind::HardBreak) {
                 text += ' ';
@@ -787,6 +849,19 @@ private:
                     const auto size = imageSizeProvider(run.imageSource);
                     width += std::max(size.first, 0.0f);
                 }
+                continue;
+            }
+
+            if (run.kind == InlineKind::Math) {
+                ConfigureInlineFont(blockType, run.formatting);
+                const MathLayout layout = LayoutMath(
+                    run.mathSource,
+                    run.mathDisplay,
+                    font.getSize(),
+                    kMaxTableColumnWidth);
+                width += layout.valid
+                    ? layout.width
+                    : font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
                 continue;
             }
 

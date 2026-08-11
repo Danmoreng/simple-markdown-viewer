@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include "layout/document_model.h"
+#include "render/math_renderer.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "include/core/SkRect.h"
 
@@ -18,10 +19,13 @@ struct RunLayout {
     SyntaxRole syntaxRole = SyntaxRole::None;
     std::string text;
     std::string imageSource;
+    std::string mathSource;
     size_t textStart = 0;
     float imageWidth = 0.0f;
     float imageHeight = 0.0f;
     float visualWidth = 0.0f;
+    bool mathDisplay = false;
+    MathLayout mathLayout;
     std::string linkTarget;
 };
 

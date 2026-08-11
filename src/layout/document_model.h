@@ -64,6 +64,7 @@ constexpr bool HasFormatting(InlineFormatting value, InlineFormatting flag) {
 enum class InlineKind {
     Text,
     Image,
+    Math,
     SoftBreak,
     HardBreak,
 };
@@ -102,9 +103,11 @@ struct InlineRun {
     SyntaxRole syntaxRole = SyntaxRole::None;
     std::string text;
     std::string imageSource;
+    std::string mathSource;
     std::string linkTarget;
     float imageRequestedWidth = 0.0f;
     float imageRequestedHeight = 0.0f;
+    bool mathDisplay = false;
 };
 
 enum class AlertKind {

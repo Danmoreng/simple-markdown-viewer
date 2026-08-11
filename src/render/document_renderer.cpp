@@ -410,8 +410,12 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
             HasFormatting(run.formatting, InlineFormatting::Code) ||
             HasFormatting(run.formatting, InlineFormatting::Keyboard);
         const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
-        const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
-        const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
+        const float highlightLeft = run.kind == InlineKind::Math
+            ? currentX
+            : currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
+        const float highlightRight = run.kind == InlineKind::Math
+            ? currentX + runWidth
+            : currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
 
         SkPaint highlightPaint;
         highlightPaint.setAntiAlias(true);
@@ -504,8 +508,12 @@ void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, co
                 HasFormatting(run.formatting, InlineFormatting::Code) ||
                 HasFormatting(run.formatting, InlineFormatting::Keyboard);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
-            const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
-            const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
+            const float highlightLeft = run.kind == InlineKind::Math
+                ? currentX
+                : currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
+            const float highlightRight = run.kind == InlineKind::Math
+                ? currentX + runWidth
+                : currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
 
             SkPaint highlightPaint;
             highlightPaint.setAntiAlias(true);
@@ -558,8 +566,12 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
                 HasFormatting(run.formatting, InlineFormatting::Code) ||
                 HasFormatting(run.formatting, InlineFormatting::Keyboard);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
-            const float highlightLeft = currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
-            const float highlightRight = currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
+            const float highlightLeft = run.kind == InlineKind::Math
+                ? currentX
+                : currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
+            const float highlightRight = run.kind == InlineKind::Math
+                ? currentX + runWidth
+                : currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
             const bool isCurrent = currentMatch && currentMatch->first == match.first && currentMatch->second == match.second;
 
             SkPaint strokePaint;
@@ -922,6 +934,64 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             }
 
             currentX += displayW + 4.0f;
+            continue;
+        }
+
+        if (run.kind == InlineKind::Math) {
+            const bool isLink = !run.linkTarget.empty();
+            const SkColor mathColor = GetDocumentTextColor(
+                params.palette,
+                block.type,
+                run.formatting,
+                run.syntaxRole,
+                isLink);
+            if (run.mathLayout.valid) {
+                DrawMath(
+                    ctx.canvas,
+                    run.mathLayout,
+                    currentX,
+                    line.y + ((line.height - run.mathLayout.height) * 0.5f),
+                    mathColor);
+            } else {
+                SkPaint fallbackPaint;
+                fallbackPaint.setAntiAlias(true);
+                fallbackPaint.setColor(params.palette.codeInlineBackground);
+                ctx.canvas->drawRoundRect(
+                    SkRect::MakeLTRB(
+                        currentX - 2.0f,
+                        line.y + 1.0f,
+                        currentX + advance + 2.0f,
+                        line.y + line.height - 1.0f),
+                    3.0f,
+                    3.0f,
+                    fallbackPaint);
+                ctx.paint.setColor(mathColor);
+                ctx.canvas->save();
+                ctx.canvas->clipRect(SkRect::MakeXYWH(currentX, line.y, advance, line.height));
+                DrawTextWithFallback(
+                    ctx.canvas,
+                    params.typefaces,
+                    run.text.c_str(),
+                    run.text.size(),
+                    currentX,
+                    baselineY,
+                    ctx.font,
+                    ctx.paint);
+                ctx.canvas->restore();
+            }
+            if (isLink && advance > 0.0f) {
+                SkPaint underlinePaint;
+                underlinePaint.setAntiAlias(true);
+                underlinePaint.setStrokeWidth(1.0f);
+                underlinePaint.setColor(mathColor);
+                ctx.canvas->drawLine(
+                    currentX,
+                    line.y + line.height - 1.0f,
+                    currentX + advance,
+                    line.y + line.height - 1.0f,
+                    underlinePaint);
+            }
+            currentX += advance;
             continue;
         }
 
