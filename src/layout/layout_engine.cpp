@@ -437,7 +437,7 @@ public:
                 std::vector<InlineRun> highlightedCodeRuns;
                 if (block.type == BlockType::CodeBlock) {
                     syntax::HighlightResult highlightResult =
-                        syntax::HighlightCodeBlock(block.codeLanguage, block.inlineRuns);
+                        syntax::HighlightCodeBlock(block.codeLanguage, block.inlineRuns, options.syntaxHighlight);
                     highlightedCodeRuns = std::move(highlightResult.runs);
                     bl.codeHighlightStatus = highlightResult.status;
                 }

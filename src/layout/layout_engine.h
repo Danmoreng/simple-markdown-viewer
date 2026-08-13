@@ -124,6 +124,7 @@ struct LayoutOptions {
     bool fitHorizontalOverflow = false;
     bool reserveHorizontalScrollbarSpace = true;
     float minimumHorizontalFitScale = 0.72f;
+    syntax::HighlightOptions syntaxHighlight = {};
 };
 
 class LayoutEngine {

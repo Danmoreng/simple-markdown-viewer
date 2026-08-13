@@ -1221,7 +1221,14 @@ void BidirectionalMarkdownBaseline() {
         document,
         1200.0f,
         typefaces,
-        mdviewer::kDefaultBaseFontSize);
+        mdviewer::kDefaultBaseFontSize,
+        nullptr,
+        mdviewer::LayoutOptions{
+            .syntaxHighlight = mdviewer::syntax::HighlightOptions{
+                .timeBudget = std::chrono::seconds(5),
+                .useCache = false,
+            },
+        });
 
     const mdviewer::BlockLayout* laidOutCode =
         FindLayoutBlockOfType(layout.blocks, mdviewer::BlockType::CodeBlock);
