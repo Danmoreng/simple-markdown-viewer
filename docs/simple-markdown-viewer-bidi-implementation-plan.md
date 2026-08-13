@@ -51,7 +51,7 @@ The parser does **not** need to be replaced. The correct implementation is a sha
 
 Use the following stack:
 
-- **HarfBuzz shaping:** `SkShapers::HB::ShapeThenWrap`
+- **HarfBuzz shaping:** `SkShapers::HB::ShaperDrivenWrapper`
 - **Unicode/BiDi and break iteration:** `SkUnicodes::ICU::Make()`
 - **BiDi iterator:** `SkShapers::unicode::BidiRunIterator(...)`
 - **Script segmentation:** `SkShapers::HB::ScriptRunIterator(...)`
@@ -59,7 +59,7 @@ Use the following stack:
 - **Rendering:** `SkCanvas::drawGlyphs(...)` with shaped glyph IDs, positions, clusters, and run-local UTF-8
 - **Logical text:** retain the existing `DocumentLayout::plainText` byte-offset model
 
-Use the ICU-backed shaper deliberately. `ShapeThenWrap` relies on Unicode line and grapheme break iterators; enabling only Skia's small BiDi subset would require recreating substantial wrapping logic and would increase correctness risk. Binary-size optimization can be evaluated later as a separate change.
+Use the ICU-backed shaper deliberately. `ShaperDrivenWrapper` relies on Unicode line and grapheme break iterators and keeps break positions paragraph-relative across Markdown style and soft-break run boundaries. The pinned Skia `ShapeThenWrap` implementation evaluates breaks per segmented run and can consequently split ordinary words after those boundaries. Enabling only Skia's small BiDi subset would require recreating substantial wrapping logic and would increase correctness risk. Binary-size optimization can be evaluated later as a separate change.
 
 Do not call `SkShaper::Make()` and assume success. It may return the primitive shaper when Unicode initialization fails. Construct the ICU and HarfBuzz objects explicitly and expose whether the complex-text path is available.
 
@@ -306,7 +306,7 @@ src/text/complex_text_runtime.cpp
 Its responsibilities:
 
 - Create `SkUnicodes::ICU::Make()`.
-- Create `SkShapers::HB::ShapeThenWrap(unicode, fontManager)`.
+- Create `SkShapers::HB::ShaperDrivenWrapper(unicode, fontManager)`.
 - Expose `IsAvailable()` and a diagnostic string.
 - Never silently report the primitive shaper as complex-text support.
 
@@ -560,7 +560,7 @@ For a normal paragraph-like block:
 
 ```cpp
 auto unicode = SkUnicodes::ICU::Make();
-auto shaper = SkShapers::HB::ShapeThenWrap(unicode, sk_ref_sp(typefaces.fontMgr));
+auto shaper = SkShapers::HB::ShaperDrivenWrapper(unicode, sk_ref_sp(typefaces.fontMgr));
 auto bidi = SkShapers::unicode::BidiRunIterator(
     unicode,
     utf8.data(),
@@ -601,7 +601,7 @@ Implement a custom `SkShaper::RunHandler` based on the lifecycle used by Skia's 
 - `commitRunBuffer()` converts the shaped buffer into one or more visual `RunLayout`s, normalizes clusters, assigns logical ranges, and builds caret stops.
 - `commitLine()` finalizes `LineLayout::width`, direction, y, height, logical range, and visual x alignment.
 
-The handler receives runs in visual order after `ShapeThenWrap` performs line wrapping and BiDi reordering. Keep their logical UTF-8 ranges for copying and interaction.
+The handler receives runs in visual order after `ShaperDrivenWrapper` performs line wrapping and BiDi reordering. Keep their logical UTF-8 ranges for copying and interaction.
 
 ### 9.7 Caret construction
 
@@ -816,7 +816,7 @@ Add focused tests in `tests/unit_tests.cpp`. Prefer structural and geometry inva
 ### Runtime/build tests
 
 - ICU backend initializes.
-- HarfBuzz `ShapeThenWrap` initializes.
+- HarfBuzz `ShaperDrivenWrapper` initializes.
 - Windows test executable can find `icudtl.dat`.
 - The complex-text path reports available in official test builds.
 
@@ -955,7 +955,7 @@ Document any deliberately deferred limitation, such as RTL shaping in custom app
 - Create one ICU/SkShaper runtime per layout operation, not per glyph or code point.
 - Do not shape inside the paint loop. Rendering should consume cached glyph geometry from `DocumentLayout`.
 - Preserve the existing syntax-highlight cache.
-- Avoid O(n²) prefix measurement; ShapeThenWrap should own line breaking.
+- Avoid O(n²) prefix measurement; the HarfBuzz/ICU shaper should own line breaking.
 - Put a reasonable upper bound on one shaping paragraph/source line so a malicious single line cannot request unbounded temporary arrays. Fall back visibly or chunk only at safe boundaries when the bound is exceeded.
 - Validate all byte ranges before indexing the shaping-to-logical mapping.
 - Use `size_t` for UTF-8 byte offsets and check conversions to Skia/ICU 32-bit positions.

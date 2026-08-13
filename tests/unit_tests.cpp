@@ -2157,6 +2157,68 @@ void DirectionAwareBlockDecorations() {
             "RTL code should reserve the top-right control row instead of rendering beneath it");
 }
 
+void SoftBreakWordWrappingRegression() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "soft-break wrapping regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+
+    const std::string source =
+        "gem16 is a local inference stack built specifically for Gemma 4 12B on Blackwell GPUs with about 16 GB of VRAM.\n"
+        "The desktop app is the primary entry point: it downloads the pinned model set into the shared Hugging Face cache,\n"
+        "starts or attaches to `gem16-server`, and provides a compact multimodal chat UI.\n\n"
+        "> [!IMPORTANT]\n"
+        "> gem16 is a development preview, not a release-qualified general-purpose runtime. The optimized CUDA backend\n"
+        "> currently targets Blackwell SM120/SM120a, and the supported model revisions are pinned deliberately.\n";
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(source);
+
+    const auto isAsciiWordByte = [](char value) {
+        const unsigned char byte = static_cast<unsigned char>(value);
+        return (byte >= 'a' && byte <= 'z') ||
+            (byte >= 'A' && byte <= 'Z') ||
+            (byte >= '0' && byte <= '9') ||
+            byte == '_';
+    };
+    for (const float width : {520.0f, 760.0f, 1040.0f}) {
+        const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+            document,
+            width,
+            typefaces,
+            22.0f);
+        const auto verifyBlocks = [&](const auto& self, const auto& blocks) -> void {
+            for (const auto& block : blocks) {
+                for (const auto& line : block.lines) {
+                    Require(line.width <= block.bounds.width() + 0.5f,
+                            "shaped prose should not exceed its block's horizontal bounds");
+                    for (const auto& run : line.runs) {
+                        Require(run.visualX >= -0.5f &&
+                                    run.visualX + run.visualWidth <= line.width + 0.5f,
+                                "every shaped run should remain inside its recorded line width");
+                    }
+
+                    const size_t boundary = line.textStart + line.textLength;
+                    if (boundary > 0 && boundary < layout.plainText.size()) {
+                        if (isAsciiWordByte(layout.plainText[boundary - 1]) &&
+                            isAsciiWordByte(layout.plainText[boundary])) {
+                            const size_t contextStart = boundary > 16 ? boundary - 16 : 0;
+                            const size_t contextLength = std::min<size_t>(
+                                32,
+                                layout.plainText.size() - contextStart);
+                            throw TestFailure(
+                                "soft Markdown breaks must not split an ASCII word near '" +
+                                layout.plainText.substr(contextStart, contextLength) + "'");
+                        }
+                    }
+                }
+                self(self, block.children);
+            }
+        };
+        verifyBlocks(verifyBlocks, layout.blocks);
+    }
+}
+
 void ShapedDocumentRendererMigration() {
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
@@ -3282,6 +3344,7 @@ int main() {
         {"LayoutOwnedDocumentHitTesting", LayoutOwnedDocumentHitTesting},
         {"ShapedLayoutEngineIntegration", ShapedLayoutEngineIntegration},
         {"DirectionAwareBlockDecorations", DirectionAwareBlockDecorations},
+        {"SoftBreakWordWrappingRegression", SoftBreakWordWrappingRegression},
         {"ShapedDocumentRendererMigration", ShapedDocumentRendererMigration},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},

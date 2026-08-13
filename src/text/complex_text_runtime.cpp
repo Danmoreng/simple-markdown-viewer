@@ -22,7 +22,13 @@ ComplexTextRuntime::ComplexTextRuntime(sk_sp<SkFontMgr> fontManager) {
         return;
     }
 
-    shaper_ = SkShapers::HB::ShapeThenWrap(unicode_, std::move(fontManager));
+    // ShapeThenWrap in the pinned Skia build evaluates line-break offsets per
+    // segmented style run. After a Markdown soft break or formatting boundary,
+    // those offsets no longer match the paragraph-global glyph clusters and it
+    // can fall back to splitting ordinary words. The shaper-driven wrapper
+    // buffers language breaks in paragraph coordinates while retaining the same
+    // HarfBuzz, ICU, BiDi, script, and font-run pipeline.
+    shaper_ = SkShapers::HB::ShaperDrivenWrapper(unicode_, std::move(fontManager));
     if (!shaper_) {
         diagnostic_ = "complex text is unavailable: HarfBuzz shaper failed to initialize";
         unicode_.reset();
