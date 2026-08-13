@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mdviewer VERSION 0.3.0 LANGUAGES C CXX)
+project(mdviewer VERSION 0.3.1 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

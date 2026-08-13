@@ -189,7 +189,7 @@ If no per-user configuration exists, the app can import a legacy `mdviewer.ini` 
 
 ## GitHub Builds and Releases
 
-GitHub Actions builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal and sanitizer test passes. A tag such as `v0.3.0` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
+GitHub Actions builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal and sanitizer test passes. A tag such as `v0.3.1` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
 
 ## Controls
 
