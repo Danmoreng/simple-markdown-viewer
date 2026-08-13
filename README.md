@@ -10,6 +10,8 @@ It is built with:
 - Win32 or GLFW/GTK for the platform shell and event loop
 - Skia for custom rendering
 - md4c for Markdown parsing
+- HarfBuzz and ICU through Skia for native complex-text shaping, Unicode BiDi,
+  grapheme-aware wrapping, and font fallback
 - utf8proc for portable Unicode heading anchors
 - Tree-sitter for parser-based code syntax highlighting
 - MicroTeX for native LaTeX math layout
@@ -52,6 +54,10 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
   - GitHub-style note, tip, important, warning, and caution alerts with native colors and icons
   - native, browser-free LaTeX mathematics in conservatively recognized `$...$` and explicit `$$...$$`, including fractions, roots, scripts, large operators, matrices, accents, scalable delimiters, selection/search/copy source preservation, and a visible source fallback; ordinary prices, shell variables, unmatched dollar signs, and dollar-wrapped prose remain text
   - decoded Markdown entities
+  - Arabic, Hebrew, mixed-direction, and other complex-script text through
+    native HarfBuzz shaping and the Unicode Bidirectional Algorithm, including
+    direction-aware wrapping, selection, search highlighting, links, lists,
+    tables, details, code, print/PDF output, and heading-outline labels
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, requested HTML dimensions, and no forced upscaling beyond intrinsic size; SVGs may derive their intrinsic size from `width`/`height` or `viewBox`, while SVG HTML `<foreignObject>` content is not supported
 - Navigation:
   - **Full browsing history** (back/forward) with per-document reading-position restoration
@@ -108,7 +114,7 @@ Out of scope:
 
 ## How It Works
 
-The viewer parses Markdown into a shared document model, computes native layout, and draws the document and themed menu bar with Skia. It does not embed a browser or WebView. Windows and Linux share document loading, parsing, layout, rendering, themes, typography, image handling, syntax highlighting, selection, search, history, link policy, configuration, and most interaction behavior.
+The viewer parses Markdown into a shared document model, computes native layout, and draws the document and themed menu bar with Skia. It does not embed a browser or WebView. HarfBuzz and ICU provide cached glyph shaping, Unicode BiDi, line/grapheme breaking, and font fallback for the document surface. Windows and Linux share document loading, parsing, layout, rendering, themes, typography, image handling, syntax highlighting, selection, search, history, link policy, configuration, and most interaction behavior.
 
 The Win32 and GLFW/GTK hosts translate native events and provide platform services such as windows, dialogs, printing, clipboard access, shell integration, drag and drop, timers, and surface presentation. Tree-sitter highlighting supports `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, `bash`/`sh`, `rust`, `go`, and `csharp`; unknown language tags render as plain code.
 
@@ -190,6 +196,10 @@ If no per-user configuration exists, the app can import a legacy `mdviewer.ini` 
 ## GitHub Builds and Releases
 
 GitHub Actions builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal and sanitizer test passes. A tag such as `v0.3.1` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
+
+The complex-text stack requires a Windows Skia bundle containing SkShaper,
+SkUnicode, HarfBuzz, ICU, and `icudtl.dat`. Build and validate that replacement
+bundle on Windows before publishing a release containing complex-text support.
 
 ## Controls
 

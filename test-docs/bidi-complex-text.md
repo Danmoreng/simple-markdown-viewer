@@ -1,6 +1,6 @@
 # Bidirectional and complex-text fixture
 
-This document records the renderer baseline before native complex-text shaping and Unicode BiDi support.
+This document exercises native complex-text shaping, Unicode BiDi behavior, interaction geometry, and direction-aware block rendering.
 
 ## Mixed paragraphs
 

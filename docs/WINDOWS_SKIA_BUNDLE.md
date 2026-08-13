@@ -11,6 +11,26 @@ The Linux workflow currently builds Skia from source. Its approximately
 20-minute end-to-end runtime is acceptable, so Linux does not currently use a
 prebuilt Skia bundle.
 
+## Complex-text release gate
+
+The shared HarfBuzz/ICU/BiDi implementation is complete and Linux-validated,
+but it must not be released for Windows against the historical active bundle.
+Use this order for the next Windows validation:
+
+1. Pull the implementation and documentation commits on the Windows machine.
+2. Build a clean replacement bundle with the pinned revision and the complete
+   library/data set documented below.
+3. Build `mdviewer` and `mdviewer_tests` against that local bundle, run CTest,
+   and complete the GUI fixture, print, PDF, DPI, and portable-directory checks.
+4. Publish the bundle under a new bundle tag without replacing the active tag.
+5. Change `ci/skia-bundle-version.txt` in a separate commit, push it, and run the
+   Windows workflow manually against the downloaded bundle.
+6. Create an application release tag only after that clean-runner validation is
+   green.
+
+Do not fold bundle creation, activation, and application release into one
+unvalidated change. `skia-bundle-v1` is not suitable for complex-text releases.
+
 ## History of `skia-bundle-v1`
 
 The first Windows bundle was built locally and uploaded manually. This is

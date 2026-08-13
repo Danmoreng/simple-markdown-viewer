@@ -122,9 +122,10 @@ compatibility target includes:
 - Clear feedback or deliberate conversion for unsupported legacy encodings.
 - Windows, Unix, and old Mac line endings.
 - Mixed line endings.
-- Unicode symbols, emoji, CJK text, RTL scripts, and combining characters, with
-  current limitations documented where the Skia text stack lacks shaping or bidi
-  support.
+- Unicode symbols, emoji, CJK text, RTL scripts, and combining characters. The
+  document surface uses HarfBuzz shaping and ICU-backed Unicode BiDi, line, and
+  grapheme services; compact metadata tags and custom application chrome remain
+  deliberately specialized LTR UI.
 
 ### 4.5 Large Files
 
@@ -459,9 +460,10 @@ A generated table of contents is one of the most useful features for long docume
 The current viewer provides an outline sidebar generated from headings, nested
 level indentation, current-section highlighting, click navigation, keyboard
 navigation, configurable left/right placement, and a collapsed sidebar state.
-Remaining work is limited to edge-case correctness, accessibility, and an
-optional collapsible heading hierarchy if later justified beyond collapsing the
-whole sidebar.
+Arabic and Hebrew outline labels use the same cached shaping and BiDi stack as
+the document, with direction-aware hierarchy indentation. Remaining work is
+limited to edge-case correctness, accessibility, and an optional collapsible
+heading hierarchy if later justified beyond collapsing the whole sidebar.
 
 Easy-to-miss behavior:
 
@@ -533,9 +535,12 @@ practical. Remaining behavior:
 A good viewer should make Markdown pleasant to read.
 
 The current renderer provides shared typography, heading hierarchy, document
-spacing, blockquote/list/table/code styling, runtime font selection, and reader
-zoom. Further work should focus on fallback shaping, accessibility, and difficult
-layout cases rather than adding a large typography-settings surface.
+spacing, blockquote/list/table/code styling, runtime font selection, reader
+zoom, and cached HarfBuzz/ICU shaping for Arabic, Hebrew, mixed-direction text,
+combining marks, font fallback, and safe caret geometry. The same layout feeds
+screen rendering, printing, and PDF export. Further work should focus on
+accessibility and difficult layout cases rather than adding a large
+typography-settings surface.
 
 Desirable features:
 

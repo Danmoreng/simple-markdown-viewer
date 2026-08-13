@@ -140,6 +140,41 @@ Status: complete.
 - [x] Decide opt-in remote image loading: out of scope; retain privacy-preserving placeholders and explicit external open-image actions.
 - [x] Render constrained local SVG through Skia without external resources; document that embedded HTML `<foreignObject>` content is unsupported.
 
+## Milestone 5a: Native Complex Text, BiDi, and RTL
+
+Goal: render and interact with Arabic, Hebrew, mixed-direction text, and other
+complex scripts through one native shared text pipeline.
+
+Status: implementation and Linux validation complete. A newly built Windows
+Skia bundle and Windows host validation remain required before release.
+
+- [x] Enable the pinned Skia HarfBuzz, SkShaper, SkUnicode, and ICU stack with
+  explicit runtime availability checks and packaged ICU data on Windows.
+- [x] Cache shaped glyphs, visual runs, BiDi levels, clusters, and safe caret
+  geometry in the shared document layout instead of shaping during painting.
+- [x] Preserve logical UTF-8 order for selection, exact search, copying, links,
+  history, table export, and heading anchors while rendering visual BiDi order.
+- [x] Apply direction-aware wrapping and alignment to paragraphs, headings,
+  lists, code, tables, details, blockquotes, alerts, and outline labels.
+- [x] Mirror RTL list markers, task boxes, blockquote accents, alert headers,
+  details controls, and nested indentation without changing existing LTR layout.
+- [x] Reuse shaped layout and glyph rendering for screen, native printing, and
+  PDF export.
+- [x] Add the mixed-direction manual fixture plus automated coverage for runtime
+  initialization, shaping, wrapping, formatting, nested lists, hit testing,
+  selection/search geometry, decorations, outline labels, print, PDF, and the
+  ordinary soft-break wrapping regression found during integration.
+- [x] Complete normal, ASan, UBSan, application smoke, and archive validation on
+  Linux.
+- [ ] Build and publish the replacement Windows Skia bundle, activate it in a
+  separate commit, and complete the Windows build/test/manual matrix before the
+  next application release.
+
+Deliberate boundary: compact front-matter metadata tags and custom application
+chrome still use their specialized LTR UI layout. The document surface and its
+heading outline use the complex-text pipeline. Unicode-aware case-insensitive
+search remains part of Milestone 6; exact Arabic and Hebrew search is supported.
+
 ## Milestone 6: Search and Keyboard Usability
 
 Goal: make search and keyboard workflows closer to expected desktop behavior.

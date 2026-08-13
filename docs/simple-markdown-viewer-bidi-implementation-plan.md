@@ -6,6 +6,32 @@
 > **Pinned Skia revision:** `508fc9e7f9ad1b6c8b6ed11b260f97e7bfbb363f`
 > **Primary target:** correctly render, wrap, select, search, copy, print, and export mixed left-to-right and right-to-left Markdown, including fenced code blocks nested inside lists.
 
+## Implementation status — 2026-08-13
+
+Phases 1–9 are implemented in the shared viewer stack and validated on Linux.
+The implementation includes cached HarfBuzz/ICU shaping, Unicode BiDi and break
+handling, font fallback, visual caret geometry, direction-aware block layout and
+decorations, shared hit testing, print/PDF parity, and shaped heading-outline
+labels. The fixture also exposed and now covers an ordinary soft-break wrapping
+regression.
+
+Automated closure covers complex-text runtime availability, shaping and cluster
+geometry, logical copy/search order, mixed nested lists, all supported inline
+formatting, visual hit testing, selection/search rectangles, block decorations,
+outline rendering, contiguous print-page ranges and raster rendering, PDF
+export, sanitizers, and Linux packaging. `THIRD_PARTY_NOTICES` already includes
+the statically linked HarfBuzz and ICU components.
+
+Release status is intentionally separate from implementation status. Before the
+next release, build and publish the replacement Skia bundle on Windows, activate
+it in a separate commit, and run the Windows build, tests, GUI fixture, print,
+PDF, DPI, and portable-archive checks in `docs/WINDOWS_SKIA_BUNDLE.md`.
+
+Deliberately deferred boundaries are the specialized compact front-matter
+metadata bar and custom application chrome, which remain LTR UI. Exact Arabic
+and Hebrew search is supported; Unicode-aware case-insensitive search remains a
+general search backlog item.
+
 ## Agent operating instructions
 
 Implement this plan against the current repository, not against assumptions from an older revision.

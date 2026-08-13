@@ -1449,6 +1449,34 @@ void ComplexTextShapingSubsystem() {
         0.5f,
         "the logical start of an RTL run should map to its right visual edge");
 
+    const std::string arabicCluster = "نَ";
+    std::string unbrokenArabic;
+    for (int index = 0; index < 80; ++index) {
+        unbrokenArabic += arabicCluster;
+    }
+    const auto unbrokenParagraphs = mdviewer::BuildShapingParagraphs({
+        {.run = mdviewer::InlineRun{.text = unbrokenArabic}},
+    });
+    mdviewer::ShapedTextLayoutOptions unbrokenOptions = options;
+    unbrokenOptions.wrapWidth = 54.0f;
+    const auto shapedUnbroken = mdviewer::ShapeTextParagraph(
+        unbrokenParagraphs.paragraphs.front(), runtime, typefaces, unbrokenOptions);
+    Require(shapedUnbroken.success,
+            "a long unbroken Arabic combining sequence should shape successfully");
+    for (const mdviewer::LineLayout& line : shapedUnbroken.lines) {
+        const size_t lineEnd = line.textStart + line.textLength;
+        Require(
+            line.textStart % arabicCluster.size() == 0 &&
+                lineEnd % arabicCluster.size() == 0,
+            "complex-script wrapping must not split an Arabic grapheme cluster");
+        for (const mdviewer::RunLayout& run : line.runs) {
+            for (const mdviewer::CaretStop& stop : run.caretStops) {
+                Require(stop.textPosition % arabicCluster.size() != 2,
+                        "Arabic combining marks must not receive an independent caret stop");
+            }
+        }
+    }
+
     const auto emptyLines = mdviewer::BuildShapingParagraphs({
         {.run = mdviewer::InlineRun{.kind = mdviewer::InlineKind::HardBreak}},
         {.run = mdviewer::InlineRun{.kind = mdviewer::InlineKind::HardBreak}},
@@ -1836,6 +1864,34 @@ void ShapedLayoutEngineIntegration() {
     Require(foundShapedText, "normal LayoutEngine text should now retain HarfBuzz glyph geometry");
     Require(foundRtlRun, "mixed LayoutEngine paragraphs should retain odd-level visual runs");
 
+    const mdviewer::DocumentModel formattedDocument = mdviewer::MarkdownParser::Parse(
+        "العربية **نص قوي** *نص مائل* ~~نص محذوف~~ `شفرة` "
+        "<kbd>مفتاح</kbd> H<sub>٢</sub> x<sup>٢</sup>.\n");
+    const auto formattedLayout = mdviewer::LayoutEngine::ComputeLayout(
+        formattedDocument, 760.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    const auto hasShapedFormatting = [&](mdviewer::InlineFormatting formatting) {
+        return std::any_of(
+            formattedLayout.blocks.front().lines.begin(),
+            formattedLayout.blocks.front().lines.end(),
+            [&](const mdviewer::LineLayout& line) {
+                return std::any_of(line.runs.begin(), line.runs.end(), [&](const mdviewer::RunLayout& run) {
+                    return run.shaped && mdviewer::HasFormatting(run.formatting, formatting);
+                });
+            });
+    };
+    for (const mdviewer::InlineFormatting formatting : {
+             mdviewer::InlineFormatting::Strong,
+             mdviewer::InlineFormatting::Emphasis,
+             mdviewer::InlineFormatting::Strikethrough,
+             mdviewer::InlineFormatting::Code,
+             mdviewer::InlineFormatting::Keyboard,
+             mdviewer::InlineFormatting::Subscript,
+             mdviewer::InlineFormatting::Superscript,
+         }) {
+        Require(hasShapedFormatting(formatting),
+                "complex-text shaping should preserve every supported inline formatting flag");
+    }
+
     mdviewer::DocumentModel invariantDocument;
     invariantDocument.blocks.push_back(mdviewer::Block{
         .type = mdviewer::BlockType::Paragraph,
@@ -1910,6 +1966,46 @@ void ShapedLayoutEngineIntegration() {
         0.01f,
         "RTL list text should end before its right gutter");
 
+    const mdviewer::DocumentModel nestedDirectionalListDocument = mdviewer::MarkdownParser::Parse(
+        "- عنصر عربي رئيسي\n"
+        "  1. English child under RTL parent\n\n"
+        "- English parent item\n"
+        "  1. פריט עברי מקונן\n");
+    const auto nestedDirectionalListLayout = mdviewer::LayoutEngine::ComputeLayout(
+        nestedDirectionalListDocument, 760.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    struct NestedListItem {
+        const mdviewer::BlockLayout* block = nullptr;
+        int depth = 0;
+    };
+    std::vector<NestedListItem> nestedItems;
+    const auto collectNestedItems = [&](const auto& self, const auto& blocks, int depth) -> void {
+        for (const auto& block : blocks) {
+            if (block.type == mdviewer::BlockType::ListItem) {
+                nestedItems.push_back({&block, depth});
+            }
+            self(self, block.children, depth + 1);
+        }
+    };
+    collectNestedItems(collectNestedItems, nestedDirectionalListLayout.blocks, 0);
+    RequireEqual(nestedItems.size(), static_cast<size_t>(4),
+                 "mixed nested list fixture should retain both directional parent-child pairs");
+    Require(
+        nestedItems[0].block->direction == mdviewer::ResolvedTextDirection::RightToLeft &&
+            nestedItems[1].block->direction == mdviewer::ResolvedTextDirection::LeftToRight &&
+            nestedItems[1].depth > nestedItems[0].depth,
+        "an LTR child should retain its direction beneath an RTL parent");
+    Require(
+        nestedItems[2].block->direction == mdviewer::ResolvedTextDirection::LeftToRight &&
+            nestedItems[3].block->direction == mdviewer::ResolvedTextDirection::RightToLeft &&
+            nestedItems[3].depth > nestedItems[2].depth,
+        "an RTL child should retain its direction beneath an LTR parent");
+    for (const NestedListItem& nestedItem : nestedItems) {
+        Require(
+            nestedItem.block->bounds.left() >= documentLeft - 0.01f &&
+                nestedItem.block->bounds.right() <= documentRight + 0.01f,
+            "mixed-direction nested list content should remain inside the document viewport");
+    }
+
     const mdviewer::DocumentModel codeAndTableDocument = mdviewer::MarkdownParser::Parse(
         "```cpp\n"
         "const char* greeting = \"مرحبا\";\n"
@@ -1951,6 +2047,8 @@ void ShapedLayoutEngineIntegration() {
             "table headers and cells should use shaped measurement and visual runs");
     RequireEqual(shapedTable.tableTsv, std::string("العربية\tEnglish\tעברית\r\nقيمة\tvalue\tערך"),
                  "shaped table layout must not change TSV serialization");
+    RequireEqual(shapedTable.tableCsv, std::string("العربية,English,עברית\r\nقيمة,value,ערך"),
+                 "shaped table layout must not change CSV serialization");
 }
 
 void DirectionAwareBlockDecorations() {
@@ -2988,16 +3086,9 @@ void LayoutSensitiveBehavior() {
 
 void PdfExportWritesFile() {
     TempDir temp;
-    const fs::path sourcePath = temp.Path() / "export-source.md";
+    const fs::path sourcePath = SourceRoot() / "test-docs" / "bidi-complex-text.md";
     const fs::path outputPath = temp.Path() / "export-output.pdf";
-    const std::string source =
-        "# Export Title\n\n"
-        "This paragraph should be rendered into a PDF file.\n\n"
-        "العربية before English 123 עברית.\n\n"
-        "```cpp\n"
-        "int main() { return 0; }\n"
-        "```\n";
-    WriteText(sourcePath, source);
+    const std::string source = ReadText(sourcePath);
 
     const mdviewer::DocumentModel doc = mdviewer::MarkdownParser::Parse(source);
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
@@ -3029,20 +3120,72 @@ void PdfExportWritesFile() {
                 .baseFontSize = mdviewer::kDefaultBaseFontSize,
                 .typefaces = typefaces,
                 .pageWidth = request.pageWidth,
-                .pageHeight = request.pageHeight,
+                .pageHeight = 420.0f,
+                .marginTop = 32.0f,
+                .marginBottom = 36.0f,
             },
             prepared),
         "print preparation should accept shaped mixed-direction text");
-    Require(prepared.appState.docLayout.blocks.size() >= 3,
-            "print layout should retain the RTL paragraph");
-    const auto& printedRtlBlock = prepared.appState.docLayout.blocks[2];
+    Require(prepared.pages.size() >= 2,
+            "the complex-text fixture should produce multiple valid print pages");
+    RequireNear(prepared.pages.front().top, 0.0f, 0.01f,
+                "print page ranges should begin at the top of the document");
+    for (size_t index = 0; index < prepared.pages.size(); ++index) {
+        const mdviewer::PrintPageRange& page = prepared.pages[index];
+        Require(page.bottom > page.top,
+                "every complex-text print page should have a positive source range");
+        if (index > 0) {
+            RequireNear(page.top, prepared.pages[index - 1].bottom, 0.01f,
+                        "complex-text print page ranges should be contiguous");
+        }
+
+        const sk_sp<SkSurface> pageSurface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(
+            static_cast<int>(std::ceil(prepared.pageWidth)),
+            static_cast<int>(std::ceil(prepared.pageHeight))));
+        Require(pageSurface != nullptr,
+                "complex-text print regression should create a raster page surface");
+        mdviewer::RenderPrintDocumentPage(prepared, index, pageSurface->getCanvas(), {});
+        SkPixmap pagePixels;
+        Require(pageSurface->peekPixels(&pagePixels),
+                "rendered complex-text print pages should expose raster pixels");
+        const SkColor background = mdviewer::GetThemePalette(mdviewer::ThemeMode::Light).windowBackground;
+        bool foundPageInk = false;
+        for (int y = 0; y < pagePixels.height() && !foundPageInk; ++y) {
+            for (int x = 0; x < pagePixels.width(); ++x) {
+                if (pagePixels.getColor(x, y) != background) {
+                    foundPageInk = true;
+                    break;
+                }
+            }
+        }
+        Require(foundPageInk,
+                "every complex-text print page should render visible document content");
+    }
+    RequireNear(
+        prepared.pages.back().bottom,
+        prepared.appState.docLayout.totalHeight,
+        0.01f,
+        "print page ranges should cover the complete complex-text layout");
+
+    const mdviewer::BlockLayout* printedRtlBlock = nullptr;
+    const auto findPrintedRtlBlock = [&](const auto& self, const auto& blocks) -> void {
+        for (const auto& block : blocks) {
+            if (printedRtlBlock == nullptr &&
+                block.direction == mdviewer::ResolvedTextDirection::RightToLeft &&
+                !block.lines.empty()) {
+                printedRtlBlock = &block;
+                return;
+            }
+            self(self, block.children);
+        }
+    };
+    findPrintedRtlBlock(findPrintedRtlBlock, prepared.appState.docLayout.blocks);
     Require(
-        printedRtlBlock.direction == mdviewer::ResolvedTextDirection::RightToLeft &&
-            !printedRtlBlock.lines.empty(),
+        printedRtlBlock != nullptr,
         "print preparation should use the same RTL shaping layout as the screen");
     RequireNear(
-        printedRtlBlock.lines.front().x + printedRtlBlock.lines.front().width,
-        printedRtlBlock.bounds.right(),
+        printedRtlBlock->lines.front().x + printedRtlBlock->lines.front().width,
+        printedRtlBlock->bounds.right(),
         0.01f,
         "print RTL geometry should remain right-aligned before PDF rendering");
 

@@ -49,10 +49,11 @@ tar -xzf dist/mdviewer-linux-x64.tar.gz -C /tmp/mdviewer-release-test
 ## 3. Manual viewer checks
 
 Use `test-docs/markdown-rendering-fixture.md`,
-`test-docs/html-and-table-overflow.md`, this repository's `README.md`, and at
-least one real document containing relative links and local images. When
-available, the gem16 README is the reference fixture for the GitHub-style HTML
-header and `[!IMPORTANT]` alert.
+`test-docs/html-and-table-overflow.md`, `test-docs/bidi-complex-text.md`, this
+repository's `README.md`, and at least one real document containing relative
+links and local images. When available, the gem16 README is the reference
+fixture for the GitHub-style HTML header, `[!IMPORTANT]` alert, and ordinary
+soft-break word wrapping.
 
 - [ ] Start with no file and open a document through `File -> Open...`.
 - [ ] Start with a path argument containing spaces.
@@ -72,11 +73,21 @@ header and `[!IMPORTANT]` alert.
 - [ ] Click directly on a linked image, then click the free space beside it; verify only the image bounds activate the link or expose image/link context actions.
 - [ ] Start middle-button auto-scroll, vary its speed above and below the origin, then stop it with middle-click, left-click, wheel, and Escape.
 - [ ] Toggle and navigate the outline on both the left and right sides.
+- [ ] In the BiDi fixture, verify Arabic joining/diacritics, Hebrew punctuation,
+      mixed English/numbers, right-aligned RTL paragraphs, and logical copy order.
+- [ ] Verify RTL bullets, numbers, task boxes, nested indentation, blockquote and
+      alert accents, details summaries, table cells, and Arabic/Hebrew outline labels.
+- [ ] Search exact Arabic and Hebrew terms, drag selection across direction
+      boundaries, and click both visual ends of a mixed-direction link.
+- [ ] Horizontally scroll the long mixed-direction code lines and verify source
+      order, syntax colors, copy controls, and scrollbar behavior remain intact.
 - [ ] Change Light, Sepia, and Dark themes.
 - [ ] Select a document font, restore the default, and restart to verify persistence.
 - [ ] Zoom with toolbar, keyboard, and Ctrl+wheel; verify reading position is preserved.
-- [ ] Export a document with text, code, and images to PDF and open the result.
-- [ ] Print through the GTK system dialog and verify text, code, and images in the output.
+- [ ] Export the BiDi fixture to PDF and verify Arabic joining, Hebrew order,
+      nested code, tables, math, and page breaks.
+- [ ] Print the BiDi fixture through the GTK system dialog and verify the same
+      shaped text, code, images, and page order in the output.
 - [ ] Open menus with F10 and Alt+F/Alt+V/Alt+T; navigate with arrows, Enter, Escape, and recent-file number keys.
 - [ ] Verify menu checkmarks, disabled commands, shortcut labels, the Theme submenu, and recent-file timestamps.
 - [ ] Resize repeatedly and move the window between displays with different scale factors; verify resize work does not continue after the drag ends.
