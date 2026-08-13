@@ -684,6 +684,11 @@ private:
             lineHeight,
             blockType,
             true);
+        const bool centerLargeStandaloneImage =
+            align == TextAlign::Default &&
+            prepared.size() == 1 &&
+            prepared.front().run.kind == InlineKind::Image &&
+            prepared.front().objectWidth > wrapWidth * 0.8f;
         const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared, currentTextOffset);
         std::vector<LineLayout> shapedLines;
         float lineY = startY;
@@ -724,7 +729,9 @@ private:
                 }
             }
             for (LineLayout& line : shaped.lines) {
-                const TextAlign lineAlign = paragraph.displayMath ? TextAlign::Center : align;
+                const TextAlign lineAlign = paragraph.displayMath || centerLargeStandaloneImage
+                    ? TextAlign::Center
+                    : align;
                 line.x = ResolveLineX(
                     contentLeft,
                     wrapWidth,

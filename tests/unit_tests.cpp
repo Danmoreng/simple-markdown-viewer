@@ -22,6 +22,7 @@
 #include "render/document_renderer.h"
 #include "render/menu_renderer.h"
 #include "render/pdf_exporter.h"
+#include "render/print_document.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
 #include "text/complex_text_runtime.h"
@@ -1725,6 +1726,177 @@ void ShapedLayoutEngineIntegration() {
                  "shaped table layout must not change TSV serialization");
 }
 
+void ShapedDocumentRendererMigration() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "shaped renderer regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+    const std::string source =
+        "English [العربية link](https://example.com) and "
+        "~~עברית~~ with `code العربية`.\n";
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(source);
+    const mdviewer::DocumentLayout originalLayout = mdviewer::LayoutEngine::ComputeLayout(
+        document, 760.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    Require(!originalLayout.blocks.empty() && !originalLayout.blocks.front().lines.empty(),
+            "shaped renderer fixture should produce a visible line");
+
+    bool foundArabicGlyphs = false;
+    for (const auto& line : originalLayout.blocks.front().lines) {
+        for (const auto& run : line.runs) {
+            foundArabicGlyphs = foundArabicGlyphs ||
+                (run.shaped && (run.bidiLevel & 1U) != 0 && !run.glyphs.empty());
+        }
+    }
+    Require(foundArabicGlyphs,
+            "renderer fixture should reach an odd-level shaped Arabic glyph run");
+
+    mdviewer::DocumentLayout supportingTextChangedLayout = originalLayout;
+    bool replacedShapedText = false;
+    const auto replaceShapedSupportingText = [&](const auto& self, auto& blocks) -> void {
+        for (auto& block : blocks) {
+            for (auto& line : block.lines) {
+                for (auto& run : line.runs) {
+                    if (run.shaped && !run.text.empty()) {
+                        run.text.assign(run.text.size(), ' ');
+                        replacedShapedText = true;
+                    }
+                }
+            }
+            self(self, block.children);
+        }
+    };
+    replaceShapedSupportingText(
+        replaceShapedSupportingText,
+        supportingTextChangedLayout.blocks);
+    Require(replacedShapedText,
+            "renderer fixture should replace shaped supporting UTF-8 without changing glyph data");
+
+    const size_t arabicStart = originalLayout.plainText.find("العربية");
+    Require(arabicStart != std::string::npos,
+            "renderer fixture should retain Arabic in logical plain text");
+    const size_t arabicEnd = arabicStart + std::string("العربية").size();
+    const mdviewer::ThemePalette palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark);
+    const int renderHeight = static_cast<int>(std::ceil(originalLayout.totalHeight + 24.0f));
+    const auto renderLayout = [&](mdviewer::DocumentLayout layout, bool showRanges) {
+        mdviewer::AppState state;
+        state.sourceText = source;
+        state.docLayout = std::move(layout);
+        state.outlineCollapsed = true;
+        if (showRanges) {
+            state.selectionAnchor = arabicStart;
+            state.selectionFocus = arabicEnd;
+            state.searchActive = true;
+            state.searchQuery = "العربية";
+            state.searchMatches = {{arabicStart, arabicEnd}};
+        }
+
+        const sk_sp<SkSurface> surface = SkSurfaces::Raster(
+            SkImageInfo::MakeN32Premul(760, renderHeight));
+        Require(surface != nullptr, "shaped renderer regression should create a raster surface");
+        surface->getCanvas()->clear(palette.windowBackground);
+        mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+            .canvas = surface->getCanvas(),
+            .appState = &state,
+            .palette = palette,
+            .typefaces = typefaces,
+            .baseFontSize = mdviewer::kDefaultBaseFontSize,
+            .viewportHeight = static_cast<float>(renderHeight),
+            .surfaceWidth = 760.0f,
+            .surfaceHeight = static_cast<float>(renderHeight),
+            .visibleDocumentBottom = state.docLayout.totalHeight,
+            .showInteractiveElements = false,
+        });
+        return surface->makeImageSnapshot();
+    };
+
+    const auto requireSamePixels = [](const sk_sp<SkImage>& left, const sk_sp<SkImage>& right, const std::string& message) {
+        SkPixmap leftPixels;
+        SkPixmap rightPixels;
+        Require(left != nullptr && right != nullptr &&
+                    left->peekPixels(&leftPixels) && right->peekPixels(&rightPixels),
+                "shaped renderer comparison images should expose raster pixels");
+        RequireEqual(leftPixels.width(), rightPixels.width(), message + " width");
+        RequireEqual(leftPixels.height(), rightPixels.height(), message + " height");
+        for (int y = 0; y < leftPixels.height(); ++y) {
+            const size_t comparedBytes = static_cast<size_t>(leftPixels.width()) * 4;
+            if (std::memcmp(leftPixels.addr(0, y), rightPixels.addr(0, y), comparedBytes) != 0) {
+                throw TestFailure(message);
+            }
+        }
+    };
+
+    const sk_sp<SkImage> originalImage = renderLayout(originalLayout, false);
+    const sk_sp<SkImage> supportingTextChangedImage = renderLayout(
+        supportingTextChangedLayout, false);
+    requireSamePixels(
+        originalImage,
+        supportingTextChangedImage,
+        "document text should render from stored glyph IDs and positions, not be reshaped per code point");
+
+    const sk_sp<SkImage> originalRangeImage = renderLayout(originalLayout, true);
+    const sk_sp<SkImage> supportingTextChangedRangeImage = renderLayout(
+        supportingTextChangedLayout, true);
+    requireSamePixels(
+        originalRangeImage,
+        supportingTextChangedRangeImage,
+        "selection, search, and inline decorations should use layout-owned visual geometry");
+
+    const std::string objectSource = "before ![fixture](image.png) after\n";
+    const mdviewer::DocumentModel objectDocument = mdviewer::MarkdownParser::Parse(objectSource);
+    const mdviewer::DocumentLayout objectLayout = mdviewer::LayoutEngine::ComputeLayout(
+        objectDocument,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize,
+        [](const std::string&) { return std::pair<float, float>{40.0f, 20.0f}; });
+    const auto& objectLine = objectLayout.blocks.front().lines.front();
+    const auto imageRun = std::find_if(
+        objectLine.runs.begin(), objectLine.runs.end(), [](const auto& run) {
+            return run.kind == mdviewer::InlineKind::Image;
+        });
+    Require(imageRun != objectLine.runs.end(),
+            "atomic renderer fixture should retain its image placeholder run");
+
+    const sk_sp<SkSurface> redSurface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(40, 20));
+    Require(redSurface != nullptr, "atomic renderer fixture should create an image surface");
+    redSurface->getCanvas()->clear(SK_ColorRED);
+    const sk_sp<SkImage> redImage = redSurface->makeImageSnapshot();
+    mdviewer::AppState objectState;
+    objectState.sourceText = objectSource;
+    objectState.docLayout = objectLayout;
+    objectState.outlineCollapsed = true;
+    const sk_sp<SkSurface> objectSurface = SkSurfaces::Raster(
+        SkImageInfo::MakeN32Premul(760, static_cast<int>(std::ceil(objectLayout.totalHeight + 24.0f))));
+    Require(objectSurface != nullptr, "atomic renderer regression should create a raster surface");
+    objectSurface->getCanvas()->clear(palette.windowBackground);
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = objectSurface->getCanvas(),
+        .appState = &objectState,
+        .palette = palette,
+        .typefaces = typefaces,
+        .baseFontSize = mdviewer::kDefaultBaseFontSize,
+        .viewportHeight = static_cast<float>(objectSurface->height()),
+        .surfaceWidth = 760.0f,
+        .surfaceHeight = static_cast<float>(objectSurface->height()),
+        .visibleDocumentBottom = objectLayout.totalHeight,
+        .showInteractiveElements = false,
+        .resolveImage = [redImage](const std::string&, float, float) { return redImage; },
+    });
+    SkPixmap objectPixels;
+    Require(objectSurface->peekPixels(&objectPixels),
+            "atomic renderer surface should expose pixels");
+    const int imageCenterX = static_cast<int>(std::round(
+        objectLine.x + imageRun->visualX + (imageRun->visualWidth * 0.5f)));
+    const int imageCenterY = static_cast<int>(std::round(
+        objectLine.y + (objectLine.height * 0.5f)));
+    RequireEqual(
+        objectPixels.getColor(imageCenterX, imageCenterY),
+        static_cast<SkColor>(SK_ColorRED),
+        "atomic images should render at their shaped placeholder visual position");
+}
+
 void DocumentFontContextFeedsLayout() {
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Normal());
@@ -2259,6 +2431,7 @@ void PdfExportWritesFile() {
     const std::string source =
         "# Export Title\n\n"
         "This paragraph should be rendered into a PDF file.\n\n"
+        "العربية before English 123 עברית.\n\n"
         "```cpp\n"
         "int main() { return 0; }\n"
         "```\n";
@@ -2282,6 +2455,34 @@ void PdfExportWritesFile() {
     request.theme = mdviewer::ThemeMode::Light;
     request.baseFontSize = mdviewer::kDefaultBaseFontSize;
     request.typefaces = typefaces;
+
+    mdviewer::PreparedPrintDocument prepared;
+    Require(
+        mdviewer::PreparePrintDocument(
+            mdviewer::PrintDocumentRequest{
+                .sourcePath = sourcePath,
+                .sourceText = source,
+                .document = doc,
+                .theme = mdviewer::ThemeMode::Light,
+                .baseFontSize = mdviewer::kDefaultBaseFontSize,
+                .typefaces = typefaces,
+                .pageWidth = request.pageWidth,
+                .pageHeight = request.pageHeight,
+            },
+            prepared),
+        "print preparation should accept shaped mixed-direction text");
+    Require(prepared.appState.docLayout.blocks.size() >= 3,
+            "print layout should retain the RTL paragraph");
+    const auto& printedRtlBlock = prepared.appState.docLayout.blocks[2];
+    Require(
+        printedRtlBlock.direction == mdviewer::ResolvedTextDirection::RightToLeft &&
+            !printedRtlBlock.lines.empty(),
+        "print preparation should use the same RTL shaping layout as the screen");
+    RequireNear(
+        printedRtlBlock.lines.front().x + printedRtlBlock.lines.front().width,
+        printedRtlBlock.bounds.right(),
+        0.01f,
+        "print RTL geometry should remain right-aligned before PDF rendering");
 
     const mdviewer::PdfExportStatus status = mdviewer::ExportMarkdownToPdf(request);
 #if MDVIEWER_ENABLE_PDF
@@ -2668,6 +2869,7 @@ int main() {
         {"ComplexTextShapingSubsystem", ComplexTextShapingSubsystem},
         {"SharedTextGeometryModel", SharedTextGeometryModel},
         {"ShapedLayoutEngineIntegration", ShapedLayoutEngineIntegration},
+        {"ShapedDocumentRendererMigration", ShapedDocumentRendererMigration},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},

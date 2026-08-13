@@ -8,6 +8,7 @@
 #include <string_view>
 
 #include "render/typography.h"
+#include "text/text_geometry.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -192,6 +193,57 @@ float MeasureRunWidth(
     ConfigureDocumentFont(ctx.font, typefaces, blockType, run.formatting, baseFontSize);
     ctx.font.setSize(ctx.font.getSize() * fontScale);
     return MeasureTextWithFallback(typefaces, ctx.font, run.text.c_str(), run.text.size());
+}
+
+float GetRunVisualLeft(const LineLayout& line, const RunLayout& run) {
+    return line.x + run.visualX;
+}
+
+bool HasCompleteShapedGlyphData(const RunLayout& run) {
+    return run.shaped &&
+        !run.glyphs.empty() &&
+        run.glyphs.size() == run.glyphPositions.size() &&
+        run.glyphs.size() == run.glyphClusters.size();
+}
+
+bool IsCodeLikeRun(const BlockLayout& block, const RunLayout& run) {
+    return block.type == BlockType::CodeBlock ||
+        HasFormatting(run.formatting, InlineFormatting::Code) ||
+        HasFormatting(run.formatting, InlineFormatting::Keyboard);
+}
+
+struct VisualSpanFragment {
+    const RunLayout* representative = nullptr;
+    float left = 0.0f;
+    float right = 0.0f;
+};
+
+template <typename Predicate>
+std::vector<VisualSpanFragment> CollectVisualSpanFragments(
+    const LineLayout& line,
+    Predicate predicate) {
+    std::vector<VisualSpanFragment> fragments;
+    constexpr float kAdjacentTolerance = 0.5f;
+    for (const RunLayout& run : line.runs) {
+        if (!predicate(run) || run.visualWidth <= 0.0f) {
+            continue;
+        }
+
+        const float left = GetRunVisualLeft(line, run);
+        const float right = left + run.visualWidth;
+        const bool joinsPrevious =
+            !fragments.empty() &&
+            run.semanticSpanId != 0 &&
+            fragments.back().representative->semanticSpanId == run.semanticSpanId &&
+            left >= fragments.back().left - kAdjacentTolerance &&
+            left <= fragments.back().right + kAdjacentTolerance;
+        if (joinsPrevious) {
+            fragments.back().right = std::max(fragments.back().right, right);
+        } else {
+            fragments.push_back({&run, left, right});
+        }
+    }
+    return fragments;
 }
 
 size_t DecodeUtf8Codepoint(const char* text, size_t length, size_t offset, uint32_t& codepoint) {
@@ -392,86 +444,75 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
 
     const size_t selectionStart = GetSelectionStart(*params.appState);
     const size_t selectionEnd = GetSelectionEnd(*params.appState);
-    float currentX = line.x;
-
-    for (const auto& run : line.runs) {
+    for (const RunLayout& run : line.runs) {
         const size_t runStart = run.textStart;
         const size_t runEnd = GetRunTextEnd(run);
-        const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.fontScale, block.type, run);
-
-        if (selectionEnd <= runStart || selectionStart >= runEnd) {
-            currentX += runWidth;
+        if (run.kind == InlineKind::Image || selectionEnd <= runStart || selectionStart >= runEnd) {
             continue;
         }
 
-        ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
-        const size_t highlightStart = std::max(selectionStart, runStart) - runStart;
-        const size_t highlightEnd = std::min(selectionEnd, runEnd) - runStart;
-        const bool isCodeText = block.type == BlockType::CodeBlock ||
-            HasFormatting(run.formatting, InlineFormatting::Code) ||
-            HasFormatting(run.formatting, InlineFormatting::Keyboard);
+        const size_t highlightStart = std::max(selectionStart, runStart);
+        const size_t highlightEnd = std::min(selectionEnd, runEnd);
+        const bool isCodeText = IsCodeLikeRun(block, run);
         const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
-        const float highlightLeft = run.kind == InlineKind::Math
-            ? currentX
-            : currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
-        const float highlightRight = run.kind == InlineKind::Math
-            ? currentX + runWidth
-            : currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
-
         SkPaint highlightPaint;
         highlightPaint.setAntiAlias(true);
         highlightPaint.setColor(params.palette.selectionFill);
-        ctx.canvas->drawRoundRect(
-            SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
-            isCodeText ? 3.0f : 1.0f,
-            isCodeText ? 3.0f : 1.0f,
-            highlightPaint);
-
-        currentX += runWidth;
+        for (const SkRect& rect : GetTextRangeRects(
+                 line,
+                 highlightStart,
+                 highlightEnd,
+                 line.y + 1.0f,
+                 line.y + line.height - 1.0f,
+                 highlightPaddingX)) {
+            ctx.canvas->drawRoundRect(
+                rect,
+                isCodeText ? 3.0f : 1.0f,
+                isCodeText ? 3.0f : 1.0f,
+                highlightPaint);
+        }
     }
 }
 
 void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
-    float currentX = line.x;
+    const auto codeFragments = CollectVisualSpanFragments(line, [](const RunLayout& run) {
+        return !run.text.empty() && HasFormatting(run.formatting, InlineFormatting::Code);
+    });
+    for (const VisualSpanFragment& fragment : codeFragments) {
+        SkPaint chipPaint;
+        chipPaint.setAntiAlias(true);
+        chipPaint.setColor(params.palette.codeInlineBackground);
+        ctx.canvas->drawRoundRect(
+            SkRect::MakeLTRB(
+                fragment.left - 4.0f,
+                line.y + 1.0f,
+                fragment.right + 4.0f,
+                line.y + line.height - 1.0f),
+            4.0f,
+            4.0f,
+            chipPaint);
+    }
 
-    for (const auto& run : line.runs) {
-        ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
-        const float advance = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.fontScale, block.type, run);
+    const auto keyboardFragments = CollectVisualSpanFragments(line, [](const RunLayout& run) {
+        return !run.text.empty() && HasFormatting(run.formatting, InlineFormatting::Keyboard);
+    });
+    for (const VisualSpanFragment& fragment : keyboardFragments) {
+        const SkRect keyRect = SkRect::MakeLTRB(
+            fragment.left - 3.0f,
+            line.y + 2.0f,
+            fragment.right + 3.0f,
+            line.y + line.height - 2.0f);
+        SkPaint keyPaint;
+        keyPaint.setAntiAlias(true);
+        keyPaint.setColor(params.palette.codeInlineBackground);
+        ctx.canvas->drawRoundRect(keyRect, 3.0f, 3.0f, keyPaint);
 
-        if (HasFormatting(run.formatting, InlineFormatting::Code) && !run.text.empty()) {
-            SkPaint chipPaint;
-            chipPaint.setAntiAlias(true);
-            chipPaint.setColor(params.palette.codeInlineBackground);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeLTRB(
-                    currentX - 4.0f,
-                    line.y + 1.0f,
-                    currentX + advance + 4.0f,
-                    line.y + line.height - 1.0f),
-                4.0f,
-                4.0f,
-                chipPaint);
-        }
-        if (HasFormatting(run.formatting, InlineFormatting::Keyboard) && !run.text.empty()) {
-            const SkRect keyRect = SkRect::MakeLTRB(
-                currentX - 3.0f,
-                line.y + 2.0f,
-                currentX + advance + 3.0f,
-                line.y + line.height - 2.0f);
-            SkPaint keyPaint;
-            keyPaint.setAntiAlias(true);
-            keyPaint.setColor(params.palette.codeInlineBackground);
-            ctx.canvas->drawRoundRect(keyRect, 3.0f, 3.0f, keyPaint);
-
-            SkPaint keyBorderPaint;
-            keyBorderPaint.setAntiAlias(true);
-            keyBorderPaint.setStyle(SkPaint::kStroke_Style);
-            keyBorderPaint.setStrokeWidth(1.0f);
-            keyBorderPaint.setColor(params.palette.tableBorder);
-            ctx.canvas->drawRoundRect(keyRect, 3.0f, 3.0f, keyBorderPaint);
-        }
-
-        currentX += advance;
+        SkPaint keyBorderPaint;
+        keyBorderPaint.setAntiAlias(true);
+        keyBorderPaint.setStyle(SkPaint::kStroke_Style);
+        keyBorderPaint.setStrokeWidth(1.0f);
+        keyBorderPaint.setColor(params.palette.tableBorder);
+        ctx.canvas->drawRoundRect(keyRect, 3.0f, 3.0f, keyBorderPaint);
     }
 }
 
@@ -481,55 +522,38 @@ void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, co
     }
 
     const auto currentMatch = GetCurrentSearchMatch(*params.appState);
-    float currentX = line.x;
-
-    for (const auto& run : line.runs) {
-        const size_t runStart = run.textStart;
-        const size_t runEnd = GetRunTextEnd(run);
-        const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.fontScale, block.type, run);
-
-        if (runEnd <= runStart || run.kind == InlineKind::Image) {
-            currentX += runWidth;
-            continue;
-        }
-
-        ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
-        for (const auto& match : params.appState->searchMatches) {
-            if (match.second <= runStart || match.first >= runEnd) {
+    for (const auto& match : params.appState->searchMatches) {
+        for (const RunLayout& run : line.runs) {
+            const size_t runStart = run.textStart;
+            const size_t runEnd = GetRunTextEnd(run);
+            if (run.kind == InlineKind::Image || match.second <= runStart || match.first >= runEnd) {
                 continue;
             }
 
-            const size_t highlightStart = std::max(match.first, runStart) - runStart;
-            const size_t highlightEnd = std::min(match.second, runEnd) - runStart;
+            const size_t highlightStart = std::max(match.first, runStart);
+            const size_t highlightEnd = std::min(match.second, runEnd);
             if (highlightStart >= highlightEnd) {
                 continue;
             }
 
-            const bool isCodeText = block.type == BlockType::CodeBlock ||
-                HasFormatting(run.formatting, InlineFormatting::Code) ||
-                HasFormatting(run.formatting, InlineFormatting::Keyboard);
+            const bool isCodeText = IsCodeLikeRun(block, run);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
-            const float highlightLeft = run.kind == InlineKind::Math
-                ? currentX
-                : currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
-            const float highlightRight = run.kind == InlineKind::Math
-                ? currentX + runWidth
-                : currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
-
             SkPaint highlightPaint;
             highlightPaint.setAntiAlias(true);
             highlightPaint.setColor(
                 currentMatch && currentMatch->first == match.first && currentMatch->second == match.second
                     ? params.palette.menuSelectedBackground
                     : params.palette.selectionFill);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
-                3.0f,
-                3.0f,
-                highlightPaint);
+            for (const SkRect& rect : GetTextRangeRects(
+                     line,
+                     highlightStart,
+                     highlightEnd,
+                     line.y + 1.0f,
+                     line.y + line.height - 1.0f,
+                     highlightPaddingX)) {
+                ctx.canvas->drawRoundRect(rect, 3.0f, 3.0f, highlightPaint);
+            }
         }
-
-        currentX += runWidth;
     }
 }
 
@@ -539,40 +563,22 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
     }
 
     const auto currentMatch = GetCurrentSearchMatch(*params.appState);
-    float currentX = line.x;
-
-    for (const auto& run : line.runs) {
-        const size_t runStart = run.textStart;
-        const size_t runEnd = GetRunTextEnd(run);
-        const float runWidth = MeasureRunWidth(ctx, params.typefaces, params.baseFontSize, block.fontScale, block.type, run);
-
-        if (runEnd <= runStart || run.kind == InlineKind::Image) {
-            currentX += runWidth;
-            continue;
-        }
-
-        ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
-        for (const auto& match : params.appState->searchMatches) {
-            if (match.second <= runStart || match.first >= runEnd) {
+    for (const auto& match : params.appState->searchMatches) {
+        for (const RunLayout& run : line.runs) {
+            const size_t runStart = run.textStart;
+            const size_t runEnd = GetRunTextEnd(run);
+            if (run.kind == InlineKind::Image || match.second <= runStart || match.first >= runEnd) {
                 continue;
             }
 
-            const size_t highlightStart = std::max(match.first, runStart) - runStart;
-            const size_t highlightEnd = std::min(match.second, runEnd) - runStart;
+            const size_t highlightStart = std::max(match.first, runStart);
+            const size_t highlightEnd = std::min(match.second, runEnd);
             if (highlightStart >= highlightEnd) {
                 continue;
             }
 
-            const bool isCodeText = block.type == BlockType::CodeBlock ||
-                HasFormatting(run.formatting, InlineFormatting::Code) ||
-                HasFormatting(run.formatting, InlineFormatting::Keyboard);
+            const bool isCodeText = IsCodeLikeRun(block, run);
             const float highlightPaddingX = isCodeText ? 2.5f : 0.0f;
-            const float highlightLeft = run.kind == InlineKind::Math
-                ? currentX
-                : currentX + ctx.font.measureText(run.text.c_str(), highlightStart, SkTextEncoding::kUTF8) - highlightPaddingX;
-            const float highlightRight = run.kind == InlineKind::Math
-                ? currentX + runWidth
-                : currentX + ctx.font.measureText(run.text.c_str(), highlightEnd, SkTextEncoding::kUTF8) + highlightPaddingX;
             const bool isCurrent = currentMatch && currentMatch->first == match.first && currentMatch->second == match.second;
 
             SkPaint strokePaint;
@@ -580,14 +586,16 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
             strokePaint.setStyle(SkPaint::kStroke_Style);
             strokePaint.setStrokeWidth(isCurrent ? 1.8f : 1.1f);
             strokePaint.setColor(isCurrent ? params.palette.linkText : params.palette.menuDisabledText);
-            ctx.canvas->drawRoundRect(
-                SkRect::MakeLTRB(highlightLeft, line.y + 1.0f, highlightRight, line.y + line.height - 1.0f),
-                3.0f,
-                3.0f,
-                strokePaint);
+            for (const SkRect& rect : GetTextRangeRects(
+                     line,
+                     highlightStart,
+                     highlightEnd,
+                     line.y + 1.0f,
+                     line.y + line.height - 1.0f,
+                     highlightPaddingX)) {
+                ctx.canvas->drawRoundRect(rect, 3.0f, 3.0f, strokePaint);
+            }
         }
-
-        currentX += runWidth;
     }
 }
 
@@ -845,16 +853,20 @@ void DrawBlockDecoration(
 }
 
 void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
-    float currentX = line.x;
-
-    for (const auto& run : line.runs) {
+    for (const RunLayout& run : line.runs) {
         ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
         if (run.metadataRole == MetadataRunRole::Tag) {
             ctx.font.setSize(ctx.font.getSize() * kMetadataTagFontScale);
         }
 
-        const float textAdvance = MeasureTextWithFallback(params.typefaces, ctx.font, run.text.c_str(), run.text.size());
-        const float advance = run.visualWidth > 0.0f ? run.visualWidth : textAdvance;
+        const float runX = GetRunVisualLeft(line, run);
+        const float advance = MeasureRunWidth(
+            ctx,
+            params.typefaces,
+            params.baseFontSize,
+            block.fontScale,
+            block.type,
+            run);
         float baselineY = std::round(line.y + line.height - kTextBaselineOffset);
         if (HasFormatting(run.formatting, InlineFormatting::Superscript)) {
             baselineY -= ctx.font.getSize() * 0.38f;
@@ -873,11 +885,7 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             const float renderedHeight = image && params.freezeImageDimensions
                 ? static_cast<float>(image->height())
                 : displayH;
-            float layoutX = currentX;
-            const float blockW = block.bounds.width();
-            if (displayW > blockW * 0.8f) {
-                layoutX = block.bounds.left() + (blockW - displayW) * 0.5f;
-            }
+            const float layoutX = runX;
             const float layoutY = line.y + (line.height - displayH) / 2.0f;
             const SkRect imageLayoutRect = SkRect::MakeXYWH(layoutX, layoutY, displayW, displayH);
 
@@ -933,8 +941,6 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                     ctx.canvas->restore();
                 }
             }
-
-            currentX += displayW + 4.0f;
             continue;
         }
 
@@ -950,7 +956,7 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 DrawMath(
                     ctx.canvas,
                     run.mathLayout,
-                    currentX,
+                    runX,
                     line.y + ((line.height - run.mathLayout.height) * 0.5f),
                     mathColor);
             } else {
@@ -959,40 +965,27 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 fallbackPaint.setColor(params.palette.codeInlineBackground);
                 ctx.canvas->drawRoundRect(
                     SkRect::MakeLTRB(
-                        currentX - 2.0f,
+                        runX - 2.0f,
                         line.y + 1.0f,
-                        currentX + advance + 2.0f,
+                        runX + advance + 2.0f,
                         line.y + line.height - 1.0f),
                     3.0f,
                     3.0f,
                     fallbackPaint);
                 ctx.paint.setColor(mathColor);
                 ctx.canvas->save();
-                ctx.canvas->clipRect(SkRect::MakeXYWH(currentX, line.y, advance, line.height));
+                ctx.canvas->clipRect(SkRect::MakeXYWH(runX, line.y, advance, line.height));
                 DrawTextWithFallback(
                     ctx.canvas,
                     params.typefaces,
                     run.text.c_str(),
                     run.text.size(),
-                    currentX,
+                    runX,
                     baselineY,
                     ctx.font,
                     ctx.paint);
                 ctx.canvas->restore();
             }
-            if (isLink && advance > 0.0f) {
-                SkPaint underlinePaint;
-                underlinePaint.setAntiAlias(true);
-                underlinePaint.setStrokeWidth(1.0f);
-                underlinePaint.setColor(mathColor);
-                ctx.canvas->drawLine(
-                    currentX,
-                    line.y + line.height - 1.0f,
-                    currentX + advance,
-                    line.y + line.height - 1.0f,
-                    underlinePaint);
-            }
-            currentX += advance;
             continue;
         }
 
@@ -1001,7 +994,7 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             dividerPaint.setAntiAlias(true);
             dividerPaint.setStrokeWidth(1.0f);
             dividerPaint.setColor(params.palette.tableBorder);
-            const float dividerX = currentX + (advance * 0.5f);
+            const float dividerX = runX + (advance * 0.5f);
             const float halfHeight = std::min(line.height * 0.3f, 8.0f);
             ctx.canvas->drawLine(
                 dividerX,
@@ -1009,7 +1002,6 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 dividerX,
                 line.y + (line.height * 0.5f) + halfHeight,
                 dividerPaint);
-            currentX += advance;
             continue;
         }
 
@@ -1017,7 +1009,7 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
             const float pillWidth = std::max(advance - kMetadataTagGap, 1.0f);
             const float pillHeight = std::min(std::max(ctx.font.getSize() + 6.0f, 18.0f), line.height - 2.0f);
             const SkRect pillRect = SkRect::MakeXYWH(
-                currentX,
+                runX,
                 line.y + ((line.height - pillHeight) * 0.5f),
                 pillWidth,
                 pillHeight);
@@ -1043,11 +1035,10 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 params.typefaces,
                 run.text.c_str(),
                 run.text.size(),
-                currentX + kMetadataTagPaddingX,
+                runX + kMetadataTagPaddingX,
                 tagBaselineY,
                 ctx.font,
                 ctx.paint);
-            currentX += advance;
             continue;
         }
 
@@ -1060,46 +1051,85 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                 run.formatting,
                 run.syntaxRole,
                 isLink));
-        DrawTextWithFallback(
-            ctx.canvas,
-            params.typefaces,
-            run.text.c_str(),
-            run.text.size(),
-            currentX + (run.metadataRole == MetadataRunRole::DotSeparator
-                ? std::max((advance - textAdvance) * 0.5f, 0.0f)
-                : 0.0f),
-            baselineY,
-            ctx.font,
-            ctx.paint);
-
-        if (isLink && textAdvance > 0.0f) {
-            SkPaint underlinePaint;
-            underlinePaint.setAntiAlias(true);
-            underlinePaint.setStrokeWidth(1.0f);
-            underlinePaint.setColor(GetDocumentTextColor(
-                params.palette,
-                block.type,
-                run.formatting,
-                run.syntaxRole,
-                true));
-            ctx.canvas->drawLine(currentX, baselineY + 2.0f, currentX + textAdvance, baselineY + 2.0f, underlinePaint);
+        if (HasCompleteShapedGlyphData(run)) {
+            ctx.canvas->drawGlyphs(
+                SkSpan<const SkGlyphID>(run.glyphs.data(), run.glyphs.size()),
+                SkSpan<const SkPoint>(run.glyphPositions.data(), run.glyphPositions.size()),
+                SkSpan<const uint32_t>(run.glyphClusters.data(), run.glyphClusters.size()),
+                SkSpan<const char>(run.text.data(), run.text.size()),
+                SkPoint::Make(line.x, line.y),
+                run.shapedFont,
+                ctx.paint);
+        } else {
+            const float textAdvance = MeasureTextWithFallback(
+                params.typefaces,
+                ctx.font,
+                run.text.c_str(),
+                run.text.size());
+            DrawTextWithFallback(
+                ctx.canvas,
+                params.typefaces,
+                run.text.c_str(),
+                run.text.size(),
+                runX + (run.metadataRole == MetadataRunRole::DotSeparator
+                    ? std::max((advance - textAdvance) * 0.5f, 0.0f)
+                    : 0.0f),
+                baselineY,
+                ctx.font,
+                ctx.paint);
         }
+    }
+}
 
-        if (HasFormatting(run.formatting, InlineFormatting::Strikethrough) && textAdvance > 0.0f) {
-            SkPaint strikePaint;
-            strikePaint.setAntiAlias(true);
-            strikePaint.setStrokeWidth(std::max(params.baseFontSize * block.fontScale * 0.07f, 1.0f));
-            strikePaint.setColor(GetDocumentTextColor(
-                params.palette,
-                block.type,
-                run.formatting,
-                run.syntaxRole,
-                isLink));
-            const float strikeY = baselineY - (ctx.font.getSize() * 0.32f);
-            ctx.canvas->drawLine(currentX, strikeY, currentX + textAdvance, strikeY, strikePaint);
-        }
+void DrawInlineStrokeDecorationsForLine(
+    RenderContext& ctx,
+    const DocumentSceneParams& params,
+    const BlockLayout& block,
+    const LineLayout& line) {
+    const auto linkFragments = CollectVisualSpanFragments(line, [](const RunLayout& run) {
+        return run.kind != InlineKind::Image && !run.linkTarget.empty() && !run.text.empty();
+    });
+    for (const VisualSpanFragment& fragment : linkFragments) {
+        const RunLayout& run = *fragment.representative;
+        SkPaint underlinePaint;
+        underlinePaint.setAntiAlias(true);
+        underlinePaint.setStrokeWidth(1.0f);
+        underlinePaint.setColor(GetDocumentTextColor(
+            params.palette,
+            block.type,
+            run.formatting,
+            run.syntaxRole,
+            true));
+        ctx.canvas->drawLine(
+            fragment.left,
+            line.y + line.height - 1.0f,
+            fragment.right,
+            line.y + line.height - 1.0f,
+            underlinePaint);
+    }
 
-        currentX += advance;
+    const auto strikeFragments = CollectVisualSpanFragments(line, [](const RunLayout& run) {
+        return run.kind != InlineKind::Image &&
+            !run.text.empty() &&
+            HasFormatting(run.formatting, InlineFormatting::Strikethrough);
+    });
+    for (const VisualSpanFragment& fragment : strikeFragments) {
+        const RunLayout& run = *fragment.representative;
+        SkPaint strikePaint;
+        strikePaint.setAntiAlias(true);
+        strikePaint.setStrokeWidth(std::max(params.baseFontSize * block.fontScale * 0.07f, 1.0f));
+        strikePaint.setColor(GetDocumentTextColor(
+            params.palette,
+            block.type,
+            run.formatting,
+            run.syntaxRole,
+            !run.linkTarget.empty()));
+        ctx.canvas->drawLine(
+            fragment.left,
+            line.y + (line.height * 0.5f),
+            fragment.right,
+            line.y + (line.height * 0.5f),
+            strikePaint);
     }
 }
 
@@ -1218,6 +1248,7 @@ void DrawBlocks(
             DrawSearchForLine(ctx, params, block, line);
             DrawSelectionForLine(ctx, params, block, line);
             DrawLine(ctx, params, block, line);
+            DrawInlineStrokeDecorationsForLine(ctx, params, block, line);
             DrawSearchStrokeForLine(ctx, params, block, line);
         }
 
