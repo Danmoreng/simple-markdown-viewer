@@ -25,6 +25,7 @@
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
 #include "text/complex_text_runtime.h"
+#include "text/shaped_text_layout.h"
 #include "text/text_geometry.h"
 #include "util/skia_font_utils.h"
 #include "util/utf8.h"
@@ -1118,6 +1119,298 @@ void ComplexTextRuntimeAvailability() {
     Require(runtime.Shaper() != nullptr, "complex text runtime should expose the HarfBuzz shaper");
 }
 
+void ComplexTextShapingSubsystem() {
+    Require(
+        mdviewer::ResolveFirstStrongDirection("123 (...) English") ==
+            mdviewer::ResolvedTextDirection::LeftToRight,
+        "first-strong direction should ignore leading neutral characters and digits");
+    Require(
+        mdviewer::ResolveFirstStrongDirection("123 (...) العربية English") ==
+            mdviewer::ResolvedTextDirection::RightToLeft,
+        "first-strong direction should resolve Arabic text as RTL");
+    Require(
+        mdviewer::ResolveFirstStrongDirection("שלום English") ==
+            mdviewer::ResolvedTextDirection::RightToLeft,
+        "first-strong direction should resolve Hebrew text as RTL");
+    Require(
+        mdviewer::ResolveFirstStrongDirection("123 — (...)") ==
+            mdviewer::ResolvedTextDirection::LeftToRight,
+        "a neutral-only paragraph should default to LTR");
+
+    std::vector<mdviewer::ShapedTextInputRun> inputs;
+    inputs.push_back({
+        .run = mdviewer::InlineRun{.text = "English"},
+        .semanticSpanId = 10,
+    });
+    inputs.push_back({
+        .run = mdviewer::InlineRun{.kind = mdviewer::InlineKind::SoftBreak},
+        .semanticSpanId = 11,
+    });
+    inputs.push_back({
+        .run = mdviewer::InlineRun{
+            .formatting = mdviewer::InlineFormatting::Strong,
+            .text = "العربية",
+        },
+        .semanticSpanId = 12,
+    });
+    inputs.push_back({
+        .run = mdviewer::InlineRun{.kind = mdviewer::InlineKind::HardBreak},
+        .semanticSpanId = 13,
+    });
+    inputs.push_back({
+        .run = mdviewer::InlineRun{
+            .kind = mdviewer::InlineKind::Image,
+            .text = "fixture image",
+            .imageSource = "fixture.svg",
+        },
+        .semanticSpanId = 14,
+        .objectWidth = 42.0f,
+        .objectHeight = 24.0f,
+    });
+    inputs.push_back({
+        .run = mdviewer::InlineRun{
+            .kind = mdviewer::InlineKind::Math,
+            .text = "$x+y$",
+            .mathSource = "x+y",
+        },
+        .semanticSpanId = 15,
+        .objectWidth = 35.0f,
+        .objectHeight = 20.0f,
+    });
+
+    const mdviewer::ShapingParagraphSet built = mdviewer::BuildShapingParagraphs(inputs, 100);
+    RequireEqual(built.paragraphs.size(), static_cast<size_t>(2),
+                 "hard breaks should split complex-text shaping paragraphs");
+    RequireEqual(built.logicalText, std::string("English العربية\n$x+y$"),
+                 "soft/hard breaks and atomic objects should preserve logical copy text");
+    RequireEqual(built.logicalEnd, static_cast<size_t>(100 + built.logicalText.size()),
+                 "logical shaping offsets should remain global UTF-8 byte offsets");
+    Require(built.paragraphs.front().endedByHardBreak,
+            "the paragraph before a hard break should retain its source-line boundary");
+    RequireEqual(built.paragraphs.front().spans[1].text, std::string(" "),
+                 "soft breaks should shape and copy as a normal space");
+    RequireEqual(built.paragraphs[1].spans.front().logicalLength, static_cast<size_t>(0),
+                 "image placeholders should remain zero-length in logical copy text");
+    RequireEqual(built.paragraphs[1].spans.front().shapingLength, static_cast<size_t>(3),
+                 "atomic objects should use one internal UTF-8 EM SPACE placeholder");
+    Require(
+        built.paragraphs[1].utf8.find("fixture image") == std::string::npos,
+        "image alt text should not leak into the internal shaping buffer");
+
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "shaping subsystem regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+    const mdviewer::ComplexTextRuntime runtime(fontManager);
+    Require(runtime.IsAvailable(), runtime.Diagnostic());
+
+    mdviewer::ShapingParagraph oversizedParagraph;
+    oversizedParagraph.utf8.assign(mdviewer::kMaximumShapingParagraphBytes + 1, 'a');
+    oversizedParagraph.spans.push_back({
+        .shapingLength = oversizedParagraph.utf8.size(),
+        .logicalLength = oversizedParagraph.utf8.size(),
+    });
+    mdviewer::ShapedTextLayoutOptions safetyOptions;
+    safetyOptions.wrapWidth = 600.0f;
+    const auto oversizedResult = mdviewer::ShapeTextParagraph(
+        oversizedParagraph, runtime, typefaces, safetyOptions);
+    Require(!oversizedResult.success &&
+                oversizedResult.diagnostic.find("safety limit") != std::string::npos,
+            "a maliciously large single shaping paragraph should fail cleanly");
+
+    std::vector<mdviewer::ShapedTextInputRun> mixedInputs;
+    mixedInputs.push_back({
+        .run = mdviewer::InlineRun{.text = "Start e\xCC\x81 English "},
+        .semanticSpanId = 21,
+    });
+    mixedInputs.push_back({
+        .run = mdviewer::InlineRun{
+            .formatting = mdviewer::InlineFormatting::Strong,
+            .text = "العربية",
+            .linkTarget = "https://example.com",
+        },
+        .semanticSpanId = 22,
+    });
+    mixedInputs.push_back({
+        .run = mdviewer::InlineRun{.text = " עברית end"},
+        .semanticSpanId = 23,
+    });
+    mixedInputs.push_back({
+        .run = mdviewer::InlineRun{
+            .kind = mdviewer::InlineKind::Math,
+            .text = "$x$",
+            .mathSource = "x",
+        },
+        .semanticSpanId = 24,
+        .objectWidth = 30.0f,
+        .objectHeight = 38.0f,
+    });
+
+    const auto mixedParagraphs = mdviewer::BuildShapingParagraphs(mixedInputs, 500);
+    RequireEqual(mixedParagraphs.paragraphs.size(), static_cast<size_t>(1),
+                 "inline mixed text should shape as one paragraph");
+    mdviewer::ShapedTextLayoutOptions options;
+    options.blockType = mdviewer::BlockType::Paragraph;
+    options.baseFontSize = mdviewer::kDefaultBaseFontSize;
+    options.wrapWidth = 220.0f;
+    options.startY = 12.0f;
+    const mdviewer::ShapedTextLayoutResult shaped = mdviewer::ShapeTextParagraph(
+        mixedParagraphs.paragraphs.front(), runtime, typefaces, options);
+    Require(shaped.success, shaped.diagnostic);
+    Require(shaped.lines.size() >= 2,
+            "the shaping subsystem should wrap mixed text at the requested width");
+    Require(shaped.totalHeight > 0.0f && shaped.naturalWidth > 0.0f,
+            "shaping should return reusable line and natural-width geometry");
+
+    bool foundRtlRun = false;
+    bool foundFallbackTypeface = false;
+    bool foundStrongSemanticSpan = false;
+    bool foundAtomicMath = false;
+    bool combiningSequenceStayedAtomic = false;
+    bool foundWrappedLineWithinWidth = false;
+    for (const mdviewer::LineLayout& line : shaped.lines) {
+        foundWrappedLineWithinWidth = foundWrappedLineWithinWidth ||
+            line.width <= options.wrapWidth + 1.0f;
+        float previousVisualEnd = 0.0f;
+        for (const mdviewer::RunLayout& run : line.runs) {
+            Require(run.visualX + 0.01f >= previousVisualEnd,
+                    "SkShaper output should be stored in visual run order");
+            previousVisualEnd = run.visualX + run.visualWidth;
+            if ((run.bidiLevel & 1U) != 0) {
+                foundRtlRun = true;
+            }
+            if (run.semanticSpanId == 22) {
+                foundStrongSemanticSpan = true;
+                Require(run.linkTarget == "https://example.com",
+                        "font/script fallback fragments should retain link semantics");
+                if (run.shapedFont.getTypeface() != bold.get()) {
+                    foundFallbackTypeface = true;
+                }
+            }
+            if (run.kind == mdviewer::InlineKind::Math) {
+                foundAtomicMath = true;
+                Require(!run.shaped && run.glyphs.empty(),
+                        "atomic math should discard its internal placeholder glyphs");
+                RequireNear(run.visualWidth, 30.0f, 0.01f,
+                            "atomic math should retain its exact requested visual width");
+                Require(run.caretStops.size() == 2,
+                        "atomic math should expose only logical start/end carets");
+            } else {
+                Require(run.shaped && !run.glyphs.empty(),
+                        "normal complex text should retain shaped glyph data");
+                RequireEqual(run.glyphs.size(), run.glyphPositions.size(),
+                             "every shaped glyph should retain a visual position");
+                RequireEqual(run.glyphs.size(), run.glyphClusters.size(),
+                             "every shaped glyph should map back to a UTF-8 cluster");
+            }
+            const size_t combining = run.text.find("e\xCC\x81");
+            if (combining != std::string::npos) {
+                const size_t unsafePosition = run.textStart + combining + 1;
+                combiningSequenceStayedAtomic = std::none_of(
+                    run.caretStops.begin(), run.caretStops.end(), [&](const auto& stop) {
+                        return stop.textPosition == unsafePosition;
+                    });
+            }
+        }
+        if (std::abs(line.width - previousVisualEnd) > 1.0f) {
+            std::ostringstream details;
+            details << "shaped line width should match its final visual advance: line="
+                    << line.width << ", edge=" << previousVisualEnd;
+            for (const auto& run : line.runs) {
+                details << " [kind=" << static_cast<int>(run.kind)
+                        << ", x=" << run.visualX << ", width=" << run.visualWidth << ']';
+            }
+            throw TestFailure(details.str());
+        }
+    }
+    Require(foundRtlRun, "mixed Arabic/Hebrew shaping should emit an RTL bidi run");
+    Require(foundWrappedLineWithinWidth,
+            "the shaper should wrap at safe opportunities while permitting unbreakable overflow");
+    Require(foundStrongSemanticSpan, "shaping should preserve semantic Markdown span ids");
+    const bool boldFaceNeedsArabicFallback = bold->unicharToGlyph(0x0627) == 0;
+    Require(!boldFaceNeedsArabicFallback || foundFallbackTypeface,
+            "missing Arabic glyphs should use system fallback while retaining strong semantics");
+    Require(foundAtomicMath, "inline math should participate as an atomic shaping object");
+    Require(combiningSequenceStayedAtomic,
+            "HarfBuzz caret geometry should not split a combining grapheme sequence");
+
+    std::vector<mdviewer::ShapedTextInputRun> rtlInputs{{
+        .run = mdviewer::InlineRun{.text = "العربية before English 123"},
+        .semanticSpanId = 25,
+    }};
+    const auto rtlParagraphs = mdviewer::BuildShapingParagraphs(rtlInputs, 700);
+    const auto shapedRtl = mdviewer::ShapeTextParagraph(
+        rtlParagraphs.paragraphs.front(), runtime, typefaces, options);
+    Require(shapedRtl.success &&
+                shapedRtl.direction == mdviewer::ResolvedTextDirection::RightToLeft,
+            "an Arabic-first paragraph should shape with an RTL base level");
+    Require(std::all_of(
+        shapedRtl.lines.begin(), shapedRtl.lines.end(), [](const auto& line) {
+            return line.direction == mdviewer::ResolvedTextDirection::RightToLeft;
+        }),
+        "every wrapped line should retain its paragraph base direction");
+    const mdviewer::RunLayout* leadingRtlRun = nullptr;
+    for (const auto& line : shapedRtl.lines) {
+        for (const auto& run : line.runs) {
+            if ((run.bidiLevel & 1U) != 0 && run.text.find("العربية") != std::string::npos) {
+                leadingRtlRun = &run;
+                break;
+            }
+        }
+        if (leadingRtlRun != nullptr) {
+            break;
+        }
+    }
+    Require(leadingRtlRun != nullptr, "RTL-first shaping should retain an odd-level Arabic run");
+    const auto rtlStartCaret = std::find_if(
+        leadingRtlRun->caretStops.begin(), leadingRtlRun->caretStops.end(),
+        [&](const auto& stop) { return stop.textPosition == leadingRtlRun->textStart; });
+    Require(rtlStartCaret != leadingRtlRun->caretStops.end(),
+            "RTL shaped runs should expose their logical-start caret");
+    RequireNear(
+        rtlStartCaret->x,
+        leadingRtlRun->visualX + leadingRtlRun->visualWidth,
+        0.5f,
+        "the logical start of an RTL run should map to its right visual edge");
+
+    const auto emptyLines = mdviewer::BuildShapingParagraphs({
+        {.run = mdviewer::InlineRun{.kind = mdviewer::InlineKind::HardBreak}},
+        {.run = mdviewer::InlineRun{.kind = mdviewer::InlineKind::HardBreak}},
+    }, 800);
+    RequireEqual(emptyLines.paragraphs.size(), static_cast<size_t>(2),
+                 "consecutive source breaks should retain empty shaping paragraphs");
+    RequireEqual(emptyLines.logicalText, std::string("\n\n"),
+                 "empty source lines should preserve both logical newlines");
+    const auto shapedEmpty = mdviewer::ShapeTextParagraph(
+        emptyLines.paragraphs.front(), runtime, typefaces, options);
+    Require(shapedEmpty.success && shapedEmpty.lines.size() == 1 && shapedEmpty.totalHeight > 0.0f,
+            "an empty shaping paragraph should still reserve one line height");
+
+    std::vector<mdviewer::ShapedTextInputRun> codeInputs{{
+        .run = mdviewer::InlineRun{
+            .syntaxRole = mdviewer::SyntaxRole::String,
+            .text = "const char* value = \"العربية\";",
+        },
+        .semanticSpanId = 31,
+    }};
+    const auto codeParagraphs = mdviewer::BuildShapingParagraphs(codeInputs, 900);
+    mdviewer::ShapedTextLayoutOptions codeOptions = options;
+    codeOptions.blockType = mdviewer::BlockType::CodeBlock;
+    codeOptions.wrapWidth = 1000000.0f;
+    const auto shapedCode = mdviewer::ShapeTextParagraph(
+        codeParagraphs.paragraphs.front(), runtime, typefaces, codeOptions);
+    Require(shapedCode.success && shapedCode.lines.size() == 1,
+            "one preserved code source line should shape without wrapping");
+    Require(shapedCode.naturalWidth > 0.0f,
+            "unwrapped shaped code should report its horizontal-scroll width");
+    Require(std::all_of(
+        shapedCode.lines.front().runs.begin(), shapedCode.lines.front().runs.end(),
+        [](const auto& run) { return run.syntaxRole == mdviewer::SyntaxRole::String; }),
+        "syntax metadata should survive font and bidi run fragmentation");
+}
+
 void SharedTextGeometryModel() {
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontManager);
@@ -2183,6 +2476,7 @@ int main() {
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
+        {"ComplexTextShapingSubsystem", ComplexTextShapingSubsystem},
         {"SharedTextGeometryModel", SharedTextGeometryModel},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},
