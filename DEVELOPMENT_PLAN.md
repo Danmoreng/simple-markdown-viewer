@@ -31,7 +31,7 @@ The current implementation already includes:
 - [x] code block copy buttons
 - [x] custom Skia document rendering
 - [x] scrolling, selection, and copy
-- [x] in-document search with match highlighting and next/previous navigation
+- [x] Unicode-aware in-document search with match highlighting and next/previous navigation
 - [x] relative local Markdown/text links opening inside the viewer
 - [x] external web links opening through the platform shell
 - [x] link hover preview
@@ -39,7 +39,7 @@ The current implementation already includes:
 - [x] recent files
 - [x] light, sepia, and dark themes
 - [x] runtime document font selection
-- [x] reader zoom in/out
+- [x] reader zoom in/out/reset
 - [x] persistent config for theme, font, zoom, recent files, and window placement on Windows and Linux
 - [x] Windows and Linux drag-and-drop and native file dialogs
 - [x] Windows live reload when the current file changes
@@ -173,21 +173,25 @@ Skia bundle and Windows host validation remain required before release.
 Deliberate boundary: compact front-matter metadata tags and custom application
 chrome still use their specialized LTR UI layout. The document surface and its
 heading outline use the complex-text pipeline. Unicode-aware case-insensitive
-search remains part of Milestone 6; exact Arabic and Hebrew search is supported.
+search is completed in Milestone 6 and preserves the logical ranges used by the
+complex-text selection and highlight geometry.
 
 ## Milestone 6: Search and Keyboard Usability
 
 Goal: make search and keyboard workflows closer to expected desktop behavior.
 
-- [ ] Add case-sensitive search toggle.
-- [ ] Add whole-word search toggle.
-- [ ] Consider regex search as optional.
-- [ ] Improve Unicode-aware search behavior beyond ASCII lowercase matching.
-- [ ] Add select-all support.
-- [ ] Add zoom reset command and shortcut.
-- [ ] Add keyboard access for links, outline items, and top-bar controls.
-- [ ] Add visible focus indication for keyboard navigation.
-- [ ] Review shortcut coverage for open, find, find next/previous, copy, reload, zoom reset, back/forward, print, and outline toggle.
+Status: complete with a deliberately minimal search surface.
+
+- [x] Keep case-sensitive search out of the current UI; reconsider only if real usage demonstrates a need.
+- [x] Keep whole-word search out of the current UI; reconsider only if real usage demonstrates a need.
+- [x] Keep regex search out of scope for the focused document-viewer experience.
+- [x] Use Unicode case folding for case-insensitive search while preserving original UTF-8 byte ranges for highlighting and copy behavior.
+- [x] Add `Ctrl+A` select-all support for the document surface.
+- [x] Add a Reset Zoom command and `Ctrl+0` shortcut.
+- [x] Keep the already-implemented outline keyboard navigation in Milestone 2; defer keyboard focus for links and top-bar controls to the accessibility work in Milestone 7.
+- [x] Defer additional visible focus treatment until link/top-bar keyboard navigation provides actual focus targets.
+- [x] Review and align shortcuts for open, find, find next/previous, copy, select all, reload, zoom reset, back/forward, print, and outline toggle on Windows and Linux.
+- [x] Add shared regressions for Unicode search ranges and keyboard-command routing.
 
 ## Milestone 7: Themes and Accessibility
 
@@ -199,6 +203,8 @@ Goal: make the custom-rendered UI safer for everyday and accessibility use.
 - [ ] Avoid conveying link/search/focus state by color alone.
 - [ ] Respect platform high-contrast settings where practical.
 - [ ] Improve text scaling behavior and verify layout does not break at zoom bounds.
+- [ ] Add keyboard access for document links and top-bar controls if it can be done without introducing a general widget framework.
+- [ ] Add visible focus indication together with those keyboard-focus targets.
 - [ ] Define what accessibility support is feasible for a Skia-rendered document surface, especially headings, links, tables, and focus state.
 
 ## Milestone 8: Print and Export

@@ -82,7 +82,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
 - Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
 - Remote images are not fetched inside the app; HTML badges and other remote images use labeled placeholders and can still be opened explicitly
 - Mouse text selection and `Ctrl+C` copy
-- In-document search with `Ctrl+F`, match highlighting, and next/previous navigation
+- Unicode-aware in-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
 - Native right-click context menu for selection/link actions, reload, document-path copying, and opening files in the file manager
 - Image context actions for opening local or remote images, copying image paths, and opening local images in the file manager
@@ -93,7 +93,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
 - Switchable `Light`, `Sepia`, and `Dark` themes
 - Custom client-drawn menu bar
 - Runtime font selection
-- Reader zoom controls with toolbar `+` / `-` and `Ctrl` + `+` / `-`
+- Reader zoom controls with toolbar `+` / `-`, `Ctrl` + `+` / `-`, and `Ctrl+0` reset
 - Manual document reload with `F5`, plus automatic reload on external file changes while the file is open on Windows
 - Persistent per-user settings in `mdviewer.ini` for theme, reading font, zoom level, outline side/width, recent files with opened timestamps and scroll positions, and window placement on Windows and Linux
 - Platform app icons for the Windows executable and Linux window/desktop integration
@@ -203,7 +203,7 @@ bundle on Windows before publishing a release containing complex-text support.
 
 ## Controls
 
-- `File -> Open...`: open a file
+- `File -> Open...` or `Ctrl+O`: open a file
 - `File -> Reload` or `F5`: reload the current document and preserve its reading position when practical
 - `File -> Save as PDF...`: export the currently open Markdown document to PDF
 - `File -> Print...` or `Ctrl+P`: print the currently open Markdown document on Windows or Linux
@@ -215,8 +215,9 @@ bundle on Windows before publishing a release containing complex-text support.
 - middle mouse button: toggle browser-style auto-scroll mode on Windows or Linux; move above or below the origin to control direction and speed, then stop with middle-click, left-click, wheel, or `Escape`
 - left mouse drag: select text
 - `Ctrl+C`: copy selected text
+- `Ctrl+A`: select all rendered document text
 - `Ctrl+F`: search within the current document
-- `Enter` / `Shift+Enter`: move to the next or previous search match while search is open
+- `Enter` / `Shift+Enter` or `F3` / `Shift+F3`: move to the next or previous search match while search is open
 - `Escape`: close search
 - Search close button: click the `x` button in the search box
 - `F10`, `Alt+F`, `Alt+V`, or `Alt+T`: open the application menus; navigate with arrows, `Enter`, and `Escape`, or use number keys for recent files
@@ -228,6 +229,7 @@ bundle on Windows before publishing a release containing complex-text support.
 - `View -> Outline on Left/Right`: choose the outline side; saved as `outline_side=left` or `outline_side=right`
 - Outline sidebar: use the mouse wheel or scrollbar for long heading lists; drag the divider to resize it. The width is saved as `outline_width`.
 - `Ctrl` + `+` / `-`: zoom document text in and out
+- `View -> Reset Zoom` or `Ctrl+0`: restore the default document text size
 - **Navigation**:
   - `Alt + Left` or `Backspace`: Go Back
   - `Alt + Right`: Go Forward

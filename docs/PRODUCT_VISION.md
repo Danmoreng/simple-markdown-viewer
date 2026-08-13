@@ -488,13 +488,13 @@ Possible future behavior:
 
 Search is essential. The current viewer searches rendered plain text, highlights
 all matches, displays a match count, supports next/previous navigation, and
-searches text from code blocks and tables.
+searches text from code blocks and tables. Case-insensitive matching uses Unicode
+case folding and preserves original UTF-8 ranges for highlighting and copying.
 
-Remaining search enhancements:
+The search surface intentionally stays small: regex is out of scope, while
+case-sensitive and whole-word toggles are deferred until demonstrated demand.
+Remaining correctness work may include:
 
-- Case-sensitive toggle.
-- Whole-word toggle.
-- Regex search, optional.
 - Search inside hidden or collapsed sections, with clear behavior.
 - Search results should scroll to the exact visible match.
 
@@ -502,8 +502,7 @@ Easy-to-miss search cases:
 
 - Text split across inline formatting nodes.
 - Unicode normalization.
-- Accented characters.
-- Case folding in non-English languages.
+- Accented characters and case-fold expansions with different UTF-8 lengths.
 - Matches inside tables.
 - Matches inside generated or hidden content.
 
@@ -571,11 +570,9 @@ Remaining work:
 
 ### 7.3 Zoom
 
-Current desktop behavior includes zoom in/out, keyboard shortcuts, Ctrl+mouse
-wheel zoom, persistent base font size, and reading-position preservation during
-relayout. Remaining behavior:
-
-- Reset zoom.
+Current desktop behavior includes zoom in/out, `Ctrl+0` reset, keyboard
+shortcuts, Ctrl+mouse wheel zoom, persistent base font size, and
+reading-position preservation during relayout.
 
 ### 7.4 Layout Options
 
@@ -648,16 +645,10 @@ text. Remaining useful actions:
 
 ### 8.3 Keyboard Shortcuts
 
-The current hosts cover open, find, find next/previous, copy, zoom in/out,
-Back/Forward, and outline toggle through shared interaction behavior. Remaining
-shortcut work includes:
-
-- Zoom reset.
-- Print.
-- Reload.
-- Select all.
-- Open recent.
-- Command palette, optional.
+The current hosts cover open, find, find next/previous, copy, select all,
+zoom in/out/reset, Back/Forward, reload, print, and outline toggle. Recent files
+remain available through the File menu and its number-key navigation. A command
+palette remains an optional later feature rather than baseline shortcut work.
 
 Platform conventions matter: shortcuts should feel native on Windows/Linux and macOS.
 

@@ -65,8 +65,8 @@ soft-break word wrapping.
 - [ ] Scroll a wide table horizontally using its thumb, Shift+wheel, and touchpad input where available; verify links and selection remain aligned after scrolling.
 - [ ] Scroll a long code block horizontally, move the pointer out of the block, and verify the app remains stable.
 - [ ] Select ASCII and non-ASCII text; drag rapidly and verify selection remains responsive.
-- [ ] Copy selected text with `Ctrl+C` and verify it in another application.
-- [ ] Open search with `Ctrl+F`; test next, previous, backspace, and Escape.
+- [ ] Select all with `Ctrl+A`, copy with `Ctrl+C`, and verify the complete text in another application.
+- [ ] Open search with `Ctrl+F`; test Unicode case folding, `Enter`/`Shift+Enter`, `F3`/`Shift+F3`, backspace, and Escape.
 - [ ] Open a real relative Markdown link and use Back/Forward to return.
 - [ ] Open an HTTPS link and verify the default browser receives the exact URL.
 - [ ] Right-click selected text, links, images, tables, and document background; verify the menu opens without blocking and all enabled context-menu actions work.
@@ -83,7 +83,7 @@ soft-break word wrapping.
       order, syntax colors, copy controls, and scrollbar behavior remain intact.
 - [ ] Change Light, Sepia, and Dark themes.
 - [ ] Select a document font, restore the default, and restart to verify persistence.
-- [ ] Zoom with toolbar, keyboard, and Ctrl+wheel; verify reading position is preserved.
+- [ ] Zoom with toolbar, keyboard, and Ctrl+wheel; reset with `Ctrl+0` and verify reading position is preserved.
 - [ ] Export the BiDi fixture to PDF and verify Arabic joining, Hebrew order,
       nested code, tables, math, and page breaks.
 - [ ] Print the BiDi fixture through the GTK system dialog and verify the same
