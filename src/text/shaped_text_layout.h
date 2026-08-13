@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,6 +61,7 @@ struct ShapingParagraphSet {
 };
 
 ResolvedTextDirection ResolveFirstStrongDirection(std::string_view utf8);
+std::optional<ResolvedTextDirection> TryResolveFirstStrongDirection(std::string_view utf8);
 
 ShapingParagraphSet BuildShapingParagraphs(
     const std::vector<ShapedTextInputRun>& runs,

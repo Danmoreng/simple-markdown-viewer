@@ -461,7 +461,7 @@ bool ShapingSpan::IsAtomicObject() const noexcept {
     return kind == InlineKind::Image || kind == InlineKind::Math;
 }
 
-ResolvedTextDirection ResolveFirstStrongDirection(std::string_view utf8) {
+std::optional<ResolvedTextDirection> TryResolveFirstStrongDirection(std::string_view utf8) {
     size_t offset = 0;
     while (offset < utf8.size()) {
         utf8proc_int32_t codepoint = 0;
@@ -483,7 +483,11 @@ ResolvedTextDirection ResolveFirstStrongDirection(std::string_view utf8) {
         }
         offset += static_cast<size_t>(bytes);
     }
-    return ResolvedTextDirection::LeftToRight;
+    return std::nullopt;
+}
+
+ResolvedTextDirection ResolveFirstStrongDirection(std::string_view utf8) {
+    return TryResolveFirstStrongDirection(utf8).value_or(ResolvedTextDirection::LeftToRight);
 }
 
 ShapingParagraphSet BuildShapingParagraphs(

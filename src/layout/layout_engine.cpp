@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <numeric>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 
@@ -12,13 +14,16 @@
 #include "app/heading_anchor.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
+#include "text/complex_text_runtime.h"
 #include "text/document_font_style.h"
+#include "text/shaped_text_layout.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
 #pragma warning(disable: 4244) 
 #pragma warning(disable: 4267) 
 #include "include/core/SkFont.h"
+#include "include/core/SkFontMgr.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontTypes.h"
 #pragma warning(pop)
@@ -54,6 +59,44 @@ constexpr float kDetailsSummaryIndent = 28.0f;
 constexpr float kDetailsContentIndent = 20.0f;
 constexpr float kDetailsContentPaddingTop = 18.0f;
 constexpr float kDetailsContentPaddingBottom = 8.0f;
+constexpr float kNestedBlockIndent = 20.0f;
+constexpr float kNoWrapShapingWidth = 10000000.0f;
+
+struct FlowInsets {
+    float left = 0.0f;
+    float right = 0.0f;
+};
+
+void AddFlowInset(
+    FlowInsets& insets,
+    ResolvedTextDirection direction,
+    float amount) {
+    if (direction == ResolvedTextDirection::RightToLeft) {
+        insets.right += amount;
+    } else {
+        insets.left += amount;
+    }
+}
+
+std::optional<ResolvedTextDirection> FindFirstBlockDirection(const Block& block) {
+    for (const InlineRun& run : block.inlineRuns) {
+        if (run.kind != InlineKind::Text && run.kind != InlineKind::SoftBreak) {
+            continue;
+        }
+        const std::string_view text = run.kind == InlineKind::SoftBreak
+            ? std::string_view(" ")
+            : std::string_view(run.text);
+        if (const auto direction = TryResolveFirstStrongDirection(text)) {
+            return direction;
+        }
+    }
+    for (const Block& child : block.children) {
+        if (const auto direction = FindFirstBlockDirection(child)) {
+            return direction;
+        }
+    }
+    return std::nullopt;
+}
 
 std::vector<size_t> LegacyGraphemeBoundaries(std::string_view text) {
     std::vector<size_t> boundaries{0};
@@ -253,6 +296,7 @@ public:
     std::vector<HeadingOutlineItem> outline;
     SkFont font;
     const DocumentTypefaceSet& typefaces;
+    ComplexTextRuntime complexTextRuntime;
     float baseFontSize;
     float activeFontScale = 1.0f;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
@@ -268,6 +312,7 @@ public:
           rightMargin(GetDocumentHorizontalInsets(width).right),
           availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)),
           typefaces(documentTypefaces),
+          complexTextRuntime(sk_ref_sp(documentTypefaces.fontMgr)),
           baseFontSize(ClampBaseFontSize(documentBaseFontSize)),
           imageSizeProvider(provider),
           options(layoutOptions) {}
@@ -275,11 +320,13 @@ public:
     void LayoutBlocks(
         const std::vector<Block>& blocks,
         std::vector<BlockLayout>& layouts,
-        float indent = 0.0f,
+        FlowInsets insets = {},
+        std::optional<ResolvedTextDirection> inheritedListDirection = std::nullopt,
+        float pendingListInset = 0.0f,
         AlertKind inheritedAlertKind = AlertKind::None) {
         for (const auto& block : blocks) {
             if (block.type == BlockType::Table) {
-                LayoutTable(block, layouts, indent);
+                LayoutTable(block, layouts, insets);
                 continue;
             }
 
@@ -296,9 +343,21 @@ public:
             bl.detailsOpen = block.detailsOpen;
             bl.textStart = currentTextOffset;
 
-            float blockIndent = indent + (block.type == BlockType::ListItem ? 20.0f : 0.0f);
-            const float blockLeft = leftMargin + blockIndent;
-            const float blockWidth = std::max(availableWidth - blockIndent, 1.0f);
+            const auto ownDirection = FindFirstBlockDirection(block);
+            bl.direction = ownDirection.value_or(
+                inheritedListDirection.value_or(ResolvedTextDirection::LeftToRight));
+
+            FlowInsets blockInsets = insets;
+            if (block.type == BlockType::ListItem) {
+                AddFlowInset(
+                    blockInsets,
+                    bl.direction,
+                    kNestedBlockIndent + pendingListInset);
+            }
+            const float blockLeft = leftMargin + blockInsets.left;
+            const float blockWidth = std::max(
+                availableWidth - blockInsets.left - blockInsets.right,
+                1.0f);
             if (block.type == BlockType::CodeBlock && options.fitHorizontalOverflow) {
                 const float codeViewportWidth = std::max(blockWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
                 const float naturalCodeWidth = MeasureInlineRunsWidth(block.inlineRuns, BlockType::CodeBlock);
@@ -366,7 +425,8 @@ public:
                     block.type,
                     block.align,
                     block.type == BlockType::CodeBlock,
-                    &laidOutContentWidth);
+                    &laidOutContentWidth,
+                    &bl.direction);
                 currentY = inlineTop + inlineHeight;
                 if (block.type == BlockType::Blockquote && block.alertKind != AlertKind::None) {
                     currentY += lineHeight + kAlertTitleGap;
@@ -387,10 +447,23 @@ public:
                             AppendPlainTextSeparator('\n');
                         }
                     }
+                    FlowInsets childInsets = blockInsets;
+                    const bool isListContainer =
+                        block.type == BlockType::UnorderedList ||
+                        block.type == BlockType::OrderedList;
+                    if (!isListContainer) {
+                        AddFlowInset(childInsets, bl.direction, kDetailsContentIndent);
+                    }
                     LayoutBlocks(
                         block.children,
                         bl.children,
-                        blockIndent + (block.type == BlockType::Details ? kDetailsContentIndent : 20.0f),
+                        childInsets,
+                        isListContainer
+                            ? std::optional<ResolvedTextDirection>(bl.direction)
+                            : block.type == BlockType::ListItem
+                            ? std::optional<ResolvedTextDirection>(bl.direction)
+                            : inheritedListDirection,
+                        isListContainer ? kNestedBlockIndent : 0.0f,
                         bl.alertKind);
                 }
             }
@@ -422,16 +495,24 @@ public:
     }
 
 private:
-    static float ResolveLineX(float contentLeft, float wrapWidth, float lineWidth, TextAlign align) {
+    static float ResolveLineX(
+        float contentLeft,
+        float wrapWidth,
+        float lineWidth,
+        TextAlign align,
+        ResolvedTextDirection direction) {
         switch (align) {
             case TextAlign::Center:
                 return contentLeft + std::max((wrapWidth - lineWidth) * 0.5f, 0.0f);
             case TextAlign::Right:
                 return contentLeft + std::max(wrapWidth - lineWidth, 0.0f);
-            case TextAlign::Default:
             case TextAlign::Left:
-            default:
                 return contentLeft;
+            case TextAlign::Default:
+            default:
+                return direction == ResolvedTextDirection::RightToLeft
+                    ? contentLeft + std::max(wrapWidth - lineWidth, 0.0f)
+                    : contentLeft;
         }
     }
 
@@ -444,7 +525,12 @@ private:
         float wrapWidth,
         float lineWidth,
         TextAlign align) {
-        currentLine.x = ResolveLineX(contentLeft, wrapWidth, lineWidth, align);
+        currentLine.x = ResolveLineX(
+            contentLeft,
+            wrapWidth,
+            lineWidth,
+            align,
+            currentLine.direction);
         currentLine.width = lineWidth;
         lines.push_back(std::move(currentLine));
         lineY += lines.back().height;
@@ -455,7 +541,215 @@ private:
         currentLine.textStart = currentTextOffset;
     }
 
+    std::pair<float, float> ComputeImageDisplaySize(
+        const InlineRun& run,
+        float wrapWidth,
+        float lineHeight,
+        bool isSingleImageBlock,
+        BlockType blockType) {
+        float actualWidth = 0.0f;
+        float actualHeight = 0.0f;
+        bool hasActualSize = false;
+        if (imageSizeProvider) {
+            const auto size = imageSizeProvider(run.imageSource);
+            if (size.first > 0.0f && size.second > 0.0f) {
+                actualWidth = size.first;
+                actualHeight = size.second;
+                hasActualSize = true;
+            }
+        }
+
+        float displayWidth = 0.0f;
+        float displayHeight = 0.0f;
+        const bool hasRequestedWidth = run.imageRequestedWidth > 0.0f;
+        const bool hasRequestedHeight = run.imageRequestedHeight > 0.0f;
+        if (hasRequestedWidth || hasRequestedHeight) {
+            const float aspect = hasActualSize ? actualWidth / actualHeight : 1.618f;
+            displayWidth = hasRequestedWidth
+                ? run.imageRequestedWidth
+                : run.imageRequestedHeight * aspect;
+            displayHeight = hasRequestedHeight
+                ? run.imageRequestedHeight
+                : run.imageRequestedWidth / aspect;
+            const float fitScale = std::min(1.0f, wrapWidth / std::max(displayWidth, 1.0f));
+            displayWidth = std::max(displayWidth * fitScale, 1.0f);
+            displayHeight = std::max(displayHeight * fitScale, 1.0f);
+        } else if (isSingleImageBlock) {
+            const float maximumWidth = wrapWidth * 0.9f;
+            displayWidth = hasActualSize
+                ? std::min(maximumWidth, actualWidth)
+                : maximumWidth;
+            displayWidth = std::max(displayWidth, 1.0f);
+            const float aspect = hasActualSize ? actualHeight / actualWidth : 0.618f;
+            displayHeight = displayWidth * aspect;
+        } else if (hasActualSize) {
+            displayHeight = lineHeight * 0.8f;
+            displayWidth = displayHeight * (actualWidth / actualHeight);
+        } else {
+            ConfigureInlineFont(blockType, run.formatting);
+            displayHeight = lineHeight * 1.05f;
+            const float labelWidth = font.measureText(
+                run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
+            displayWidth = std::clamp(labelWidth + 14.0f, 28.0f, wrapWidth);
+        }
+        return {displayWidth, displayHeight};
+    }
+
+    std::vector<ShapedTextInputRun> PrepareShapingRuns(
+        const std::vector<InlineRun>& runs,
+        float wrapWidth,
+        float lineHeight,
+        BlockType blockType,
+        bool assignSemanticIds) {
+        std::vector<ShapedTextInputRun> prepared;
+        prepared.reserve(runs.size());
+        const bool isSingleImageBlock = runs.size() == 1 && runs.front().kind == InlineKind::Image;
+        size_t localSemanticSpanId = 1;
+        for (const InlineRun& run : runs) {
+            ShapedTextInputRun input;
+            input.run = run;
+            input.semanticSpanId = assignSemanticIds
+                ? nextSemanticSpanId++
+                : localSemanticSpanId++;
+            if (run.kind == InlineKind::Image) {
+                std::tie(input.objectWidth, input.objectHeight) = ComputeImageDisplaySize(
+                    run,
+                    wrapWidth,
+                    lineHeight,
+                    isSingleImageBlock,
+                    blockType);
+            } else if (run.kind == InlineKind::Math) {
+                ConfigureInlineFont(blockType, run.formatting);
+                input.mathLayout = LayoutMath(
+                    run.mathSource,
+                    run.mathDisplay,
+                    font.getSize(),
+                    wrapWidth);
+                input.objectWidth = input.mathLayout.valid
+                    ? input.mathLayout.width
+                    : std::min(
+                          font.measureText(
+                              run.text.data(), run.text.size(), SkTextEncoding::kUTF8),
+                          wrapWidth);
+                input.objectHeight = input.mathLayout.valid
+                    ? input.mathLayout.height
+                    : lineHeight;
+                input.objectWidth = std::max(input.objectWidth, 1.0f);
+                input.objectHeight = std::max(input.objectHeight, 1.0f);
+            }
+            prepared.push_back(std::move(input));
+        }
+        return prepared;
+    }
+
     float LayoutRuns(
+        const std::vector<InlineRun>& runs,
+        std::vector<LineLayout>& lines,
+        float startY,
+        float contentLeft,
+        float wrapWidth,
+        float lineHeight,
+        BlockType blockType,
+        TextAlign align,
+        bool preserveSourceLines = false,
+        float* laidOutContentWidth = nullptr,
+        ResolvedTextDirection* resolvedDirection = nullptr) {
+        if (runs.empty()) {
+            if (laidOutContentWidth != nullptr) {
+                *laidOutContentWidth = 0.0f;
+            }
+            return 0.0f;
+        }
+        if (blockType == BlockType::Metadata || !complexTextRuntime.IsAvailable()) {
+            if (resolvedDirection != nullptr) {
+                *resolvedDirection = ResolvedTextDirection::LeftToRight;
+            }
+            return LayoutRunsLegacy(
+                runs,
+                lines,
+                startY,
+                contentLeft,
+                wrapWidth,
+                lineHeight,
+                blockType,
+                align,
+                preserveSourceLines,
+                laidOutContentWidth);
+        }
+
+        wrapWidth = std::max(wrapWidth, 1.0f);
+        const std::vector<ShapedTextInputRun> prepared = PrepareShapingRuns(
+            runs,
+            wrapWidth,
+            lineHeight,
+            blockType,
+            true);
+        const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared, currentTextOffset);
+        std::vector<LineLayout> shapedLines;
+        float lineY = startY;
+        float maximumContentWidth = 0.0f;
+        bool hasResolvedDirection = false;
+
+        for (const ShapingParagraph& paragraph : paragraphs.paragraphs) {
+            ShapedTextLayoutOptions shapingOptions;
+            shapingOptions.blockType = blockType;
+            shapingOptions.baseFontSize = baseFontSize;
+            shapingOptions.fontScale = activeFontScale;
+            shapingOptions.wrapWidth = preserveSourceLines ? kNoWrapShapingWidth : wrapWidth;
+            shapingOptions.startY = lineY;
+            shapingOptions.fallbackLineHeight = lineHeight;
+            ShapedTextLayoutResult shaped = ShapeTextParagraph(
+                paragraph,
+                complexTextRuntime,
+                typefaces,
+                shapingOptions);
+            if (!shaped.success) {
+                return LayoutRunsLegacy(
+                    runs,
+                    lines,
+                    startY,
+                    contentLeft,
+                    wrapWidth,
+                    lineHeight,
+                    blockType,
+                    align,
+                    preserveSourceLines,
+                    laidOutContentWidth);
+            }
+
+            if (!hasResolvedDirection) {
+                hasResolvedDirection = true;
+                if (resolvedDirection != nullptr) {
+                    *resolvedDirection = shaped.direction;
+                }
+            }
+            for (LineLayout& line : shaped.lines) {
+                const TextAlign lineAlign = paragraph.displayMath ? TextAlign::Center : align;
+                line.x = ResolveLineX(
+                    contentLeft,
+                    wrapWidth,
+                    line.width,
+                    lineAlign,
+                    line.direction);
+                maximumContentWidth = std::max(maximumContentWidth, line.width);
+                shapedLines.push_back(std::move(line));
+            }
+            lineY += shaped.totalHeight;
+        }
+
+        plainText += paragraphs.logicalText;
+        currentTextOffset = paragraphs.logicalEnd;
+        lines.insert(
+            lines.end(),
+            std::make_move_iterator(shapedLines.begin()),
+            std::make_move_iterator(shapedLines.end()));
+        if (laidOutContentWidth != nullptr) {
+            *laidOutContentWidth = maximumContentWidth;
+        }
+        return lineY - startY;
+    }
+
+    float LayoutRunsLegacy(
         const std::vector<InlineRun>& runs,
         std::vector<LineLayout>& lines,
         float startY,
@@ -776,7 +1070,12 @@ private:
 
         if (!currentLine.runs.empty()) {
             maxContentWidth = std::max(maxContentWidth, currentLineWidth);
-            currentLine.x = ResolveLineX(contentLeft, wrapWidth, currentLineWidth, align);
+            currentLine.x = ResolveLineX(
+                contentLeft,
+                wrapWidth,
+                currentLineWidth,
+                align,
+                currentLine.direction);
             currentLine.width = currentLineWidth;
             lines.push_back(std::move(currentLine));
             lineY += lines.back().height;
@@ -905,6 +1204,48 @@ private:
     }
 
     float MeasureInlineRunsWidth(const std::vector<InlineRun>& runs, BlockType blockType) {
+        if (runs.empty()) {
+            return 0.0f;
+        }
+        if (blockType == BlockType::Metadata || !complexTextRuntime.IsAvailable()) {
+            return MeasureInlineRunsWidthLegacy(runs, blockType);
+        }
+
+        const float measurementWidth = blockType == BlockType::CodeBlock
+            ? kNoWrapShapingWidth
+            : kMaxTableColumnWidth;
+        const float lineHeight = GetLineHeight(blockType);
+        const std::vector<ShapedTextInputRun> prepared = PrepareShapingRuns(
+            runs,
+            measurementWidth,
+            lineHeight,
+            blockType,
+            false);
+        const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared);
+        float maximumWidth = 0.0f;
+        for (const ShapingParagraph& paragraph : paragraphs.paragraphs) {
+            ShapedTextLayoutOptions shapingOptions;
+            shapingOptions.blockType = blockType;
+            shapingOptions.baseFontSize = baseFontSize;
+            shapingOptions.fontScale = activeFontScale;
+            shapingOptions.wrapWidth = kNoWrapShapingWidth;
+            shapingOptions.fallbackLineHeight = lineHeight;
+            const ShapedTextLayoutResult shaped = ShapeTextParagraph(
+                paragraph,
+                complexTextRuntime,
+                typefaces,
+                shapingOptions);
+            if (!shaped.success) {
+                return MeasureInlineRunsWidthLegacy(runs, blockType);
+            }
+            maximumWidth = std::max(maximumWidth, shaped.naturalWidth);
+        }
+        return maximumWidth;
+    }
+
+    float MeasureInlineRunsWidthLegacy(
+        const std::vector<InlineRun>& runs,
+        BlockType blockType) {
         float width = 0.0f;
         float maxWidth = 0.0f;
         for (const auto& run : runs) {
@@ -984,7 +1325,10 @@ private:
         currentTextOffset += 1;
     }
 
-    void LayoutTable(const Block& block, std::vector<BlockLayout>& layouts, float indent) {
+    void LayoutTable(
+        const Block& block,
+        std::vector<BlockLayout>& layouts,
+        FlowInsets insets) {
         std::vector<const Block*> rows;
         rows.reserve(block.children.size());
         for (const auto& child : block.children) {
@@ -996,13 +1340,17 @@ private:
         BlockLayout tableLayout;
         tableLayout.type = BlockType::Table;
         tableLayout.align = block.align;
+        tableLayout.direction = FindFirstBlockDirection(block).value_or(
+            ResolvedTextDirection::LeftToRight);
         tableLayout.textStart = currentTextOffset;
         auto [tableTsv, tableCsv] = SerializeTable(block);
         tableLayout.tableTsv = std::move(tableTsv);
         tableLayout.tableCsv = std::move(tableCsv);
 
-        const float tableLeft = leftMargin + indent;
-        const float tableWidth = std::max(availableWidth - indent, 1.0f);
+        const float tableLeft = leftMargin + insets.left;
+        const float tableWidth = std::max(
+            availableWidth - insets.left - insets.right,
+            1.0f);
         const float tableTop = currentY;
 
         if (rows.empty()) {
@@ -1045,6 +1393,7 @@ private:
             const Block& row = *rows[rowIndex];
             BlockLayout rowLayout;
             rowLayout.type = BlockType::TableRow;
+            rowLayout.direction = FindFirstBlockDirection(row).value_or(tableLayout.direction);
             rowLayout.textStart = currentTextOffset;
             rowLayout.usesHorizontalScrollOffset = horizontallyScrollable;
             rowLayout.horizontalScrollOwnerTextStart = tableLayout.textStart;
@@ -1071,6 +1420,9 @@ private:
                 BlockLayout cellLayout;
                 cellLayout.type = cellType;
                 cellLayout.align = cellAlign;
+                cellLayout.direction = cell != nullptr
+                    ? FindFirstBlockDirection(*cell).value_or(rowLayout.direction)
+                    : rowLayout.direction;
                 cellLayout.textStart = currentTextOffset;
                 cellLayout.usesHorizontalScrollOffset = horizontallyScrollable;
                 cellLayout.horizontalScrollOwnerTextStart = tableLayout.textStart;
@@ -1089,7 +1441,10 @@ private:
                         cellInnerWidth,
                         lineHeight,
                         cellType,
-                        cellAlign);
+                        cellAlign,
+                        false,
+                        nullptr,
+                        &cellLayout.direction);
                 }
 
                 const float cellHeight = std::max(contentHeight, lineHeight) + (kTableCellPaddingY * 2.0f);

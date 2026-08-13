@@ -1536,6 +1536,195 @@ void SharedTextGeometryModel() {
                  "zero-length image placeholders should resolve to their logical anchor");
 }
 
+void ShapedLayoutEngineIntegration() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "shaped LayoutEngine regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+
+    mdviewer::DocumentModel directionalDocument;
+    directionalDocument.blocks = {
+        mdviewer::Block{
+            .type = mdviewer::BlockType::Paragraph,
+            .inlineRuns = {{.text = "English before العربية after"}},
+        },
+        mdviewer::Block{
+            .type = mdviewer::BlockType::Paragraph,
+            .inlineRuns = {{.text = "العربية before English 123"}},
+        },
+        mdviewer::Block{
+            .type = mdviewer::BlockType::Paragraph,
+            .align = mdviewer::TextAlign::Left,
+            .inlineRuns = {{.text = "עברית explicitly left"}},
+        },
+        mdviewer::Block{
+            .type = mdviewer::BlockType::Paragraph,
+            .align = mdviewer::TextAlign::Right,
+            .inlineRuns = {{.text = "English explicitly right"}},
+        },
+    };
+    const mdviewer::DocumentLayout directionalLayout = mdviewer::LayoutEngine::ComputeLayout(
+        directionalDocument, 760.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    RequireEqual(directionalLayout.blocks.size(), static_cast<size_t>(4),
+                 "direction fixture should retain all paragraph blocks");
+
+    const auto& ltrBlock = directionalLayout.blocks[0];
+    const auto& rtlBlock = directionalLayout.blocks[1];
+    const auto& explicitLeftBlock = directionalLayout.blocks[2];
+    const auto& explicitRightBlock = directionalLayout.blocks[3];
+    Require(ltrBlock.direction == mdviewer::ResolvedTextDirection::LeftToRight &&
+                rtlBlock.direction == mdviewer::ResolvedTextDirection::RightToLeft,
+            "LayoutEngine should retain first-strong block directions");
+    RequireNear(ltrBlock.lines.front().x, ltrBlock.bounds.left(), 0.01f,
+                "default LTR paragraphs should align to the content left");
+    RequireNear(
+        rtlBlock.lines.front().x + rtlBlock.lines.front().width,
+        rtlBlock.bounds.right(),
+        0.01f,
+        "default RTL paragraphs should align to the content right");
+    RequireNear(explicitLeftBlock.lines.front().x, explicitLeftBlock.bounds.left(), 0.01f,
+                "explicit left alignment should override RTL base direction");
+    RequireNear(
+        explicitRightBlock.lines.front().x + explicitRightBlock.lines.front().width,
+        explicitRightBlock.bounds.right(),
+        0.01f,
+        "explicit right alignment should override LTR base direction");
+
+    bool foundShapedText = false;
+    bool foundRtlRun = false;
+    for (const auto& block : directionalLayout.blocks) {
+        for (const auto& line : block.lines) {
+            for (const auto& run : line.runs) {
+                if (run.kind == mdviewer::InlineKind::Text) {
+                    foundShapedText = foundShapedText ||
+                        (run.shaped && !run.glyphs.empty() && !run.glyphClusters.empty());
+                    foundRtlRun = foundRtlRun || (run.bidiLevel & 1U) != 0;
+                }
+            }
+        }
+    }
+    Require(foundShapedText, "normal LayoutEngine text should now retain HarfBuzz glyph geometry");
+    Require(foundRtlRun, "mixed LayoutEngine paragraphs should retain odd-level visual runs");
+
+    mdviewer::DocumentModel invariantDocument;
+    invariantDocument.blocks.push_back(mdviewer::Block{
+        .type = mdviewer::BlockType::Paragraph,
+        .inlineRuns = {
+            {.text = "soft"},
+            {.kind = mdviewer::InlineKind::SoftBreak},
+            {.text = "join"},
+            {.kind = mdviewer::InlineKind::HardBreak},
+            {
+                .kind = mdviewer::InlineKind::Image,
+                .text = "hidden replacement text",
+                .imageSource = "fixture.png",
+            },
+            {.text = " after image "},
+            {
+                .kind = mdviewer::InlineKind::Math,
+                .text = "$x+y$",
+                .mathSource = "x+y",
+            },
+        },
+    });
+    const auto invariantLayout = mdviewer::LayoutEngine::ComputeLayout(
+        invariantDocument,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize,
+        [](const std::string&) { return std::pair<float, float>{48.0f, 24.0f}; });
+    RequireEqual(
+        invariantLayout.plainText,
+        std::string("soft join\n after image $x+y$"),
+        "shaped layout should preserve soft/hard breaks, math text, and zero-length images exactly");
+    Require(invariantLayout.plainText.find("hidden replacement") == std::string::npos,
+            "internal object placeholders and image alt text must not leak into copy/search text");
+    Require(invariantLayout.blocks.front().lines.size() >= 2,
+            "a hard break should still force a shaped visual line boundary");
+
+    const mdviewer::DocumentModel mixedListDocument = mdviewer::MarkdownParser::Parse(
+        "- English list item\n"
+        "- عنصر عربي في القائمة\n");
+    const auto mixedListLayout = mdviewer::LayoutEngine::ComputeLayout(
+        mixedListDocument, 760.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    std::vector<const mdviewer::BlockLayout*> listItems;
+    const auto collectListItems = [&](const auto& self, const auto& blocks) -> void {
+        for (const auto& block : blocks) {
+            if (block.type == mdviewer::BlockType::ListItem) {
+                listItems.push_back(&block);
+            }
+            self(self, block.children);
+        }
+    };
+    collectListItems(collectListItems, mixedListLayout.blocks);
+    RequireEqual(listItems.size(), static_cast<size_t>(2),
+                 "mixed-direction list fixture should retain both list items");
+    const mdviewer::BlockLayout* ltrItem = listItems[0];
+    const mdviewer::BlockLayout* rtlItem = listItems[1];
+    Require(ltrItem->direction == mdviewer::ResolvedTextDirection::LeftToRight &&
+                rtlItem->direction == mdviewer::ResolvedTextDirection::RightToLeft,
+            "each list item should resolve its own flow direction");
+    const mdviewer::DocumentHorizontalInsets documentInsets =
+        mdviewer::GetDocumentHorizontalInsets(760.0f);
+    const float documentLeft = documentInsets.left;
+    const float documentRight = 760.0f - documentInsets.right;
+    RequireNear(ltrItem->bounds.left() - documentLeft, 40.0f, 0.01f,
+                "LTR list gutters should preserve their existing left inset");
+    RequireNear(documentRight - rtlItem->bounds.right(), 40.0f, 0.01f,
+                "RTL list gutters should mirror the same inset on the right");
+    RequireNear(ltrItem->lines.front().x, ltrItem->bounds.left(), 0.01f,
+                "LTR list text should begin after its left gutter");
+    RequireNear(
+        rtlItem->lines.front().x + rtlItem->lines.front().width,
+        rtlItem->bounds.right(),
+        0.01f,
+        "RTL list text should end before its right gutter");
+
+    const mdviewer::DocumentModel codeAndTableDocument = mdviewer::MarkdownParser::Parse(
+        "```cpp\n"
+        "const char* greeting = \"مرحبا\";\n"
+        "const char* farewell = \"להתראות\";\n"
+        "```\n\n"
+        "| العربية | English | עברית |\n"
+        "| --- | --- | --- |\n"
+        "| قيمة | value | ערך |\n");
+    const auto codeAndTableLayout = mdviewer::LayoutEngine::ComputeLayout(
+        codeAndTableDocument, 900.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    const auto& shapedCode = FirstBlockOfType(codeAndTableLayout, mdviewer::BlockType::CodeBlock);
+    RequireEqual(shapedCode.lines.size(), static_cast<size_t>(2),
+                 "shaped code should preserve each source line without wrapping");
+    const float widestCodeLine = std::max_element(
+        shapedCode.lines.begin(), shapedCode.lines.end(), [](const auto& left, const auto& right) {
+            return left.width < right.width;
+        })->width;
+    RequireNear(shapedCode.codeContentWidth, widestCodeLine, 0.01f,
+                "code horizontal scrolling should use shaped natural width");
+    Require(std::all_of(
+        shapedCode.lines.begin(), shapedCode.lines.end(), [](const auto& line) {
+            return std::all_of(line.runs.begin(), line.runs.end(), [](const auto& run) {
+                return run.kind != mdviewer::InlineKind::Text || run.shaped;
+            });
+        }),
+        "syntax-highlighted code fragments should use the shared shaped path");
+
+    const auto& shapedTable = FirstBlockOfType(codeAndTableLayout, mdviewer::BlockType::Table);
+    bool foundShapedTableCell = false;
+    for (const auto& row : shapedTable.children) {
+        for (const auto& cell : row.children) {
+            for (const auto& line : cell.lines) {
+                foundShapedTableCell = foundShapedTableCell || std::any_of(
+                    line.runs.begin(), line.runs.end(), [](const auto& run) { return run.shaped; });
+            }
+        }
+    }
+    Require(foundShapedTableCell,
+            "table headers and cells should use shaped measurement and visual runs");
+    RequireEqual(shapedTable.tableTsv, std::string("العربية\tEnglish\tעברית\r\nقيمة\tvalue\tערך"),
+                 "shaped table layout must not change TSV serialization");
+}
+
 void DocumentFontContextFeedsLayout() {
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Normal());
@@ -2478,6 +2667,7 @@ int main() {
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
         {"ComplexTextShapingSubsystem", ComplexTextShapingSubsystem},
         {"SharedTextGeometryModel", SharedTextGeometryModel},
+        {"ShapedLayoutEngineIntegration", ShapedLayoutEngineIntegration},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},
