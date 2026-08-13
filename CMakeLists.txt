@@ -37,6 +37,11 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/NanoMichael/MicroTeX.git
     GIT_TAG        0e3707f6dafebb121d98b53c64364d16fefe481d
     SOURCE_SUBDIR  cmake-unused
+    PATCH_COMMAND
+        "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=<SOURCE_DIR>"
+        "-DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/microtex-fix-linux-home-path.patch"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply_git_patch.cmake"
 )
 FetchContent_MakeAvailable(tinyxml2 microtex)
 
