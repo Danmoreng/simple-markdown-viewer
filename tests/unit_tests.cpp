@@ -93,6 +93,31 @@ void WriteText(const fs::path& path, const std::string& text) {
     Require(output.good(), "could not write " + path.string());
 }
 
+fs::path SourceRoot() {
+    const fs::path sourceFile = fs::path(__FILE__);
+    if (sourceFile.is_absolute()) {
+        return sourceFile.parent_path().parent_path();
+    }
+
+    const fs::path fromWorkingDirectory = fs::current_path() / sourceFile;
+    if (fs::exists(fromWorkingDirectory)) {
+        return fs::weakly_canonical(fromWorkingDirectory).parent_path().parent_path();
+    }
+
+    const fs::path fromBuildDirectory = fs::current_path().parent_path() / sourceFile;
+    Require(fs::exists(fromBuildDirectory), "could not resolve repository root from " + sourceFile.string());
+    return fs::weakly_canonical(fromBuildDirectory).parent_path().parent_path();
+}
+
+std::string ReadText(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    Require(input.is_open(), "could not open " + path.string() + " for reading");
+    std::ostringstream content;
+    content << input.rdbuf();
+    Require(input.good() || input.eof(), "could not read " + path.string());
+    return content.str();
+}
+
 std::string MergeInlineRunText(const std::vector<mdviewer::InlineRun>& runs) {
     std::string text;
     for (const auto& run : runs) {
@@ -129,6 +154,20 @@ const mdviewer::Block* FindModelBlockOfType(const std::vector<mdviewer::Block>& 
             return &block;
         }
         if (const auto* nested = FindModelBlockOfType(block.children, type)) {
+            return nested;
+        }
+    }
+    return nullptr;
+}
+
+const mdviewer::BlockLayout* FindLayoutBlockOfType(
+    const std::vector<mdviewer::BlockLayout>& blocks,
+    mdviewer::BlockType type) {
+    for (const auto& block : blocks) {
+        if (block.type == type) {
+            return &block;
+        }
+        if (const auto* nested = FindLayoutBlockOfType(block.children, type)) {
             return nested;
         }
     }
@@ -988,6 +1027,70 @@ void MarkdownCorrectnessFoundation() {
         callbacks);
     RequireEqual(linkHit.url, std::string("https://example.com"), "hit testing should preserve a formatted link target");
     Require(mdviewer::HasFormatting(linkHit.formatting, mdviewer::InlineFormatting::Strong), "hit testing should preserve combined formatting metadata");
+}
+
+void BidirectionalMarkdownBaseline() {
+    const fs::path fixturePath = SourceRoot() / "test-docs" / "bidi-complex-text.md";
+    const std::string source = ReadText(fixturePath);
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(source);
+
+    const mdviewer::Block* listItem = FindModelBlockOfType(document.blocks, mdviewer::BlockType::ListItem);
+    Require(listItem != nullptr, "BiDi fixture should retain its nested list-item structure");
+    const mdviewer::Block* codeBlock =
+        FindModelBlockOfType(listItem->children, mdviewer::BlockType::CodeBlock);
+    Require(codeBlock != nullptr, "BiDi fixture should retain the fenced code block nested inside lists");
+    RequireEqual(codeBlock->codeLanguage, std::string("cpp"), "nested fenced code should retain its language");
+
+    const std::string expectedCode =
+        "#include <string>\n"
+        "\n"
+        "const char* greeting = \"مرحبا\";\n"
+        "const char* farewell = \"להתראות\";\n"
+        "// הערה בעברית with value = 123\n"
+        "auto result = parse(input[2]);\n"
+        "*pointer = value;\n"
+        ">literal source text remains visible;\n";
+    RequireEqual(
+        MergeInlineRunText(codeBlock->inlineRuns),
+        expectedCode,
+        "nested mixed-direction fenced code should remain source-exact");
+
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontManager);
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        document,
+        1200.0f,
+        typeface.get(),
+        mdviewer::kDefaultBaseFontSize);
+
+    const mdviewer::BlockLayout* laidOutCode =
+        FindLayoutBlockOfType(layout.blocks, mdviewer::BlockType::CodeBlock);
+    Require(laidOutCode != nullptr, "BiDi fixture should retain nested code through layout");
+    Require(
+        laidOutCode->codeHighlightStatus == mdviewer::syntax::HighlightStatus::Highlighted,
+        "nested C++ code should still receive syntax highlighting");
+    const bool hasSyntaxRole = std::any_of(
+        laidOutCode->lines.begin(),
+        laidOutCode->lines.end(),
+        [](const auto& line) {
+            return std::any_of(line.runs.begin(), line.runs.end(), [](const auto& run) {
+                return run.syntaxRole != mdviewer::SyntaxRole::None;
+            });
+        });
+    Require(hasSyntaxRole, "nested mixed-direction C++ code should retain syntax roles after layout");
+
+    Require(
+        layout.plainText.find("English before العربية بعد English 123 (v2.0).") != std::string::npos,
+        "mixed LTR/RTL paragraph should remain in logical source order in plainText");
+    Require(
+        layout.plainText.find(
+            "بداية RTL: العربية with strong English, emphasized עברית, نص مشطوب, and English link.") !=
+            std::string::npos,
+        "formatted RTL/LTR paragraph should preserve logical text order without Markdown markers");
+    Require(
+        layout.plainText.find("const char* greeting = \"مرحبا\";") != std::string::npos &&
+            layout.plainText.find("const char* farewell = \"להתראות\";") != std::string::npos,
+        "logical copy/search text should retain Arabic and Hebrew code strings");
 }
 
 void SafeHtmlSubset() {
@@ -1883,6 +1986,7 @@ int main() {
         {"DocumentSizeLimit", DocumentSizeLimit},
         {"FrontMatterAndMarkdownExtensions", FrontMatterAndMarkdownExtensions},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
+        {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},
