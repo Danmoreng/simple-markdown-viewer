@@ -30,6 +30,7 @@ struct WindowCommandHandlers {
     std::function<void()> goForward;
     std::function<void()> zoomOut;
     std::function<void()> zoomIn;
+    std::function<void()> zoomReset;
     std::function<void()> find;
     std::function<void()> toggleOutline;
     std::function<void()> outlineLeft;

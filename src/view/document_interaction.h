@@ -26,13 +26,18 @@ enum class InteractionKey {
     Escape,
     ZoomIn,
     ZoomOut,
+    ZoomReset,
     Left,
     Right,
     Up,
     Down,
     Back,
     Copy,
+    SelectAll,
     Find,
+    FindNext,
+    Print,
+    Reload,
     ToggleOutline,
     Enter
 };
@@ -52,11 +57,16 @@ struct KeyCommandResult {
     bool goForward = false;
     bool zoomIn = false;
     bool zoomOut = false;
+    bool zoomReset = false;
+    bool openFile = false;
+    bool print = false;
+    bool reload = false;
     bool openSearch = false;
     bool closeSearch = false;
     bool searchNext = false;
     bool searchPrevious = false;
     bool searchBackspace = false;
+    bool selectAll = false;
     bool outlinePrevious = false;
     bool outlineNext = false;
     bool toggleOutline = false;
@@ -80,6 +90,7 @@ void RestoreScrollAnchor(AppState& appState, const ScrollAnchor& anchor, float v
 
 void ClearPendingLinkState(AppState& appState);
 bool ToggleDetailsBlock(DocumentModel& document, size_t detailsId);
+void SelectAll(AppState& appState);
 void OpenSearch(AppState& appState);
 void CloseSearch(AppState& appState);
 void InsertSearchText(AppState& appState, const std::string& text);

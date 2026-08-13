@@ -9,6 +9,7 @@
 #include "platform/linux/linux_file_dialog.h"
 #include "platform/linux/linux_font_dialog.h"
 #include "platform/linux/linux_shell.h"
+#include "render/typography.h"
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
@@ -265,6 +266,9 @@ void ExecuteMenuCommand(
         case MenuCommand::ThemeDark: ApplyTheme(window, host, ThemeMode::Dark); break;
         case MenuCommand::UseDefaultFont:
             ApplySelectedFont(window, host, {});
+            break;
+        case MenuCommand::ResetZoom:
+            SetBaseFontSize(window, host, kDefaultBaseFontSize);
             break;
         case MenuCommand::Find: {
             auto& appState = GetAppState(app.GetHostContext());
@@ -986,25 +990,15 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
                 GetAppState(app->GetHostContext()).needsRepaint = true;
             }
             break;
+        case GLFW_KEY_A: ev.key = InteractionKey::SelectAll; break;
         case GLFW_KEY_C: ev.key = InteractionKey::Copy; break;
         case GLFW_KEY_F: ev.key = InteractionKey::Find; break;
+        case GLFW_KEY_F3: ev.key = InteractionKey::FindNext; break;
         case GLFW_KEY_O:
-            if (ev.ctrl && ev.shift) {
-                ev.key = InteractionKey::ToggleOutline;
-            } else if (ev.ctrl) {
-                ExecuteMenuCommand(window, *app, MenuCommand::OpenFile);
-            }
+            ev.key = InteractionKey::ToggleOutline;
             break;
-        case GLFW_KEY_P:
-            if (ev.ctrl && app->Controller().HasCurrentFile()) {
-                ExecuteMenuCommand(window, *app, MenuCommand::Print);
-            }
-            break;
-        case GLFW_KEY_F5:
-            if (app->Controller().HasCurrentFile()) {
-                ExecuteMenuCommand(window, *app, MenuCommand::Reload);
-            }
-            break;
+        case GLFW_KEY_P: ev.key = InteractionKey::Print; break;
+        case GLFW_KEY_F5: ev.key = InteractionKey::Reload; break;
         case GLFW_KEY_ENTER:
         case GLFW_KEY_KP_ENTER:
             ev.key = InteractionKey::Enter;
@@ -1013,6 +1007,8 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
         case GLFW_KEY_KP_ADD: if (ev.ctrl) ev.key = InteractionKey::ZoomIn; break;
         case GLFW_KEY_MINUS: if (ev.ctrl) ev.key = InteractionKey::ZoomOut; break;
         case GLFW_KEY_KP_SUBTRACT: if (ev.ctrl) ev.key = InteractionKey::ZoomOut; break;
+        case GLFW_KEY_0: if (ev.ctrl) ev.key = InteractionKey::ZoomReset; break;
+        case GLFW_KEY_KP_0: if (ev.ctrl) ev.key = InteractionKey::ZoomReset; break;
         case GLFW_KEY_LEFT: ev.key = InteractionKey::Left; break;
         case GLFW_KEY_RIGHT: ev.key = InteractionKey::Right; break;
         case GLFW_KEY_UP: ev.key = InteractionKey::Up; break;
@@ -1023,6 +1019,13 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
 
     auto result = HandleKeyDown(GetAppState(app->GetHostContext()), ev);
     if (result.stopAutoScroll) StopAutoScroll(*app);
+    if (result.openFile) ExecuteMenuCommand(window, *app, MenuCommand::OpenFile);
+    if (result.reload && app->Controller().HasCurrentFile()) {
+        ExecuteMenuCommand(window, *app, MenuCommand::Reload);
+    }
+    if (result.print && app->Controller().HasCurrentFile()) {
+        ExecuteMenuCommand(window, *app, MenuCommand::Print);
+    }
     if (result.goBack) GoBack(window, app->GetHostContext());
     if (result.goForward) GoForward(window, app->GetHostContext());
     if (result.copySelection && CopySelection(window, *app)) {
@@ -1030,6 +1033,8 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
     }
     if (result.zoomIn) AdjustBaseFontSize(window, app->GetHostContext(), 1.0f);
     if (result.zoomOut) AdjustBaseFontSize(window, app->GetHostContext(), -1.0f);
+    if (result.zoomReset) SetBaseFontSize(window, app->GetHostContext(), kDefaultBaseFontSize);
+    if (result.selectAll) SelectAll(GetAppState(app->GetHostContext()));
     if (result.toggleOutline) {
         app->GetHostContext().controller.ToggleOutlineCollapsed();
         RelayoutCurrentDocument(window, app->GetHostContext());

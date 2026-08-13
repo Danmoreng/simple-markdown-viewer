@@ -451,25 +451,21 @@ bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preser
     return true;
 }
 
-void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta) {
+void SetBaseFontSize(GLFWwindow* window, LinuxHostContext context, float baseFontSize) {
     const uint64_t nowMs = static_cast<uint64_t>(glfwGetTime() * 1000.0);
-    if (delta > 0) {
-        if (context.controller.ZoomIn(delta)) {
-            auto& appState = GetAppState(context);
-            appState.zoomFeedbackFontSize = context.controller.GetBaseFontSize();
-            appState.zoomFeedbackTimeout = nowMs + kZoomFeedbackDurationMs;
-            RelayoutCurrentDocument(window, context);
-            context.controller.SaveConfig();
-        }
-    } else {
-        if (context.controller.ZoomOut(-delta)) {
-            auto& appState = GetAppState(context);
-            appState.zoomFeedbackFontSize = context.controller.GetBaseFontSize();
-            appState.zoomFeedbackTimeout = nowMs + kZoomFeedbackDurationMs;
-            RelayoutCurrentDocument(window, context);
-            context.controller.SaveConfig();
-        }
+    if (!context.controller.SetBaseFontSize(baseFontSize)) {
+        return;
     }
+
+    auto& appState = GetAppState(context);
+    appState.zoomFeedbackFontSize = context.controller.GetBaseFontSize();
+    appState.zoomFeedbackTimeout = nowMs + kZoomFeedbackDurationMs;
+    RelayoutCurrentDocument(window, context);
+    context.controller.SaveConfig();
+}
+
+void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta) {
+    SetBaseFontSize(window, context, context.controller.GetBaseFontSize() + delta);
 }
 
 void ApplySelectedFont(GLFWwindow* window, LinuxHostContext context, const std::string& familyUtf8) {

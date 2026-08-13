@@ -23,6 +23,7 @@ enum class MenuCommand {
     OpenRecentFile = 1010,
     Print = 1011,
     Reload = 1012,
+    ResetZoom = 1013,
     ThemeLight = 1101,
     ThemeSepia = 1102,
     ThemeDark = 1103

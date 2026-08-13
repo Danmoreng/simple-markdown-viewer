@@ -103,6 +103,8 @@ std::vector<MenuDropdown> GetLinuxMenus(const ViewerController& controller) {
         {"", MenuCommand::None, true},
         {"Find...", MenuCommand::Find, false, {}, "Ctrl+F"},
         {"", MenuCommand::None, true},
+        {"Reset Zoom", MenuCommand::ResetZoom, false, {}, "Ctrl+0"},
+        {"", MenuCommand::None, true},
         {"Show Outline", MenuCommand::ToggleOutline, false, {}, "Ctrl+Shift+O", true, !appState.outlineCollapsed},
         {"Outline on Left", MenuCommand::OutlineLeft, false, {}, {}, true, appState.outlineSide == OutlineSide::Left},
         {"Outline on Right", MenuCommand::OutlineRight, false, {}, {}, true, appState.outlineSide == OutlineSide::Right},

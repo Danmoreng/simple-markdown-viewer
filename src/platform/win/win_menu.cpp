@@ -310,6 +310,8 @@ bool CreateMenus(const ThemePalette& palette) {
     AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(g_viewMenu, MF_STRING, kCommandFind, L"&Find...\tCtrl+F");
     AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(g_viewMenu, MF_STRING, kCommandZoomReset, L"Reset &Zoom\tCtrl+0");
+    AppendMenuW(g_viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(g_viewMenu, MF_STRING, kCommandToggleOutline, L"Show &Outline\tCtrl+Shift+O");
     AppendMenuW(g_viewMenu, MF_STRING, kCommandOutlineLeft, L"Outline on &Left");
     AppendMenuW(g_viewMenu, MF_STRING, kCommandOutlineRight, L"Outline on &Right");

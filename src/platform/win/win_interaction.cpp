@@ -11,6 +11,7 @@
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_shell.h"
+#include "render/typography.h"
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
@@ -111,6 +112,9 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
         case VK_OEM_MINUS:
         case VK_SUBTRACT:
             return InteractionKey::ZoomOut;
+        case '0':
+        case VK_NUMPAD0:
+            return InteractionKey::ZoomReset;
         case VK_LEFT:
             return InteractionKey::Left;
         case VK_RIGHT:
@@ -124,9 +128,19 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
         case 'C':
         case 'c':
             return InteractionKey::Copy;
+        case 'A':
+        case 'a':
+            return InteractionKey::SelectAll;
         case 'F':
         case 'f':
             return InteractionKey::Find;
+        case VK_F3:
+            return InteractionKey::FindNext;
+        case 'P':
+        case 'p':
+            return InteractionKey::Print;
+        case VK_F5:
+            return InteractionKey::Reload;
         case 'O':
         case 'o':
             return InteractionKey::ToggleOutline;
@@ -172,6 +186,21 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
             SetTimer(hwnd, context.zoomFeedbackTimerId, 1200, nullptr);
         }
     }
+    if (command.zoomReset) {
+        SetBaseFontSize(hwnd, context.host, kDefaultBaseFontSize);
+        if (GetAppState(context.host).zoomFeedbackTimeout > 0) {
+            SetTimer(hwnd, context.zoomFeedbackTimerId, 1200, nullptr);
+        }
+    }
+    if (command.openFile) {
+        SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(kCommandOpenFile, 0), 0);
+    }
+    if (command.reload) {
+        SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(kCommandReload, 0), 0);
+    }
+    if (command.print) {
+        PrintCurrentDocument(hwnd, context.host);
+    }
     if (command.goBack) {
         GoBack(hwnd, context.host);
     }
@@ -181,6 +210,11 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
     if (command.copySelection) {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         CopySelection(hwnd, context);
+    }
+    if (command.selectAll) {
+        std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        SelectAll(GetAppState(context.host));
+        InvalidateRect(hwnd, nullptr, FALSE);
     }
     if (command.openSearch || command.closeSearch || command.searchNext || command.searchPrevious || command.searchBackspace) {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);

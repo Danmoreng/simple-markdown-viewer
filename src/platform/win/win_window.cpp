@@ -11,6 +11,7 @@
 #include "platform/win/win_menu.h"
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_viewer_host.h"
+#include "render/typography.h"
 #include "view/document_interaction.h"
 
 namespace mdviewer::win {
@@ -113,6 +114,12 @@ WindowCommandHandlers MakeWindowCommandHandlers(HWND hwnd, WinApp& app) {
         },
         .zoomIn = [hwnd, appPtr]() {
             AdjustBaseFontSize(hwnd, appPtr->Host(), 1.0f);
+            if (GetAppState(appPtr->Host()).zoomFeedbackTimeout > 0) {
+                SetTimer(hwnd, appPtr->Interaction().zoomFeedbackTimerId, 1200, nullptr);
+            }
+        },
+        .zoomReset = [hwnd, appPtr]() {
+            SetBaseFontSize(hwnd, appPtr->Host(), kDefaultBaseFontSize);
             if (GetAppState(appPtr->Host()).zoomFeedbackTimeout > 0) {
                 SetTimer(hwnd, appPtr->Interaction().zoomFeedbackTimerId, 1200, nullptr);
             }
@@ -294,14 +301,6 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
                 GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
         case WM_KEYDOWN:
-            if (wParam == VK_F5) {
-                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(kCommandReload, 0), 0);
-                return 0;
-            }
-            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && wParam == 'P') {
-                PrintCurrentDocument(hwnd, app.Host());
-                return 0;
-            }
             if (HandleKeyDown(hwnd, app.Interaction(), wParam)) {
                 return 0;
             }
@@ -423,6 +422,11 @@ bool DispatchWindowCommand(UINT_PTR commandId, const WindowCommandHandlers& hand
         case kCommandZoomIn:
             if (handlers.zoomIn) {
                 handlers.zoomIn();
+            }
+            return true;
+        case kCommandZoomReset:
+            if (handlers.zoomReset) {
+                handlers.zoomReset();
             }
             return true;
         case kCommandFind:

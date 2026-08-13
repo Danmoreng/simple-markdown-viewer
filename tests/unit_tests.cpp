@@ -3365,6 +3365,76 @@ void UnicodeSearchCaseFolding() {
                  "a folded expansion should map back to the complete UTF-8 source character");
 }
 
+void KeyboardUsabilityCommands() {
+    mdviewer::AppState state;
+    state.docLayout.plainText = "select all";
+
+    auto command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::SelectAll, .ctrl = true});
+    Require(command.handled && command.selectAll && command.stopAutoScroll,
+            "Ctrl+A should select the complete document and stop auto-scroll");
+    mdviewer::SelectAll(state);
+    RequireEqual(mdviewer::GetSelectionStart(state), static_cast<size_t>(0),
+                 "select all should begin at the document start");
+    RequireEqual(mdviewer::GetSelectionEnd(state), state.docLayout.plainText.size(),
+                 "select all should end at the document end");
+
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::Copy, .ctrl = true});
+    Require(command.handled && command.copySelection, "Ctrl+C should copy an existing selection");
+
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::ToggleOutline, .ctrl = true});
+    Require(command.handled && command.openFile, "Ctrl+O should open a file");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::ToggleOutline, .ctrl = true, .shift = true});
+    Require(command.handled && command.toggleOutline, "Ctrl+Shift+O should toggle the outline");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::Find, .ctrl = true});
+    Require(command.handled && command.openSearch, "Ctrl+F should open search");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::Print, .ctrl = true});
+    Require(command.handled && command.print, "Ctrl+P should print");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::Reload});
+    Require(command.handled && command.reload, "F5 should reload");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::ZoomReset, .ctrl = true});
+    Require(command.handled && command.zoomReset, "Ctrl+0 should reset zoom");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::Left, .alt = true});
+    Require(command.handled && command.goBack, "Alt+Left should navigate back");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::Right, .alt = true});
+    Require(command.handled && command.goForward, "Alt+Right should navigate forward");
+
+    mdviewer::OpenSearch(state);
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::FindNext});
+    Require(command.handled && command.searchNext, "F3 should select the next search match");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::FindNext, .shift = true});
+    Require(command.handled && command.searchPrevious,
+            "Shift+F3 should select the previous search match");
+    command = mdviewer::HandleKeyDown(
+        state,
+        {.key = mdviewer::InteractionKey::SelectAll, .ctrl = true});
+    Require(!command.handled && !command.selectAll,
+            "Ctrl+A should not unexpectedly select the document while search input is active");
+}
+
 void LatexMathParsingLayoutAndFallback() {
     const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
         "Euler: $e^{i\\pi}+1=0$ is inline.\n\n"
@@ -3602,6 +3672,7 @@ int main() {
         {"FrontMatterAndMarkdownExtensions", FrontMatterAndMarkdownExtensions},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"UnicodeSearchCaseFolding", UnicodeSearchCaseFolding},
+        {"KeyboardUsabilityCommands", KeyboardUsabilityCommands},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
         {"ComplexTextShapingSubsystem", ComplexTextShapingSubsystem},

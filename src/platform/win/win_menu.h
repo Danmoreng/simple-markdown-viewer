@@ -39,6 +39,7 @@ inline constexpr UINT_PTR kCommandFind = 1205;
 inline constexpr UINT_PTR kCommandToggleOutline = 1206;
 inline constexpr UINT_PTR kCommandOutlineLeft = 1207;
 inline constexpr UINT_PTR kCommandOutlineRight = 1208;
+inline constexpr UINT_PTR kCommandZoomReset = 1209;
 
 bool CreateMenus(const ThemePalette& palette);
 void CleanupMenus();

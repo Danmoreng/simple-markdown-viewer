@@ -38,6 +38,7 @@ bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preser
 void HandleLinkClick(GLFWwindow* window, LinuxHostContext context, const std::string& url, bool forceExternal);
 void ApplyTheme(GLFWwindow* window, LinuxHostContext context, ThemeMode theme);
 void ApplySelectedFont(GLFWwindow* window, LinuxHostContext context, const std::string& familyUtf8);
+void SetBaseFontSize(GLFWwindow* window, LinuxHostContext context, float baseFontSize);
 void AdjustBaseFontSize(GLFWwindow* window, LinuxHostContext context, float delta);
 
 std::optional<SkRect> GetScrollbarThumbRect(GLFWwindow* window, const LinuxHostContext context);

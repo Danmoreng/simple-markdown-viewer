@@ -218,6 +218,18 @@ bool ToggleDetailsBlock(DocumentModel& document, size_t detailsId) {
     return detailsId != 0 && ToggleDetailsInBlocks(document.blocks, detailsId);
 }
 
+void SelectAll(AppState& appState) {
+    appState.isSelecting = false;
+    appState.isDraggingScrollbar = false;
+    appState.isAutoScrolling = false;
+    appState.outlineFocused = false;
+    EndHorizontalScrollbarDrag(appState);
+    appState.selectionAnchor = 0;
+    appState.selectionFocus = appState.docLayout.plainText.size();
+    ClearPendingLinkState(appState);
+    appState.needsRepaint = true;
+}
+
 size_t GetSelectionStart(const AppState& appState) {
     return std::min(appState.selectionAnchor, appState.selectionFocus);
 }
@@ -671,6 +683,24 @@ void FinalizeSelectionInteraction(AppState& appState) {
 KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) {
     KeyCommandResult result;
 
+    if (event.ctrl && !event.shift && event.key == InteractionKey::ToggleOutline) {
+        result.handled = true;
+        result.openFile = true;
+        return result;
+    }
+
+    if (event.ctrl && event.key == InteractionKey::Print) {
+        result.handled = true;
+        result.print = true;
+        return result;
+    }
+
+    if (event.key == InteractionKey::Reload) {
+        result.handled = true;
+        result.reload = true;
+        return result;
+    }
+
     if (event.ctrl && event.key == InteractionKey::Find) {
         result.handled = true;
         result.openSearch = true;
@@ -691,6 +721,13 @@ KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) 
         }
 
         if (event.key == InteractionKey::Enter) {
+            result.handled = true;
+            result.searchNext = !event.shift;
+            result.searchPrevious = event.shift;
+            return result;
+        }
+
+        if (event.key == InteractionKey::FindNext) {
             result.handled = true;
             result.searchNext = !event.shift;
             result.searchPrevious = event.shift;
@@ -735,6 +772,12 @@ KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) 
         return result;
     }
 
+    if (event.ctrl && event.key == InteractionKey::ZoomReset) {
+        result.handled = true;
+        result.zoomReset = true;
+        return result;
+    }
+
     if (event.key == InteractionKey::Back) {
         result.handled = true;
         result.goBack = true;
@@ -768,6 +811,13 @@ KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) 
     if (event.ctrl && event.key == InteractionKey::Copy) {
         result.handled = true;
         result.copySelection = true;
+        return result;
+    }
+
+    if (!appState.searchActive && event.ctrl && event.key == InteractionKey::SelectAll) {
+        result.handled = true;
+        result.stopAutoScroll = true;
+        result.selectAll = true;
         return result;
     }
 
