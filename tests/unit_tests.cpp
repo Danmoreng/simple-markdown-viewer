@@ -25,6 +25,7 @@
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
 #include "text/complex_text_runtime.h"
+#include "text/text_geometry.h"
 #include "util/skia_font_utils.h"
 #include "util/utf8.h"
 #include "view/document_hit_test.h"
@@ -1117,6 +1118,131 @@ void ComplexTextRuntimeAvailability() {
     Require(runtime.Shaper() != nullptr, "complex text runtime should expose the HarfBuzz shaper");
 }
 
+void SharedTextGeometryModel() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontManager);
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), typeface.get());
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(
+            "Legacy e\xCC\x81 cluster and **formatted text**.\n\n"
+            "Inline math $x + y$ remains atomic.\n"),
+        900.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+
+    bool foundCombiningCluster = false;
+    for (const mdviewer::BlockLayout& block : layout.blocks) {
+        Require(
+            block.direction == mdviewer::ResolvedTextDirection::LeftToRight,
+            "legacy blocks should retain an explicit LTR direction");
+        for (const mdviewer::LineLayout& line : block.lines) {
+            Require(line.width >= 0.0f, "every legacy line should expose its visual width");
+            Require(
+                line.direction == mdviewer::ResolvedTextDirection::LeftToRight,
+                "legacy lines should retain an explicit LTR direction");
+            float previousVisualEnd = 0.0f;
+            for (const mdviewer::RunLayout& run : line.runs) {
+                Require(run.semanticSpanId != 0, "every visible legacy run should retain a semantic span id");
+                Require(run.visualX + 0.01f >= previousVisualEnd,
+                        "legacy visual runs should be stored in line-local visual order");
+                Require(run.visualWidth >= 0.0f, "every visual run should carry its layout width");
+                previousVisualEnd = run.visualX + run.visualWidth;
+
+                if (run.kind == mdviewer::InlineKind::Text && !run.text.empty()) {
+                    Require(!run.caretStops.empty(), "legacy text should expose safe caret stops");
+                    RequireEqual(run.caretStops.front().textPosition, run.textStart,
+                                 "legacy caret geometry should begin at the logical run start");
+                    RequireEqual(run.caretStops.back().textPosition, run.textStart + run.text.size(),
+                                 "legacy caret geometry should end at the logical run end");
+                }
+
+                const size_t combining = run.text.find("e\xCC\x81");
+                if (combining != std::string::npos) {
+                    foundCombiningCluster = true;
+                    const size_t unsafePosition = run.textStart + combining + 1;
+                    Require(
+                        std::none_of(run.caretStops.begin(), run.caretStops.end(), [&](const auto& stop) {
+                            return stop.textPosition == unsafePosition;
+                        }),
+                        "legacy caret geometry should not split a combining sequence");
+                }
+            }
+            RequireNear(line.width, previousVisualEnd, 0.01f,
+                        "legacy line width should match its final visual run edge");
+        }
+    }
+    Require(foundCombiningCluster, "geometry regression should exercise a combining sequence");
+
+    mdviewer::RunLayout rtlRun{};
+    rtlRun.kind = mdviewer::InlineKind::Text;
+    rtlRun.text = "abcd";
+    rtlRun.textStart = 4;
+    rtlRun.visualX = 0.0f;
+    rtlRun.visualWidth = 40.0f;
+    rtlRun.bidiLevel = 1;
+    rtlRun.caretStops = {{4, 40.0f}, {6, 20.0f}, {8, 0.0f}};
+
+    mdviewer::RunLayout ltrRun{};
+    ltrRun.kind = mdviewer::InlineKind::Text;
+    ltrRun.text = "abcd";
+    ltrRun.textStart = 0;
+    ltrRun.visualX = 60.0f;
+    ltrRun.visualWidth = 40.0f;
+    ltrRun.caretStops = {{0, 60.0f}, {2, 80.0f}, {4, 100.0f}};
+
+    RequireEqual(mdviewer::HitTestTextRun(rtlRun, 1.0f), static_cast<size_t>(8),
+                 "RTL hit testing should map the left visual edge to the logical end");
+    RequireEqual(mdviewer::HitTestTextRun(rtlRun, 39.0f), static_cast<size_t>(4),
+                 "RTL hit testing should map the right visual edge to the logical start");
+
+    mdviewer::LineLayout reorderedLine{};
+    reorderedLine.x = 10.0f;
+    reorderedLine.runs = {rtlRun, ltrRun};
+    const std::vector<SkRect> discontiguous = mdviewer::GetTextRangeRects(
+        reorderedLine, 2, 6, 5.0f, 15.0f);
+    RequireEqual(discontiguous.size(), static_cast<size_t>(2),
+                 "a logical range split by visual reordering should produce two rectangles");
+    RequireNear(discontiguous[0].left(), 30.0f, 0.01f,
+                "RTL selection geometry should use line-local caret positions");
+    RequireNear(discontiguous[1].left(), 90.0f, 0.01f,
+                "LTR selection geometry should remain visually discontiguous");
+
+    mdviewer::RunLayout ligatureRun{};
+    ligatureRun.kind = mdviewer::InlineKind::Text;
+    ligatureRun.text = "ffi";
+    ligatureRun.textStart = 10;
+    ligatureRun.visualWidth = 30.0f;
+    ligatureRun.caretStops = {{10, 0.0f}, {13, 30.0f}};
+    RequireEqual(mdviewer::HitTestTextRun(ligatureRun, 16.0f), static_cast<size_t>(13),
+                 "hit testing should not invent a caret inside a ligature cluster");
+    mdviewer::LineLayout ligatureLine{};
+    ligatureLine.runs.push_back(ligatureRun);
+    const auto ligatureRects = mdviewer::GetTextRangeRects(ligatureLine, 11, 12, 0.0f, 10.0f);
+    RequireEqual(ligatureRects.size(), static_cast<size_t>(1),
+                 "a partial logical ligature range should snap to one safe cluster rectangle");
+    RequireNear(ligatureRects.front().width(), 30.0f, 0.01f,
+                "ligature selection should snap outward to its safe caret stops");
+
+    mdviewer::RunLayout mathRun{};
+    mathRun.kind = mdviewer::InlineKind::Math;
+    mathRun.text = "x+y";
+    mathRun.textStart = 20;
+    mathRun.visualX = 5.0f;
+    mathRun.visualWidth = 30.0f;
+    RequireEqual(mdviewer::HitTestTextRun(mathRun, 6.0f), static_cast<size_t>(20),
+                 "math hit testing should treat the formula as an atomic logical run");
+    RequireEqual(mdviewer::HitTestTextRun(mathRun, 34.0f), static_cast<size_t>(23),
+                 "math hit testing should expose only the atomic end boundary");
+
+    mdviewer::RunLayout imageRun{};
+    imageRun.kind = mdviewer::InlineKind::Image;
+    imageRun.textStart = 30;
+    imageRun.visualX = 5.0f;
+    imageRun.visualWidth = 20.0f;
+    RequireEqual(mdviewer::HitTestTextRun(imageRun, 24.0f), static_cast<size_t>(30),
+                 "zero-length image placeholders should resolve to their logical anchor");
+}
+
 void DocumentFontContextFeedsLayout() {
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Normal());
@@ -2057,6 +2183,7 @@ int main() {
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
+        {"SharedTextGeometryModel", SharedTextGeometryModel},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},

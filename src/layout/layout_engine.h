@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,9 +8,24 @@
 #include "render/math_renderer.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "text/document_fonts.h"
+#include "text/text_direction.h"
+
+// Suppress warnings from Skia headers
+#pragma warning(push)
+#pragma warning(disable: 4244)
+#pragma warning(disable: 4267)
+#include "include/core/SkFont.h"
+#include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
+#include "include/core/SkTypes.h"
+#pragma warning(pop)
 
 namespace mdviewer {
+
+struct CaretStop {
+    size_t textPosition = 0;
+    float x = 0.0f;
+};
 
 struct RunLayout {
     InlineFormatting formatting = InlineFormatting::None;
@@ -22,16 +38,28 @@ struct RunLayout {
     size_t textStart = 0;
     float imageWidth = 0.0f;
     float imageHeight = 0.0f;
+    float visualX = 0.0f;
     float visualWidth = 0.0f;
+    uint8_t bidiLevel = 0;
+    size_t semanticSpanId = 0;
+    bool shaped = false;
+    float baselineShift = 0.0f;
     bool mathDisplay = false;
     MathLayout mathLayout;
     std::string linkTarget;
+    SkFont shapedFont;
+    std::vector<SkGlyphID> glyphs;
+    std::vector<SkPoint> glyphPositions;
+    std::vector<uint32_t> glyphClusters;
+    std::vector<CaretStop> caretStops;
 };
 
 struct LineLayout {
     float x = 0.0f;
     float y;
     float height;
+    float width = 0.0f;
+    ResolvedTextDirection direction = ResolvedTextDirection::LeftToRight;
     size_t textStart = 0;
     size_t textLength = 0;
     std::vector<RunLayout> runs;
@@ -40,6 +68,7 @@ struct LineLayout {
 struct BlockLayout {
     BlockType type;
     TextAlign align = TextAlign::Default;
+    ResolvedTextDirection direction = ResolvedTextDirection::LeftToRight;
     TaskListState taskListState = TaskListState::None;
     AlertKind alertKind = AlertKind::None;
     unsigned orderedListStart = 1;

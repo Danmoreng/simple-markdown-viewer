@@ -256,6 +256,7 @@ set(SOURCES
     src/util/utf8.cpp
     src/text/complex_text_runtime.cpp
     src/text/document_font_style.cpp
+    src/text/text_geometry.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
     src/render/document_renderer.cpp
@@ -487,6 +488,7 @@ add_executable(mdviewer_tests
     src/util/utf8.cpp
     src/text/complex_text_runtime.cpp
     src/text/document_font_style.cpp
+    src/text/text_geometry.cpp
     src/view/document_context_menu.cpp
     src/view/document_hit_test.cpp
     src/view/document_interaction.cpp

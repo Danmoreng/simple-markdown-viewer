@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <cctype>
 #include <numeric>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
+
+#include <utf8proc.h>
 
 #include "app/heading_anchor.h"
 #include "render/syntax/tree_sitter_highlighter.h"
@@ -51,6 +54,77 @@ constexpr float kDetailsSummaryIndent = 28.0f;
 constexpr float kDetailsContentIndent = 20.0f;
 constexpr float kDetailsContentPaddingTop = 18.0f;
 constexpr float kDetailsContentPaddingBottom = 8.0f;
+
+std::vector<size_t> LegacyGraphemeBoundaries(std::string_view text) {
+    std::vector<size_t> boundaries{0};
+    size_t offset = 0;
+    utf8proc_int32_t previous = 0;
+    utf8proc_int32_t state = 0;
+    bool hasPrevious = false;
+
+    while (offset < text.size()) {
+        utf8proc_int32_t current = 0;
+        const utf8proc_ssize_t bytes = utf8proc_iterate(
+            reinterpret_cast<const utf8proc_uint8_t*>(text.data() + offset),
+            static_cast<utf8proc_ssize_t>(text.size() - offset),
+            &current);
+        if (bytes <= 0) {
+            ++offset;
+            boundaries.push_back(offset);
+            hasPrevious = false;
+            state = 0;
+            continue;
+        }
+        if (hasPrevious && utf8proc_grapheme_break_stateful(previous, current, &state)) {
+            boundaries.push_back(offset);
+        }
+        previous = current;
+        hasPrevious = true;
+        offset += static_cast<size_t>(bytes);
+    }
+    if (boundaries.back() != text.size()) {
+        boundaries.push_back(text.size());
+    }
+    return boundaries;
+}
+
+void PopulateLegacyCaretStops(RunLayout& run, const SkFont& font) {
+    run.shaped = false;
+    run.bidiLevel = 0;
+    run.caretStops.clear();
+
+    if (run.kind == InlineKind::Image) {
+        return;
+    }
+    if (run.kind == InlineKind::Math) {
+        run.caretStops.push_back({run.textStart, run.visualX});
+        run.caretStops.push_back({
+            run.textStart + run.text.size(),
+            run.visualX + run.visualWidth,
+        });
+        return;
+    }
+
+    const std::vector<size_t> boundaries = LegacyGraphemeBoundaries(run.text);
+    std::vector<float> cumulativeWidths(boundaries.size(), 0.0f);
+    for (size_t index = 1; index < boundaries.size(); ++index) {
+        const size_t previous = boundaries[index - 1];
+        cumulativeWidths[index] = cumulativeWidths[index - 1] + font.measureText(
+            run.text.data() + previous,
+            boundaries[index] - previous,
+            SkTextEncoding::kUTF8);
+    }
+    const float measuredWidth = cumulativeWidths.back();
+    for (size_t index = 0; index < boundaries.size(); ++index) {
+        const float normalizedWidth = measuredWidth > 0.0f
+            ? (cumulativeWidths[index] / measuredWidth) * run.visualWidth
+            : 0.0f;
+        run.caretStops.push_back({
+            run.textStart + boundaries[index],
+            run.visualX + normalizedWidth,
+        });
+    }
+}
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
@@ -173,6 +247,7 @@ public:
     float rightMargin;
     float availableWidth;
     size_t currentTextOffset = 0;
+    size_t nextSemanticSpanId = 1;
     std::string plainText;
     std::unordered_map<std::string, float> anchors;
     std::vector<HeadingOutlineItem> outline;
@@ -370,6 +445,7 @@ private:
         float lineWidth,
         TextAlign align) {
         currentLine.x = ResolveLineX(contentLeft, wrapWidth, lineWidth, align);
+        currentLine.width = lineWidth;
         lines.push_back(std::move(currentLine));
         lineY += lines.back().height;
         currentLine = {};
@@ -429,6 +505,7 @@ private:
 
         for (size_t runIndex = 0; runIndex < runs.size(); ++runIndex) {
             const auto& run = runs[runIndex];
+            const size_t semanticSpanId = nextSemanticSpanId++;
             ConfigureInlineFont(blockType, run.formatting);
             if (blockType == BlockType::Metadata && run.metadataRole != MetadataRunRole::None) {
                 const float visualWidth = measureMetadataRun(run);
@@ -453,16 +530,20 @@ private:
                     font.setSize(font.getSize() * kMetadataTagFontScale);
                 }
 
-                currentLine.runs.push_back(RunLayout{
+                RunLayout layoutRun{
                     .formatting = run.formatting,
                     .kind = run.kind,
                     .metadataRole = run.metadataRole,
                     .syntaxRole = run.syntaxRole,
                     .text = run.text,
                     .textStart = currentTextOffset,
+                    .visualX = currentX,
                     .visualWidth = visualWidth,
+                    .semanticSpanId = semanticSpanId,
                     .linkTarget = run.linkTarget,
-                });
+                };
+                PopulateLegacyCaretStops(layoutRun, font);
+                currentLine.runs.push_back(std::move(layoutRun));
                 currentLine.textLength += run.text.size();
                 plainText += run.text;
                 currentTextOffset += run.text.size();
@@ -508,18 +589,22 @@ private:
                     currentLineWidth = 0.0f;
                 }
 
-                currentLine.runs.push_back(RunLayout{
+                RunLayout layoutRun{
                     .formatting = run.formatting,
                     .kind = InlineKind::Math,
                     .syntaxRole = run.syntaxRole,
                     .text = run.text,
                     .mathSource = run.mathSource,
                     .textStart = currentTextOffset,
+                    .visualX = currentX,
                     .visualWidth = mathWidth,
+                    .semanticSpanId = semanticSpanId,
                     .mathDisplay = run.mathDisplay,
                     .mathLayout = std::move(mathLayout),
                     .linkTarget = run.linkTarget,
-                });
+                };
+                PopulateLegacyCaretStops(layoutRun, font);
+                currentLine.runs.push_back(std::move(layoutRun));
                 currentLine.textLength += run.text.size();
                 plainText += run.text;
                 currentTextOffset += run.text.size();
@@ -604,8 +689,12 @@ private:
                     .textStart = currentTextOffset,
                     .imageWidth = imgDisplayW,
                     .imageHeight = imgDisplayH,
+                    .visualX = currentX,
+                    .visualWidth = imgDisplayW,
+                    .semanticSpanId = semanticSpanId,
                     .linkTarget = run.linkTarget,
                 };
+                PopulateLegacyCaretStops(rl, font);
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.height = std::max(currentLine.height, imgDisplayH + 4.0f);
                 currentLineWidth = currentX + imgDisplayW;
@@ -652,20 +741,25 @@ private:
                     bytesConsumed = remainingLength;
                 }
 
+                const float advance = font.measureText(
+                    textPtr, bytesConsumed, SkTextEncoding::kUTF8);
                 RunLayout rl{
                     .formatting = run.formatting,
                     .kind = InlineKind::Text,
                     .syntaxRole = run.syntaxRole,
                     .text = std::string(textPtr, bytesConsumed),
                     .textStart = currentTextOffset,
+                    .visualX = currentX,
+                    .visualWidth = advance,
+                    .semanticSpanId = semanticSpanId,
                     .linkTarget = run.linkTarget,
                 };
+                PopulateLegacyCaretStops(rl, font);
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.textLength += bytesConsumed;
                 plainText.append(textPtr, bytesConsumed);
                 currentTextOffset += bytesConsumed;
                 
-                float advance = font.measureText(textPtr, bytesConsumed, SkTextEncoding::kUTF8);
                 currentLineWidth = currentX + advance;
                 currentX = currentLineWidth;
                 maxContentWidth = std::max(maxContentWidth, currentLineWidth);
@@ -683,6 +777,7 @@ private:
         if (!currentLine.runs.empty()) {
             maxContentWidth = std::max(maxContentWidth, currentLineWidth);
             currentLine.x = ResolveLineX(contentLeft, wrapWidth, currentLineWidth, align);
+            currentLine.width = currentLineWidth;
             lines.push_back(std::move(currentLine));
             lineY += lines.back().height;
         }
