@@ -42,6 +42,7 @@ constexpr float kBlockSpacing = 10.0f;
 constexpr float kCodeBlockOuterMarginY = 16.0f;
 constexpr float kCodeBlockPaddingX = 8.0f;
 constexpr float kCodeBlockPaddingY = 8.0f;
+constexpr float kCodeBlockRtlControlClearanceY = 20.0f;
 constexpr float kTableCellPaddingX = 12.0f;
 constexpr float kTableCellPaddingY = 8.0f;
 constexpr float kMinTableColumnWidth = 80.0f;
@@ -386,14 +387,19 @@ public:
 
             if (block.type == BlockType::CodeBlock) {
                 currentY += kCodeBlockPaddingY;
+                if (bl.direction == ResolvedTextDirection::RightToLeft) {
+                    currentY += kCodeBlockRtlControlClearanceY;
+                }
                 contentLeft += kCodeBlockPaddingX;
                 contentWidth = std::max(contentWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
             } else if (block.type == BlockType::Metadata) {
                 currentY += kMetadataPaddingY;
             } else if (block.type == BlockType::Details) {
                 currentY += kDetailsSummaryPaddingY;
-                contentLeft += kDetailsSummaryIndent;
                 contentWidth = std::max(contentWidth - kDetailsSummaryIndent, 1.0f);
+                if (bl.direction == ResolvedTextDirection::LeftToRight) {
+                    contentLeft += kDetailsSummaryIndent;
+                }
             }
 
             if (IsHeadingBlock(block.type)) {

@@ -66,6 +66,22 @@ const std::string mixed_message = "هذا سطر عربي طويل جدا لاخ
 > [!WARNING]
 > אזהרה בעברית with العربية, English, and 123.
 
+## Direction-aware details
+
+<details>
+<summary>English summary with العربية</summary>
+
+Collapsed LTR details body with עברית.
+
+</details>
+
+<details open>
+<summary>ملخص عربي with English 123</summary>
+
+محتوى عربي مفتوح with English and עברית.
+
+</details>
+
 ## Tables
 
 | العربية | English | עברית |

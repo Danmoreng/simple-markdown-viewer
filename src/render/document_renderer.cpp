@@ -661,7 +661,10 @@ void DrawBlockDecoration(
         chevronPaint.setStrokeWidth(2.0f);
         chevronPaint.setStrokeCap(SkPaint::kRound_Cap);
         chevronPaint.setStrokeJoin(SkPaint::kRound_Join);
-        const float centerX = block.bounds.left() + 14.0f;
+        const bool isRtl = block.direction == ResolvedTextDirection::RightToLeft;
+        const float centerX = isRtl
+            ? block.bounds.right() - 14.0f
+            : block.bounds.left() + 14.0f;
         const float centerY = summaryRect.centerY();
         if (block.detailsOpen) {
             ctx.canvas->drawLine(centerX - 4.0f, centerY - 2.0f, centerX, centerY + 2.0f, chevronPaint);
@@ -757,13 +760,17 @@ void DrawBlockDecoration(
     }
 
     if (block.type == BlockType::Blockquote) {
+        const bool isRtl = block.direction == ResolvedTextDirection::RightToLeft;
         const SkColor accentColor = GetAlertColor(block.alertKind, params.palette);
         SkPaint accentPaint;
         accentPaint.setAntiAlias(true);
         accentPaint.setColor(accentColor);
+        const float accentX = isRtl
+            ? block.bounds.right() - kBlockquoteAccentWidth
+            : block.bounds.left();
         ctx.canvas->drawRoundRect(
             SkRect::MakeXYWH(
-                block.bounds.left(),
+                accentX,
                 block.bounds.top(),
                 kBlockquoteAccentWidth,
                 std::max(block.bounds.height(), 12.0f)),
@@ -772,8 +779,16 @@ void DrawBlockDecoration(
             accentPaint);
         if (block.alertKind != AlertKind::None) {
             const float iconSize = 16.0f;
-            const float titleLeft = block.bounds.left() + kBlockquoteTextInset;
-            DrawAlertIcon(ctx.canvas, block.alertKind, titleLeft, block.bounds.top() + 1.0f, iconSize, accentColor);
+            const float iconX = isRtl
+                ? block.bounds.right() - kBlockquoteTextInset - iconSize
+                : block.bounds.left() + kBlockquoteTextInset;
+            DrawAlertIcon(
+                ctx.canvas,
+                block.alertKind,
+                iconX,
+                block.bounds.top() + 1.0f,
+                iconSize,
+                accentColor);
 
             ConfigureBlockFont(
                 ctx.font,
@@ -784,9 +799,17 @@ void DrawBlockDecoration(
             ctx.font.setSize(std::max(params.baseFontSize * block.fontScale * 0.84f, 12.0f));
             ctx.paint.setColor(accentColor);
             const char* title = GetAlertTitle(block.alertKind);
+            const size_t titleLength = std::strlen(title);
+            const float titleWidth = ctx.font.measureText(
+                title,
+                titleLength,
+                SkTextEncoding::kUTF8);
+            const float titleX = isRtl
+                ? iconX - 7.0f - titleWidth
+                : iconX + iconSize + 7.0f;
             ctx.canvas->drawString(
                 title,
-                titleLeft + iconSize + 7.0f,
+                titleX,
                 block.bounds.top() + ctx.font.getSize() + 1.0f,
                 ctx.font,
                 ctx.paint);
@@ -804,8 +827,11 @@ void DrawBlockDecoration(
         const float blockBaseFontSize = params.baseFontSize * block.fontScale;
         ConfigureBlockFont(ctx.font, params, block, BlockType::Paragraph, InlineFormatting::None);
         ctx.paint.setColor(params.palette.listMarker);
+        const bool isRtl = block.direction == ResolvedTextDirection::RightToLeft;
         const float markerBaseline = firstLine->y + firstLine->height - kTextBaselineOffset;
-        const float markerX = block.bounds.left() - kListMarkerGap;
+        const float markerX = isRtl
+            ? block.bounds.right() + kListMarkerGap
+            : block.bounds.left() - kListMarkerGap;
         const float markerCenterY = markerBaseline - (firstLine->height * 0.35f);
 
         if (block.taskListState != TaskListState::None) {
@@ -822,9 +848,12 @@ void DrawBlockDecoration(
                 std::to_string(parentOrderedListStart + static_cast<unsigned>(siblingIndex)) +
                 parentOrderedListDelimiter;
             const float markerWidth = ctx.font.measureText(marker.c_str(), marker.size(), SkTextEncoding::kUTF8);
+            const float orderedMarkerX = isRtl
+                ? block.bounds.right() + kOrderedListMarkerTextGap
+                : block.bounds.left() - kOrderedListMarkerTextGap - markerWidth;
             ctx.canvas->drawString(
                 marker.c_str(),
-                block.bounds.left() - kOrderedListMarkerTextGap - markerWidth,
+                orderedMarkerX,
                 markerBaseline,
                 ctx.font,
                 ctx.paint);

@@ -1870,6 +1870,293 @@ void ShapedLayoutEngineIntegration() {
                  "shaped table layout must not change TSV serialization");
 }
 
+void DirectionAwareBlockDecorations() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "directional decoration regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+
+    const std::string source =
+        "- English list item\n"
+        "- عنصر عربي في القائمة\n\n"
+        "1. English ordered item\n"
+        "2. פריט עברי ממוספר\n\n"
+        "- [ ] English task\n"
+        "- [x] مهمة عربية\n\n"
+        "> English quotation.\n\n"
+        "> اقتباس عربي.\n\n"
+        "> [!WARNING]\n"
+        "> אזהרה בעברית.\n";
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(source);
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        document,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+
+    std::vector<const mdviewer::BlockLayout*> listItems;
+    std::vector<const mdviewer::BlockLayout*> quotes;
+    const auto collectBlocks = [&](const auto& self, const auto& blocks) -> void {
+        for (const auto& block : blocks) {
+            if (block.type == mdviewer::BlockType::ListItem) {
+                listItems.push_back(&block);
+            } else if (block.type == mdviewer::BlockType::Blockquote) {
+                quotes.push_back(&block);
+            }
+            self(self, block.children);
+        }
+    };
+    collectBlocks(collectBlocks, layout.blocks);
+    RequireEqual(listItems.size(), static_cast<size_t>(6),
+                 "directional decoration fixture should retain bullet, ordered, and task items");
+    RequireEqual(quotes.size(), static_cast<size_t>(3),
+                 "directional decoration fixture should retain quotes and alert");
+    for (size_t index = 0; index < listItems.size(); index += 2) {
+        Require(listItems[index]->direction == mdviewer::ResolvedTextDirection::LeftToRight &&
+                    listItems[index + 1]->direction == mdviewer::ResolvedTextDirection::RightToLeft,
+                "each list marker type should use its item's resolved direction");
+    }
+    Require(listItems[4]->taskListState == mdviewer::TaskListState::Unchecked &&
+                listItems[5]->taskListState == mdviewer::TaskListState::Checked,
+            "directional decoration fixture should retain both task checkbox states");
+    Require(quotes[0]->direction == mdviewer::ResolvedTextDirection::LeftToRight &&
+                quotes[1]->direction == mdviewer::ResolvedTextDirection::RightToLeft &&
+                quotes[2]->direction == mdviewer::ResolvedTextDirection::RightToLeft,
+            "quote and alert decoration should use each block's resolved direction");
+
+    mdviewer::ThemePalette palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark);
+    palette.bodyText = palette.windowBackground;
+    palette.blockquoteText = palette.windowBackground;
+    palette.headingText = palette.windowBackground;
+    palette.linkText = palette.windowBackground;
+    palette.listMarker = SK_ColorRED;
+    palette.blockquoteAccent = SK_ColorGREEN;
+
+    mdviewer::AppState state;
+    state.sourceText = source;
+    state.docLayout = layout;
+    state.outlineCollapsed = true;
+    const int renderHeight = static_cast<int>(std::ceil(layout.totalHeight + 20.0f));
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(
+        SkImageInfo::MakeN32Premul(760, renderHeight));
+    Require(surface != nullptr, "directional decorations should create a raster surface");
+    surface->getCanvas()->clear(palette.windowBackground);
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = surface->getCanvas(),
+        .appState = &state,
+        .palette = palette,
+        .typefaces = typefaces,
+        .baseFontSize = mdviewer::kDefaultBaseFontSize,
+        .viewportHeight = static_cast<float>(renderHeight),
+        .surfaceWidth = 760.0f,
+        .surfaceHeight = static_cast<float>(renderHeight),
+        .visibleDocumentBottom = layout.totalHeight,
+        .showInteractiveElements = false,
+    });
+    SkPixmap pixels;
+    Require(surface->peekPixels(&pixels),
+            "directional decoration surface should expose pixels");
+
+    const auto markerCenterY = [](const mdviewer::BlockLayout& item) {
+        const mdviewer::LineLayout* line = nullptr;
+        const auto findLine = [&](const auto& self, const mdviewer::BlockLayout& block) -> void {
+            if (line != nullptr) {
+                return;
+            }
+            if (!block.lines.empty()) {
+                line = &block.lines.front();
+                return;
+            }
+            for (const auto& child : block.children) {
+                self(self, child);
+            }
+        };
+        findLine(findLine, item);
+        Require(line != nullptr, "list marker fixture should expose a descendant line");
+        const float baseline = line->y + line->height - 5.0f;
+        return baseline - (line->height * 0.35f);
+    };
+    const int ltrMarkerX = static_cast<int>(std::round(listItems[0]->bounds.left() - 16.0f));
+    const int rtlMarkerX = static_cast<int>(std::round(listItems[1]->bounds.right() + 16.0f));
+    RequireEqual(
+        pixels.getColor(ltrMarkerX, static_cast<int>(std::round(markerCenterY(*listItems[0])))),
+        static_cast<SkColor>(SK_ColorRED),
+        "LTR bullets should remain in the left gutter");
+    RequireEqual(
+        pixels.getColor(rtlMarkerX, static_cast<int>(std::round(markerCenterY(*listItems[1])))),
+        static_cast<SkColor>(SK_ColorRED),
+        "RTL bullets should render in the mirrored right gutter");
+    RequireEqual(
+        pixels.getColor(
+            static_cast<int>(std::round(listItems[1]->bounds.left() - 16.0f)),
+            static_cast<int>(std::round(markerCenterY(*listItems[1])))),
+        palette.windowBackground,
+        "RTL bullets should no longer leak into the document's left padding");
+
+    const auto hasNonBackgroundPixel = [&](int left, int top, int right, int bottom) {
+        for (int y = std::max(top, 0); y < std::min(bottom, pixels.height()); ++y) {
+            for (int x = std::max(left, 0); x < std::min(right, pixels.width()); ++x) {
+                if (pixels.getColor(x, y) != palette.windowBackground) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    const auto firstLineBounds = [&](const mdviewer::BlockLayout& item) {
+        const mdviewer::LineLayout* line = nullptr;
+        const auto findLine = [&](const auto& self, const mdviewer::BlockLayout& block) -> void {
+            if (line != nullptr) {
+                return;
+            }
+            if (!block.lines.empty()) {
+                line = &block.lines.front();
+                return;
+            }
+            for (const auto& child : block.children) {
+                self(self, child);
+            }
+        };
+        findLine(findLine, item);
+        Require(line != nullptr, "directional list item should expose a descendant line");
+        return SkRect::MakeLTRB(
+            item.bounds.left(),
+            line->y,
+            item.bounds.right(),
+            line->y + line->height);
+    };
+    const SkRect rtlOrderedLine = firstLineBounds(*listItems[3]);
+    Require(
+        hasNonBackgroundPixel(
+            static_cast<int>(std::floor(listItems[3]->bounds.right() + 1.0f)),
+            static_cast<int>(std::floor(rtlOrderedLine.top())),
+            static_cast<int>(std::ceil(listItems[3]->bounds.right() + 38.0f)),
+            static_cast<int>(std::ceil(rtlOrderedLine.bottom()))),
+        "RTL ordered markers should remain wholly in the right gutter");
+    Require(
+        !hasNonBackgroundPixel(
+            static_cast<int>(std::floor(listItems[3]->bounds.left() - 38.0f)),
+            static_cast<int>(std::floor(rtlOrderedLine.top())),
+            static_cast<int>(std::ceil(listItems[3]->bounds.left() - 1.0f)),
+            static_cast<int>(std::ceil(rtlOrderedLine.bottom()))),
+        "RTL ordered markers should not be drawn in the left gutter");
+
+    const float rtlTaskCenterY = markerCenterY(*listItems[5]);
+    Require(
+        hasNonBackgroundPixel(
+            static_cast<int>(std::floor(listItems[5]->bounds.right() + 8.0f)),
+            static_cast<int>(std::floor(rtlTaskCenterY - 9.0f)),
+            static_cast<int>(std::ceil(listItems[5]->bounds.right() + 24.0f)),
+            static_cast<int>(std::ceil(rtlTaskCenterY + 9.0f))),
+        "RTL task checkboxes should render in the mirrored right gutter");
+    Require(
+        !hasNonBackgroundPixel(
+            static_cast<int>(std::floor(listItems[5]->bounds.left() - 24.0f)),
+            static_cast<int>(std::floor(rtlTaskCenterY - 9.0f)),
+            static_cast<int>(std::ceil(listItems[5]->bounds.left() - 8.0f)),
+            static_cast<int>(std::ceil(rtlTaskCenterY + 9.0f))),
+        "RTL task checkboxes should not be drawn in the left gutter");
+
+    const int ltrAccentX = static_cast<int>(std::round(quotes[0]->bounds.left() + 1.0f));
+    const int rtlAccentX = static_cast<int>(std::round(quotes[1]->bounds.right() - 2.0f));
+    RequireEqual(
+        pixels.getColor(ltrAccentX, static_cast<int>(std::round(quotes[0]->bounds.centerY()))),
+        palette.blockquoteAccent,
+        "LTR blockquotes should retain their left accent");
+    RequireEqual(
+        pixels.getColor(rtlAccentX, static_cast<int>(std::round(quotes[1]->bounds.centerY()))),
+        palette.blockquoteAccent,
+        "RTL blockquotes should mirror their accent to the right");
+    RequireEqual(
+        pixels.getColor(
+            static_cast<int>(std::round(quotes[1]->bounds.left() + 1.0f)),
+            static_cast<int>(std::round(quotes[1]->bounds.centerY()))),
+        palette.windowBackground,
+        "RTL blockquotes should not retain a stale left accent");
+
+    bool foundRtlAlertHeaderInk = false;
+    const int alertTop = static_cast<int>(std::floor(quotes[2]->bounds.top()));
+    const int alertRight = static_cast<int>(std::ceil(quotes[2]->bounds.right()));
+    for (int y = alertTop; y < std::min(alertTop + 20, pixels.height()); ++y) {
+        for (int x = std::max(0, alertRight - 120); x < std::min(alertRight - 6, pixels.width()); ++x) {
+            foundRtlAlertHeaderInk = foundRtlAlertHeaderInk ||
+                pixels.getColor(x, y) != palette.windowBackground;
+        }
+    }
+    Require(foundRtlAlertHeaderInk,
+            "RTL alert icons and titles should be placed from the right edge");
+
+    const mdviewer::DocumentModel detailsDocument = mdviewer::MarkdownParser::Parse(
+        "<details>\n"
+        "<summary>English summary</summary>\n\n"
+        "Body.\n\n"
+        "</details>\n\n"
+        "<details>\n"
+        "<summary>ملخص عربي</summary>\n\n"
+        "محتوى.\n\n"
+        "</details>\n");
+    const auto detailsLayout = mdviewer::LayoutEngine::ComputeLayout(
+        detailsDocument,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    RequireEqual(detailsLayout.blocks.size(), static_cast<size_t>(2),
+                 "directional details fixture should retain both cards");
+    const auto& ltrDetails = detailsLayout.blocks[0];
+    const auto& rtlDetails = detailsLayout.blocks[1];
+    RequireNear(ltrDetails.lines.front().x, ltrDetails.bounds.left() + 28.0f, 0.01f,
+                "LTR details summaries should reserve their left chevron gutter");
+    RequireNear(
+        rtlDetails.lines.front().x + rtlDetails.lines.front().width,
+        rtlDetails.bounds.right() - 28.0f,
+        0.01f,
+        "RTL details summaries should reserve a mirrored right chevron gutter");
+
+    const mdviewer::DocumentModel tableDocument = mdviewer::MarkdownParser::Parse(
+        "| العربية | English | עברית |\n"
+        "| :--- | ---: | --- |\n"
+        "| قيمة | value | ערך |\n");
+    const auto tableLayout = mdviewer::LayoutEngine::ComputeLayout(
+        tableDocument,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    const auto& table = FirstBlockOfType(tableLayout, mdviewer::BlockType::Table);
+    const auto& firstRow = table.children.front();
+    const auto& explicitLeftCell = firstRow.children[0];
+    const auto& explicitRightCell = firstRow.children[1];
+    const auto& defaultRtlCell = firstRow.children[2];
+    RequireNear(explicitLeftCell.lines.front().x, explicitLeftCell.bounds.left() + 12.0f, 0.01f,
+                "explicit Markdown left alignment should override an RTL table cell");
+    RequireNear(
+        explicitRightCell.lines.front().x + explicitRightCell.lines.front().width,
+        explicitRightCell.bounds.right() - 12.0f,
+        0.01f,
+        "explicit Markdown right alignment should remain authoritative in table cells");
+    RequireNear(
+        defaultRtlCell.lines.front().x + defaultRtlCell.lines.front().width,
+        defaultRtlCell.bounds.right() - 12.0f,
+        0.01f,
+        "default table alignment should independently follow an RTL cell's direction");
+
+    const mdviewer::DocumentModel rtlCodeDocument = mdviewer::MarkdownParser::Parse(
+        "```text\n"
+        "هذا سطر عربي قصير\n"
+        "```\n");
+    const auto rtlCodeLayout = mdviewer::LayoutEngine::ComputeLayout(
+        rtlCodeDocument,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    const auto& rtlCode = FirstBlockOfType(rtlCodeLayout, mdviewer::BlockType::CodeBlock);
+    Require(rtlCode.direction == mdviewer::ResolvedTextDirection::RightToLeft,
+            "an Arabic-first code block should retain its RTL block direction");
+    Require(rtlCode.lines.front().y - rtlCode.bounds.top() >= 27.5f,
+            "RTL code should reserve the top-right control row instead of rendering beneath it");
+}
+
 void ShapedDocumentRendererMigration() {
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
@@ -2994,6 +3281,7 @@ int main() {
         {"SharedTextGeometryModel", SharedTextGeometryModel},
         {"LayoutOwnedDocumentHitTesting", LayoutOwnedDocumentHitTesting},
         {"ShapedLayoutEngineIntegration", ShapedLayoutEngineIntegration},
+        {"DirectionAwareBlockDecorations", DirectionAwareBlockDecorations},
         {"ShapedDocumentRendererMigration", ShapedDocumentRendererMigration},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},
