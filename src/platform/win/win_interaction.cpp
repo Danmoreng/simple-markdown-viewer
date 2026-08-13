@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -12,28 +11,14 @@
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_shell.h"
-#include "render/document_renderer.h"
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
-// Suppress warnings from Skia headers
-#pragma warning(push)
-#pragma warning(disable: 4244)
-#pragma warning(disable: 4267)
-#include "include/core/SkFont.h"
-#include "include/core/SkPaint.h"
-#pragma warning(pop)
-
 namespace mdviewer::win {
 
 namespace {
-
-struct RenderContext {
-    SkPaint paint;
-    SkFont font;
-};
 
 std::string PathToUtf8(const std::filesystem::path& path) {
     const auto utf8 = path.u8string();
@@ -41,81 +26,14 @@ std::string PathToUtf8(const std::filesystem::path& path) {
 }
 
 DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float viewportY) {
-    DocumentTextHit hit;
-    if (!EnsureFontSystem(context.host)) {
-        return hit;
-    }
-
     AppState& appState = GetAppState(context.host);
-
-    RenderContext renderContext;
-    renderContext.paint.setAntiAlias(true);
-    renderContext.font.setTypeface(sk_ref_sp(GetRegularTypeface(context.host)));
-
-    const auto typefaces = GetDocumentTypefaces(context.host);
-    const auto hitTest = HitTestDocument(
+    return HitTestDocument(
         appState.docLayout,
         appState.scrollOffset,
         GetContentTopInset(),
         x - (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f),
         viewportY,
         HitTestCallbacks{
-            .get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
-                (void)line;
-                if (run.kind == InlineKind::Image) {
-                    return run.imageWidth;
-                }
-                if (run.visualWidth > 0.0f) {
-                    return run.visualWidth;
-                }
-
-                ConfigureDocumentFont(
-                    renderContext.font,
-                    typefaces,
-                    block.type,
-                    run.formatting,
-                    appState.baseFontSize);
-                return renderContext.font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
-            },
-            .find_text_position_in_run = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run, float xInRun) {
-                (void)line;
-                if (run.kind == InlineKind::Image) {
-                    return run.textStart;
-                }
-
-                ConfigureDocumentFont(
-                    renderContext.font,
-                    typefaces,
-                    block.type,
-                    run.formatting,
-                    appState.baseFontSize);
-
-                if (xInRun <= 0.0f) {
-                    return run.textStart;
-                }
-
-                float bestDistance = std::numeric_limits<float>::max();
-                size_t bestOffset = run.text.size();
-                for (size_t offset = 0; offset <= run.text.size();) {
-                    const float width = renderContext.font.measureText(run.text.c_str(), offset, SkTextEncoding::kUTF8);
-                    const float distance = std::abs(width - xInRun);
-                    if (distance <= bestDistance) {
-                        bestDistance = distance;
-                        bestOffset = offset;
-                    }
-
-                    if (offset == run.text.size()) {
-                        break;
-                    }
-
-                    offset++;
-                    while (offset < run.text.size() && (static_cast<unsigned char>(run.text[offset]) & 0xC0) == 0x80) {
-                        offset++;
-                    }
-                }
-
-                return run.textStart + bestOffset;
-            },
             .get_block_horizontal_scroll = [&](const BlockLayout& block) {
                 if (!block.usesHorizontalScrollOffset) {
                     return 0.0f;
@@ -124,18 +42,6 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
                 return found == appState.horizontalScrollOffsets.end() ? 0.0f : found->second;
             },
         });
-
-    hit.position = hitTest.position;
-    hit.valid = hitTest.valid;
-    hit.url = hitTest.url;
-    hit.formatting = hitTest.formatting;
-    hit.kind = hitTest.kind;
-    hit.linkTarget = hitTest.linkTarget;
-    hit.imageSource = hitTest.imageSource;
-    hit.tableTsv = hitTest.tableTsv;
-    hit.tableCsv = hitTest.tableCsv;
-    hit.detailsToggleId = hitTest.detailsToggleId;
-    return hit;
 }
 
 InteractionTextHit ToInteractionHit(const DocumentTextHit& hit) {

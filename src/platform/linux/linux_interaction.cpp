@@ -13,12 +13,6 @@
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
-#include "util/skia_font_utils.h"
-#include "util/utf8.h"
-#include "render/typography.h"
-
-#include "include/core/SkFont.h"
-#include "include/core/SkFontMgr.h"
 
 #include <algorithm>
 #include <cmath>
@@ -194,47 +188,15 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
     
     if (y < contentTop) return {};
 
-    HitTestCallbacks callbacks;
-    callbacks.get_run_visual_width = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run) {
-        if (run.kind == InlineKind::Image) return run.imageWidth;
-        if (run.visualWidth > 0.0f) return run.visualWidth;
-        SkFont font;
-        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.formatting, appState.baseFontSize);
-        return font.measureText(run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
-    };
-
-    callbacks.find_text_position_in_run = [&](const BlockLayout& block, const LineLayout& line, const RunLayout& run, float x_in_run) {
-        (void)line;
-        if (run.text.empty() || run.kind == InlineKind::Image) return run.textStart;
-        SkFont font;
-        ConfigureDocumentFont(font, app.GetHostContext().typefaces.GetTypefaceSet(), block.type, run.formatting, appState.baseFontSize);
-
-        if (x_in_run <= 0.0f) {
-            return run.textStart;
-        }
-
-        float currentX = 0.0f;
-        for (size_t offset = 0; offset < run.text.size();) {
-            const size_t nextOffset = NextUtf8Boundary(run.text, offset);
-            const float width = font.measureText(
-                run.text.data() + offset,
-                nextOffset - offset,
-                SkTextEncoding::kUTF8);
-            if (x_in_run < currentX + width * 0.5f) {
-                return run.textStart + offset;
+    HitTestCallbacks callbacks{
+        .get_block_horizontal_scroll = [&](const BlockLayout& block) {
+            if (!block.usesHorizontalScrollOffset) {
+                return 0.0f;
             }
-            currentX += width;
-            offset = nextOffset;
-        }
-        return run.textStart + run.text.size();
-    };
-
-    callbacks.get_block_horizontal_scroll = [&](const BlockLayout& block) {
-        if (!block.usesHorizontalScrollOffset) {
-            return 0.0f;
-        }
-        const auto found = appState.horizontalScrollOffsets.find(block.horizontalScrollOwnerTextStart);
-        return found == appState.horizontalScrollOffsets.end() ? 0.0f : found->second;
+            const auto found = appState.horizontalScrollOffsets.find(
+                block.horizontalScrollOwnerTextStart);
+            return found == appState.horizontalScrollOffsets.end() ? 0.0f : found->second;
+        },
     };
 
     auto docHit = HitTestDocument(

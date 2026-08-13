@@ -1,6 +1,10 @@
 #include "view/document_hit_test.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
+
+#include "text/text_geometry.h"
 
 namespace mdviewer {
 namespace {
@@ -11,15 +15,9 @@ struct ClosestLine {
     float distance = std::numeric_limits<float>::max();
 };
 
-size_t GetRunTextEnd(const RunLayout& run) {
-    if (run.kind == InlineKind::Image) {
-        return run.textStart;
-    }
-    return run.textStart + run.text.size();
-}
-
-void ClearImageHit(DocumentTextHit& hit) {
+void ClearSemanticHit(DocumentTextHit& hit) {
     hit.url.clear();
+    hit.formatting = InlineFormatting::None;
     hit.linkTarget.clear();
     hit.imageSource.clear();
     hit.kind = InlineKind::Text;
@@ -102,45 +100,45 @@ DocumentTextHit HitTestLine(
         return hit;
     }
 
-    float currentX = line.x;
-    size_t fallbackPosition = line.textStart;
-    for (size_t runIndex = 0; runIndex < line.runs.size(); ++runIndex) {
-        const auto& run = line.runs[runIndex];
-        const float runWidth = callbacks.get_run_visual_width(block, line, run);
-        const float runEndX = currentX + runWidth;
-        fallbackPosition = GetRunTextEnd(run);
-
-        if (x <= runEndX || runIndex + 1 == line.runs.size()) {
-            if (run.kind == InlineKind::Math) {
-                hit.position = x - currentX < runWidth * 0.5f
-                    ? run.textStart
-                    : run.textStart + run.text.size();
-            } else {
-                hit.position = callbacks.find_text_position_in_run(block, line, run, x - currentX);
+    const RunLayout* closestRun = nullptr;
+    float closestDistance = std::numeric_limits<float>::max();
+    bool insideClosestRun = false;
+    for (const RunLayout& run : line.runs) {
+        const float runLeft = line.x + run.visualX;
+        const float runRight = runLeft + std::max(run.visualWidth, 0.0f);
+        const bool inside = x >= runLeft && x <= runRight;
+        const float distance = inside
+            ? 0.0f
+            : std::min(std::abs(x - runLeft), std::abs(x - runRight));
+        if (closestRun == nullptr || distance < closestDistance) {
+            closestRun = &run;
+            closestDistance = distance;
+            insideClosestRun = inside;
+            if (inside) {
+                break;
             }
-            hit.valid = true;
-            hit.url = run.linkTarget.empty() ? run.imageSource : run.linkTarget;
-            hit.formatting = run.formatting;
-            hit.kind = run.kind;
-            hit.linkTarget = run.linkTarget;
-            if (run.kind == InlineKind::Image) {
-                float imageX = currentX;
-                if (run.imageWidth > block.bounds.width() * 0.8f) {
-                    imageX = block.bounds.left() + (block.bounds.width() - run.imageWidth) * 0.5f;
-                }
-                if (x >= imageX && x <= imageX + run.imageWidth) {
-                    hit.imageSource = run.imageSource;
-                } else {
-                    ClearImageHit(hit);
-                }
-            }
-            return hit;
         }
-        currentX = runEndX;
     }
 
-    hit.position = fallbackPosition;
+    if (closestRun == nullptr) {
+        hit.position = line.textStart;
+        hit.valid = true;
+        return hit;
+    }
+
+    hit.position = HitTestTextRun(*closestRun, x - line.x);
     hit.valid = true;
+    if (insideClosestRun) {
+        hit.url = closestRun->linkTarget.empty()
+            ? closestRun->imageSource
+            : closestRun->linkTarget;
+        hit.formatting = closestRun->formatting;
+        hit.kind = closestRun->kind;
+        hit.linkTarget = closestRun->linkTarget;
+        if (closestRun->kind == InlineKind::Image) {
+            hit.imageSource = closestRun->imageSource;
+        }
+    }
     return hit;
 }
 
@@ -167,8 +165,8 @@ DocumentTextHit HitTestDocument(
     }
 
     DocumentTextHit hit = HitTestLine(*closest.block, *closest.line, x, callbacks);
-    if (closest.distance > 0.0f && hit.kind == InlineKind::Image) {
-        ClearImageHit(hit);
+    if (closest.distance > 0.0f) {
+        ClearSemanticHit(hit);
     }
     if (table != nullptr) {
         hit.tableTsv = table->tableTsv;

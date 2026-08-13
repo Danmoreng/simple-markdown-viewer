@@ -755,7 +755,7 @@ void HeadingAnchors() {
     Require(!longOutlineState.isDraggingOutlineScrollbar, "releasing the outline thumb should end its drag state");
 }
 
-void HitTestingMeasuresOnlyClosestLine() {
+void HitTestingUsesOnlyClosestLine() {
     mdviewer::DocumentLayout layout{};
     mdviewer::BlockLayout block{};
     block.type = mdviewer::BlockType::Paragraph;
@@ -769,28 +769,21 @@ void HitTestingMeasuresOnlyClosestLine() {
         line.runs.push_back(mdviewer::RunLayout{
             .text = "text",
             .textStart = line.textStart,
+            .visualWidth = 40.0f,
+            .caretStops = {
+                {line.textStart, 0.0f},
+                {line.textStart + 2, 20.0f},
+                {line.textStart + 4, 40.0f},
+            },
         });
         block.lines.push_back(std::move(line));
     }
     layout.blocks.push_back(std::move(block));
 
-    int widthCalls = 0;
-    int positionCalls = 0;
-    mdviewer::HitTestCallbacks callbacks;
-    callbacks.get_run_visual_width = [&](const auto&, const auto&, const auto&) {
-        ++widthCalls;
-        return 40.0f;
-    };
-    callbacks.find_text_position_in_run = [&](const auto&, const auto&, const auto& run, float) {
-        ++positionCalls;
-        return run.textStart + 2;
-    };
-
-    const auto hit = mdviewer::HitTestDocument(layout, 0.0f, 30.0f, 20.0f, 2035.0f, callbacks);
+    const auto hit = mdviewer::HitTestDocument(
+        layout, 0.0f, 30.0f, 30.0f, 2035.0f, {});
     Require(hit.valid, "hit testing should find the closest visible line");
     RequireEqual(hit.position, static_cast<size_t>(402), "hit testing should use the target line position");
-    RequireEqual(widthCalls, 1, "hit testing should measure runs on only the closest line");
-    RequireEqual(positionCalls, 1, "hit testing should resolve one text position");
 }
 
 void Utf8Boundaries() {
@@ -1031,16 +1024,13 @@ void MarkdownCorrectnessFoundation() {
         typefaces,
         mdviewer::kDefaultBaseFontSize);
     Require(!linkLayout.blocks.empty() && !linkLayout.blocks[0].lines.empty(), "link fixture should create a laid-out line");
-    mdviewer::HitTestCallbacks callbacks;
-    callbacks.get_run_visual_width = [](const auto&, const auto&, const auto&) { return 120.0f; };
-    callbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) { return run.textStart; };
     const auto linkHit = mdviewer::HitTestDocument(
         linkLayout,
         0.0f,
         30.0f,
         linkLayout.blocks[0].lines[0].x + 1.0f,
         linkLayout.blocks[0].lines[0].y + 31.0f,
-        callbacks);
+        {});
     RequireEqual(linkHit.url, std::string("https://example.com"), "hit testing should preserve a formatted link target");
     Require(mdviewer::HasFormatting(linkHit.formatting, mdviewer::InlineFormatting::Strong), "hit testing should preserve combined formatting metadata");
 }
@@ -1535,6 +1525,160 @@ void SharedTextGeometryModel() {
     imageRun.visualWidth = 20.0f;
     RequireEqual(mdviewer::HitTestTextRun(imageRun, 24.0f), static_cast<size_t>(30),
                  "zero-length image placeholders should resolve to their logical anchor");
+}
+
+void LayoutOwnedDocumentHitTesting() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(
+        fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "layout-owned hit testing requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+    const std::string source =
+        "العربية قبل [رابط عربي](https://example.com/rtl) English עברית نهاية.\n";
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(source),
+        900.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    Require(layout.blocks.size() == 1 && layout.blocks.front().lines.size() == 1,
+            "RTL hit-test fixture should remain on one visual line");
+    const mdviewer::LineLayout& line = layout.blocks.front().lines.front();
+    const mdviewer::RunLayout* rtlRun = nullptr;
+    const mdviewer::RunLayout* linkRun = nullptr;
+    for (const mdviewer::RunLayout& run : line.runs) {
+        if (rtlRun == nullptr && (run.bidiLevel & 1U) != 0 && run.visualWidth > 2.0f) {
+            rtlRun = &run;
+        }
+        if (linkRun == nullptr && run.linkTarget == "https://example.com/rtl") {
+            linkRun = &run;
+        }
+    }
+    Require(rtlRun != nullptr && linkRun != nullptr,
+            "RTL hit-test fixture should retain odd-level text and link fragments");
+
+    constexpr float contentTop = 30.0f;
+    const float viewportY = line.y + contentTop + (line.height * 0.5f);
+    const float rtlLeft = line.x + rtlRun->visualX;
+    const float rtlRight = rtlLeft + rtlRun->visualWidth;
+    const mdviewer::DocumentTextHit visualRightHit = mdviewer::HitTestDocument(
+        layout, 0.0f, contentTop, rtlRight - 0.25f, viewportY, {});
+    const mdviewer::DocumentTextHit visualLeftHit = mdviewer::HitTestDocument(
+        layout, 0.0f, contentTop, rtlLeft + 0.25f, viewportY, {});
+    RequireEqual(
+        visualRightHit.position,
+        rtlRun->textStart,
+        "the right visual edge of an RTL run should map to its logical start");
+    RequireEqual(
+        visualLeftHit.position,
+        rtlRun->textStart + rtlRun->text.size(),
+        "the left visual edge of an RTL run should map to its logical end");
+    Require(std::any_of(
+        rtlRun->caretStops.begin(), rtlRun->caretStops.end(), [&](const auto& stop) {
+            return stop.textPosition == visualRightHit.position;
+        }),
+        "RTL document hits should snap to a safe shaped caret boundary");
+    Require(std::any_of(
+        rtlRun->caretStops.begin(), rtlRun->caretStops.end(), [&](const auto& stop) {
+            return stop.textPosition == visualLeftHit.position;
+        }),
+        "RTL document hits must not invent an interior ligature caret");
+
+    const float linkCenter = line.x + linkRun->visualX + (linkRun->visualWidth * 0.5f);
+    const mdviewer::DocumentTextHit linkHit = mdviewer::HitTestDocument(
+        layout, 0.0f, contentTop, linkCenter, viewportY, {});
+    RequireEqual(linkHit.url, std::string("https://example.com/rtl"),
+                 "a visual RTL link fragment should retain its logical link target");
+    RequireEqual(linkHit.linkTarget, std::string("https://example.com/rtl"),
+                 "RTL link context semantics should remain attached to the hit fragment");
+    const mdviewer::DocumentTextHit outsideLineHit = mdviewer::HitTestDocument(
+        layout, 0.0f, contentTop, line.x - 20.0f, viewportY, {});
+    Require(outsideLineHit.valid && outsideLineHit.url.empty(),
+            "free space outside a visual line should provide a caret without activating a link");
+    const mdviewer::DocumentTextHit belowLinkHit = mdviewer::HitTestDocument(
+        layout,
+        0.0f,
+        contentTop,
+        linkCenter,
+        line.y + contentTop + line.height + 10.0f,
+        {});
+    Require(belowLinkHit.valid && belowLinkHit.url.empty(),
+            "vertical free space near a link should provide a caret without link semantics");
+
+    mdviewer::AppState selectionState;
+    selectionState.docLayout = layout;
+    mdviewer::BeginSelection(
+        selectionState,
+        mdviewer::InteractionTextHit{
+            .position = visualRightHit.position,
+            .valid = visualRightHit.valid,
+        },
+        false,
+        0,
+        0);
+    mdviewer::UpdateSelectionFromHit(
+        selectionState,
+        mdviewer::InteractionTextHit{
+            .position = visualLeftHit.position,
+            .valid = visualLeftHit.valid,
+        },
+        line.y,
+        500.0f,
+        0.0f);
+    const size_t selectionStart = mdviewer::GetSelectionStart(selectionState);
+    const size_t selectionEnd = mdviewer::GetSelectionEnd(selectionState);
+    RequireEqual(
+        selectionState.docLayout.plainText.substr(
+            selectionStart, selectionEnd - selectionStart),
+        rtlRun->text,
+        "dragging across an RTL run should still copy its exact logical UTF-8 substring");
+
+    mdviewer::AppState searchState;
+    searchState.docLayout = layout;
+    mdviewer::OpenSearch(searchState);
+    mdviewer::InsertSearchText(searchState, "עברית");
+    RequireEqual(searchState.searchMatches.size(), static_cast<size_t>(1),
+                 "exact Hebrew search should remain logical after hit-test migration");
+    const auto& searchMatch = searchState.searchMatches.front();
+    const std::vector<SkRect> searchRects = mdviewer::GetTextRangeRects(
+        line,
+        searchMatch.first,
+        searchMatch.second,
+        line.y,
+        line.y + line.height);
+    Require(!searchRects.empty(),
+            "an exact Hebrew search should resolve to shaped visual highlight geometry");
+
+    mdviewer::DocumentLayout scrolledLayout;
+    mdviewer::BlockLayout scrolledBlock;
+    scrolledBlock.type = mdviewer::BlockType::CodeBlock;
+    scrolledBlock.usesHorizontalScrollOffset = true;
+    scrolledBlock.horizontalScrollOwnerTextStart = 77;
+    mdviewer::LineLayout scrolledLine;
+    scrolledLine.x = 20.0f;
+    scrolledLine.y = 10.0f;
+    scrolledLine.height = 20.0f;
+    scrolledLine.textLength = 4;
+    scrolledLine.runs.push_back(mdviewer::RunLayout{
+        .text = "code",
+        .visualX = 60.0f,
+        .visualWidth = 40.0f,
+        .caretStops = {{0, 60.0f}, {4, 100.0f}},
+    });
+    scrolledBlock.lines.push_back(std::move(scrolledLine));
+    scrolledLayout.blocks.push_back(std::move(scrolledBlock));
+    const mdviewer::DocumentTextHit scrolledHit = mdviewer::HitTestDocument(
+        scrolledLayout,
+        0.0f,
+        0.0f,
+        50.25f,
+        20.0f,
+        mdviewer::HitTestCallbacks{
+            .get_block_horizontal_scroll = [](const auto&) { return 30.0f; },
+        });
+    RequireEqual(scrolledHit.position, static_cast<size_t>(0),
+                 "block-local horizontal scrolling should offset shared visual hit geometry");
 }
 
 void ShapedLayoutEngineIntegration() {
@@ -2053,20 +2197,13 @@ void SafeHtmlSubset() {
             "open details should leave clear padding between summary and body content");
     Require(detailsLayoutBlock.bounds.bottom() - detailsLayoutBlock.children.back().bounds.bottom() >= 15.0f,
             "open details card should include bottom padding below its body content");
-    mdviewer::HitTestCallbacks detailsCallbacks;
-    detailsCallbacks.get_run_visual_width = [](const auto&, const auto&, const auto& run) {
-        return run.visualWidth > 0.0f ? run.visualWidth : 120.0f;
-    };
-    detailsCallbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) {
-        return run.textStart;
-    };
     const auto detailsHit = mdviewer::HitTestDocument(
         openedDetailsLayout,
         0.0f,
         30.0f,
         detailsLayoutBlock.bounds.left() + 8.0f,
         detailsLayoutBlock.bounds.top() + 35.0f,
-        detailsCallbacks);
+        {});
     RequireEqual(detailsHit.detailsToggleId, collapsedId,
                  "clicking a details summary should expose its toggle ID through shared hit testing");
 
@@ -2194,20 +2331,13 @@ void LayoutSensitiveBehavior() {
     RequireEqual(normalTable.tableCsv, std::string("A,B\r\nleft,right"), "tables should expose CSV clipboard text");
     Require(narrowTable.bounds.width() < normalTable.bounds.width(), "table width should relayout with viewport width");
 
-    mdviewer::HitTestCallbacks contextHitCallbacks;
-    contextHitCallbacks.get_run_visual_width = [](const auto&, const auto&, const auto& run) {
-        return run.kind == mdviewer::InlineKind::Image ? run.imageWidth : 120.0f;
-    };
-    contextHitCallbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) {
-        return run.textStart;
-    };
     const auto tableHit = mdviewer::HitTestDocument(
         normal,
         0.0f,
         30.0f,
         normalTable.bounds.left() + 8.0f,
         normalTable.bounds.top() + 38.0f,
-        contextHitCallbacks);
+        {});
     RequireEqual(tableHit.tableTsv, normalTable.tableTsv, "hit testing inside a table should expose TSV data");
     RequireEqual(tableHit.tableCsv, normalTable.tableCsv, "hit testing inside a table should expose CSV data");
 
@@ -2221,7 +2351,7 @@ void LayoutSensitiveBehavior() {
         30.0f,
         imageX + (imageRun.imageWidth * 0.5f),
         imageBlock.lines[0].y + 30.0f + (imageBlock.lines[0].height * 0.5f),
-        contextHitCallbacks);
+        {});
     Require(imageHit.kind == mdviewer::InlineKind::Image, "hit testing an image should retain image semantics");
     RequireEqual(imageHit.imageSource, std::string("diagram.png"), "image hit testing should expose the image source separately");
     RequireEqual(imageHit.url, std::string("https://example.com/full-diagram"), "a linked image should expose its link inside the image bounds");
@@ -2232,7 +2362,7 @@ void LayoutSensitiveBehavior() {
         30.0f,
         imageX + imageRun.imageWidth + 20.0f,
         imageBlock.lines[0].y + 30.0f + (imageBlock.lines[0].height * 0.5f),
-        contextHitCallbacks);
+        {});
     Require(besideImageHit.kind == mdviewer::InlineKind::Text, "free space beside an image should not retain image semantics");
     Require(besideImageHit.url.empty(), "free space beside a linked image should not activate its link");
     Require(besideImageHit.linkTarget.empty(), "free space beside a linked image should not expose its link target");
@@ -2757,19 +2887,13 @@ void LatexMathParsingLayoutAndFallback() {
             "representative operators, matrices, accents, and delimiters should be supported");
     }
 
-    mdviewer::HitTestCallbacks callbacks;
-    callbacks.get_run_visual_width = [](const auto&, const auto&, const auto& run) { return run.visualWidth; };
-    callbacks.find_text_position_in_run = [](const auto&, const auto&, const auto& run, float) {
-        return run.textStart;
-    };
-    callbacks.get_block_horizontal_scroll = [](const auto&) { return 0.0f; };
     const mdviewer::DocumentTextHit rightHalfHit = mdviewer::HitTestDocument(
         layout,
         0.0f,
         0.0f,
         displayLine.x + displayLine.runs.front().visualWidth * 0.75f,
         displayLine.y + displayLine.height * 0.5f,
-        callbacks);
+        {});
     RequireEqual(
         rightHalfHit.position,
         displayLine.runs.front().textStart + displayLine.runs.front().text.size(),
@@ -2858,7 +2982,7 @@ int main() {
         {"LinkResolution", LinkResolution},
         {"SvgImageRendering", SvgImageRendering},
         {"HeadingAnchors", HeadingAnchors},
-        {"HitTestingMeasuresOnlyClosestLine", HitTestingMeasuresOnlyClosestLine},
+        {"HitTestingUsesOnlyClosestLine", HitTestingUsesOnlyClosestLine},
         {"Utf8Boundaries", Utf8Boundaries},
         {"MarkdownSafetyLimits", MarkdownSafetyLimits},
         {"DocumentSizeLimit", DocumentSizeLimit},
@@ -2868,6 +2992,7 @@ int main() {
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
         {"ComplexTextShapingSubsystem", ComplexTextShapingSubsystem},
         {"SharedTextGeometryModel", SharedTextGeometryModel},
+        {"LayoutOwnedDocumentHitTesting", LayoutOwnedDocumentHitTesting},
         {"ShapedLayoutEngineIntegration", ShapedLayoutEngineIntegration},
         {"ShapedDocumentRendererMigration", ShapedDocumentRendererMigration},
         {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
