@@ -217,6 +217,7 @@ bundle on Windows before publishing a release containing complex-text support.
 - `Ctrl+C`: copy selected text
 - `Ctrl+A`: select all rendered document text
 - `Ctrl+F`: search within the current document
+- `Ctrl+V`: paste clipboard text into the open search box
 - `Enter` / `Shift+Enter` or `F3` / `Shift+F3`: move to the next or previous search match while search is open
 - `Escape`: close search
 - Search close button: click the `x` button in the search box

@@ -3491,6 +3491,11 @@ void KeyboardUsabilityCommands() {
     mdviewer::OpenSearch(state);
     command = mdviewer::HandleKeyDown(
         state,
+        {.key = mdviewer::InteractionKey::Paste, .ctrl = true});
+    Require(command.handled && command.pasteSearch,
+            "Ctrl+V should paste clipboard text while search input is active");
+    command = mdviewer::HandleKeyDown(
+        state,
         {.key = mdviewer::InteractionKey::FindNext});
     Require(command.handled && command.searchNext, "F3 should select the next search match");
     command = mdviewer::HandleKeyDown(
@@ -3503,6 +3508,46 @@ void KeyboardUsabilityCommands() {
         {.key = mdviewer::InteractionKey::SelectAll, .ctrl = true});
     Require(!command.handled && !command.selectAll,
             "Ctrl+A should not unexpectedly select the document while search input is active");
+
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "search overlay regression requires document fonts");
+    state.docLayout.outline.push_back({1, "Heading", "heading", 0.0f});
+    state.outlineSide = mdviewer::OutlineSide::Right;
+    state.outlineCollapsed = false;
+    state.outlineWidth = 260.0f;
+    constexpr float surfaceWidth = 640.0f;
+    constexpr float surfaceHeight = 180.0f;
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(
+        SkImageInfo::MakeN32Premul(
+            static_cast<int>(surfaceWidth),
+            static_cast<int>(surfaceHeight)));
+    Require(surface != nullptr, "search overlay regression should create a raster surface");
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = surface->getCanvas(),
+        .appState = &state,
+        .palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark),
+        .typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get()),
+        .baseFontSize = mdviewer::kDefaultBaseFontSize,
+        .contentTopInset = 30.0f,
+        .viewportHeight = surfaceHeight - 30.0f,
+        .surfaceWidth = surfaceWidth,
+        .surfaceHeight = surfaceHeight,
+        .documentLeftInset = state.outlineWidth,
+    });
+    Require(!state.searchCloseButtonRect.isEmpty(),
+            "active search should expose a clickable close-button rectangle");
+    Require(state.searchCloseButtonRect.right() <= surfaceWidth - state.outlineWidth,
+            "search close button should stay inside the document beside a right outline");
+    Require(!mdviewer::HitTestOutlineSidebar(
+                state,
+                state.searchCloseButtonRect.centerX(),
+                state.searchCloseButtonRect.centerY(),
+                surfaceWidth,
+                30.0f).has_value(),
+            "right outline hit testing must not intercept the search close button");
 }
 
 void LatexMathParsingLayoutAndFallback() {

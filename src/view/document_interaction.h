@@ -33,6 +33,7 @@ enum class InteractionKey {
     Down,
     Back,
     Copy,
+    Paste,
     SelectAll,
     Find,
     FindNext,
@@ -66,6 +67,7 @@ struct KeyCommandResult {
     bool searchNext = false;
     bool searchPrevious = false;
     bool searchBackspace = false;
+    bool pasteSearch = false;
     bool selectAll = false;
     bool outlinePrevious = false;
     bool outlineNext = false;

@@ -1340,8 +1340,15 @@ void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
     if (params.appState->searchActive) {
         const float paddingX = 10.0f;
         const float overlayH = 34.0f;
-        const float overlayW = std::min(430.0f, std::max(240.0f, params.surfaceWidth - 28.0f));
-        const float overlayX = params.surfaceWidth - overlayW - 14.0f;
+        const float documentLeft = params.appState->outlineSide == OutlineSide::Left
+            ? params.documentLeftInset
+            : 0.0f;
+        const float documentRight = params.appState->outlineSide == OutlineSide::Right
+            ? params.surfaceWidth - params.documentLeftInset
+            : params.surfaceWidth;
+        const float documentWidth = std::max(documentRight - documentLeft, 0.0f);
+        const float overlayW = std::min(430.0f, std::max(240.0f, documentWidth - 28.0f));
+        const float overlayX = documentRight - overlayW - 14.0f;
         const float overlayY = params.contentTopInset + 10.0f;
         const float closeSize = 22.0f;
         const SkRect closeRect = SkRect::MakeXYWH(

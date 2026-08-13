@@ -128,6 +128,9 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
         case 'C':
         case 'c':
             return InteractionKey::Copy;
+        case 'V':
+        case 'v':
+            return InteractionKey::Paste;
         case 'A':
         case 'a':
             return InteractionKey::SelectAll;
@@ -170,6 +173,10 @@ void ScrollSearchMatchIntoView(HWND hwnd, ViewerInteractionContext& context) {
 }
 
 bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCommandResult& command) {
+    const std::string pastedSearchText = command.pasteSearch
+        ? GetUtf8TextFromClipboard(hwnd)
+        : std::string();
+
     if (command.stopAutoScroll) {
         StopAutoScroll(hwnd, context);
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -216,7 +223,8 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
         SelectAll(GetAppState(context.host));
         InvalidateRect(hwnd, nullptr, FALSE);
     }
-    if (command.openSearch || command.closeSearch || command.searchNext || command.searchPrevious || command.searchBackspace) {
+    if (command.openSearch || command.closeSearch || command.searchNext || command.searchPrevious ||
+        command.searchBackspace || command.pasteSearch) {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
         if (command.openSearch) {
@@ -236,6 +244,10 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
         }
         if (command.searchBackspace) {
             DeleteLastSearchCharacter(appState);
+            ScrollSearchMatchIntoView(hwnd, context);
+        }
+        if (command.pasteSearch) {
+            InsertSearchText(appState, pastedSearchText);
             ScrollSearchMatchIntoView(hwnd, context);
         }
         InvalidateRect(hwnd, nullptr, FALSE);

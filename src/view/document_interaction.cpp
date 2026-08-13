@@ -714,6 +714,12 @@ KeyCommandResult HandleKeyDown(const AppState& appState, const KeyEvent& event) 
     }
 
     if (appState.searchActive) {
+        if (event.ctrl && event.key == InteractionKey::Paste) {
+            result.handled = true;
+            result.pasteSearch = true;
+            return result;
+        }
+
         if (event.key == InteractionKey::Escape) {
             result.handled = true;
             result.closeSearch = true;

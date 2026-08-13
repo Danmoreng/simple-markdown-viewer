@@ -992,6 +992,7 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
             break;
         case GLFW_KEY_A: ev.key = InteractionKey::SelectAll; break;
         case GLFW_KEY_C: ev.key = InteractionKey::Copy; break;
+        case GLFW_KEY_V: ev.key = InteractionKey::Paste; break;
         case GLFW_KEY_F: ev.key = InteractionKey::Find; break;
         case GLFW_KEY_F3: ev.key = InteractionKey::FindNext; break;
         case GLFW_KEY_O:
@@ -1065,6 +1066,10 @@ void OnKeyImpl(GLFWwindow* window, int key, int scancode, int action, int mods) 
     }
     if (result.searchBackspace) {
         DeleteLastSearchCharacter(GetAppState(app->GetHostContext()));
+        ScrollSearchMatchIntoView(window, *app);
+    }
+    if (result.pasteSearch) {
+        InsertSearchText(GetAppState(app->GetHostContext()), GetClipboardText(window));
         ScrollSearchMatchIntoView(window, *app);
     }
     if (result.handled) GetAppState(app->GetHostContext()).needsRepaint = true;

@@ -66,7 +66,7 @@ soft-break word wrapping.
 - [ ] Scroll a long code block horizontally, move the pointer out of the block, and verify the app remains stable.
 - [ ] Select ASCII and non-ASCII text; drag rapidly and verify selection remains responsive.
 - [ ] Select all with `Ctrl+A`, copy with `Ctrl+C`, and verify the complete text in another application; list items and explicit hard breaks must remain on separate lines.
-- [ ] Open search with `Ctrl+F`; test Unicode case folding, `Enter`/`Shift+Enter`, `F3`/`Shift+F3`, backspace, and Escape.
+- [ ] Open search with `Ctrl+F`; test Unicode case folding, clipboard paste with `Ctrl+V`, `Enter`/`Shift+Enter`, `F3`/`Shift+F3`, backspace, and Escape.
 - [ ] Open a real relative Markdown link and use Back/Forward to return.
 - [ ] Open an HTTPS link and verify the default browser receives the exact URL.
 - [ ] Right-click selected text, links, images, tables, and document background; verify the menu opens without blocking and all enabled context-menu actions work.
