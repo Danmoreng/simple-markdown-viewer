@@ -1170,29 +1170,46 @@ private:
         }
 
         const std::string slug = MakeHeadingAnchor(text);
-        if (slug.empty()) {
-            outline.push_back(HeadingOutlineItem{
-                .level = HeadingLevel(block.type),
-                .text = text,
-                .slug = {},
-                .y = y,
-            });
-            return;
+        std::string uniqueSlug;
+        if (!slug.empty()) {
+            uniqueSlug = slug;
+            int suffix = 0;
+            while (anchors.contains(uniqueSlug)) {
+                ++suffix;
+                uniqueSlug = slug + "-" + std::to_string(suffix);
+            }
+            anchors[uniqueSlug] = y;
         }
 
-        std::string uniqueSlug = slug;
-        int suffix = 0;
-        while (anchors.contains(uniqueSlug)) {
-            ++suffix;
-            uniqueSlug = slug + "-" + std::to_string(suffix);
-        }
-        anchors[uniqueSlug] = y;
-        outline.push_back(HeadingOutlineItem{
+        HeadingOutlineItem item{
             .level = HeadingLevel(block.type),
-            .text = std::move(text),
+            .text = text,
             .slug = uniqueSlug,
             .y = y,
-        });
+        };
+        const std::string labelText = text.empty() ? std::string("(untitled)") : text;
+        if (complexTextRuntime.IsAvailable()) {
+            const ShapingParagraphSet paragraphs = BuildShapingParagraphs({
+                ShapedTextInputRun{.run = InlineRun{.text = labelText}},
+            });
+            if (!paragraphs.paragraphs.empty()) {
+                ShapedTextLayoutOptions options;
+                options.blockType = BlockType::Paragraph;
+                options.baseFontSize = kOutlineLabelFontSize;
+                options.wrapWidth = kNoWrapShapingWidth;
+                options.fallbackLineHeight = kOutlineLabelFontSize;
+                ShapedTextLayoutResult shaped = ShapeTextParagraph(
+                    paragraphs.paragraphs.front(),
+                    complexTextRuntime,
+                    typefaces,
+                    options);
+                if (shaped.success && shaped.lines.size() == 1) {
+                    item.shapedLine = std::move(shaped.lines.front());
+                    item.hasShapedLine = true;
+                }
+            }
+        }
+        outline.push_back(std::move(item));
     }
 
     float GetLineHeight(BlockType blockType, InlineFormatting formatting = InlineFormatting::None) {

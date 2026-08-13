@@ -755,6 +755,89 @@ void HeadingAnchors() {
     Require(!longOutlineState.isDraggingOutlineScrollbar, "releasing the outline thumb should end its drag state");
 }
 
+void ComplexTextOutlineRendering() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(fontManager != nullptr && regular != nullptr && bold != nullptr,
+            "complex-text outline regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get(), bold.get());
+
+    const std::string source =
+        "# English heading\n\n"
+        "## مقدمة\n\n"
+        "## مقدمة\n\n"
+        "## כותרת בעברית\n";
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(source);
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        document,
+        380.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    RequireEqual(layout.outline.size(), static_cast<size_t>(4),
+                 "Arabic and Hebrew headings should remain in the outline");
+    for (const size_t index : {static_cast<size_t>(1), static_cast<size_t>(2), static_cast<size_t>(3)}) {
+        const auto& item = layout.outline[index];
+        Require(item.hasShapedLine &&
+                    item.shapedLine.direction == mdviewer::ResolvedTextDirection::RightToLeft,
+                "RTL outline labels should cache a shaped right-to-left visual line");
+        Require(!item.shapedLine.runs.empty() &&
+                    std::all_of(item.shapedLine.runs.begin(), item.shapedLine.runs.end(), [](const auto& run) {
+                        return run.shaped && !run.glyphs.empty() &&
+                            run.glyphs.size() == run.glyphPositions.size();
+                    }),
+                "RTL outline labels should retain HarfBuzz glyph geometry");
+    }
+
+    mdviewer::AppState state;
+    state.sourceText = source;
+    state.docLayout = layout;
+    state.outlineSide = mdviewer::OutlineSide::Right;
+    state.outlineWidth = 260.0f;
+    state.outlineCollapsed = false;
+    const mdviewer::ThemePalette palette = mdviewer::GetThemePalette(mdviewer::ThemeMode::Dark);
+    constexpr int surfaceWidth = 640;
+    constexpr int surfaceHeight = 240;
+    constexpr float contentTopInset = 30.0f;
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(
+        SkImageInfo::MakeN32Premul(surfaceWidth, surfaceHeight));
+    Require(surface != nullptr, "complex-text outline regression should create a raster surface");
+    surface->getCanvas()->clear(palette.windowBackground);
+    mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+        .canvas = surface->getCanvas(),
+        .appState = &state,
+        .palette = palette,
+        .typefaces = typefaces,
+        .baseFontSize = mdviewer::kDefaultBaseFontSize,
+        .contentTopInset = contentTopInset,
+        .viewportHeight = surfaceHeight - contentTopInset,
+        .surfaceWidth = surfaceWidth,
+        .surfaceHeight = surfaceHeight,
+        .documentLeftInset = state.outlineWidth,
+        .visibleDocumentBottom = layout.totalHeight,
+        .showInteractiveElements = false,
+    });
+
+    SkPixmap pixels;
+    Require(surface->peekPixels(&pixels),
+            "complex-text outline surface should expose raster pixels");
+    const float arabicRowTop = contentTopInset + mdviewer::kOutlineTopPadding +
+        mdviewer::kOutlineItemHeight;
+    bool foundRightAlignedArabicInk = false;
+    for (int y = static_cast<int>(std::floor(arabicRowTop));
+         y < static_cast<int>(std::ceil(arabicRowTop + mdviewer::kOutlineItemHeight));
+         ++y) {
+        for (int x = 520; x < 606; ++x) {
+            if (pixels.getColor(x, y) != palette.menuBackground) {
+                foundRightAlignedArabicInk = true;
+                break;
+            }
+        }
+    }
+    Require(foundRightAlignedArabicInk,
+            "Arabic outline text should render visibly from the row's right edge");
+}
+
 void HitTestingUsesOnlyClosestLine() {
     mdviewer::DocumentLayout layout{};
     mdviewer::BlockLayout block{};
@@ -3331,6 +3414,7 @@ int main() {
         {"LinkResolution", LinkResolution},
         {"SvgImageRendering", SvgImageRendering},
         {"HeadingAnchors", HeadingAnchors},
+        {"ComplexTextOutlineRendering", ComplexTextOutlineRendering},
         {"HitTestingUsesOnlyClosestLine", HitTestingUsesOnlyClosestLine},
         {"Utf8Boundaries", Utf8Boundaries},
         {"MarkdownSafetyLimits", MarkdownSafetyLimits},

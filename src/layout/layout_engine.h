@@ -56,8 +56,8 @@ struct RunLayout {
 
 struct LineLayout {
     float x = 0.0f;
-    float y;
-    float height;
+    float y = 0.0f;
+    float height = 0.0f;
     float width = 0.0f;
     ResolvedTextDirection direction = ResolvedTextDirection::LeftToRight;
     size_t textStart = 0;
@@ -99,7 +99,11 @@ struct HeadingOutlineItem {
     std::string text;
     std::string slug;
     float y = 0.0f;
+    LineLayout shapedLine;
+    bool hasShapedLine = false;
 };
+
+inline constexpr float kOutlineLabelFontSize = 15.0f;
 
 struct DocumentLayout {
     std::vector<BlockLayout> blocks;

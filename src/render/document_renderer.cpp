@@ -1568,7 +1568,7 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         params.appState->focusedOutlineIndex,
         params.appState->docLayout.outline.empty() ? 0 : params.appState->docLayout.outline.size() - 1);
     ctx.font.setTypeface(sk_ref_sp(params.typefaces.regular));
-    ctx.font.setSize(15.0f);
+    ctx.font.setSize(kOutlineLabelFontSize);
     ctx.font.setSubpixel(true);
     const bool toggleHovered = params.showInteractiveElements && params.appState->outlineToggleHovered;
 
@@ -1631,7 +1631,7 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         return;
     }
 
-    ctx.font.setSize(15.0f);
+    ctx.font.setSize(kOutlineLabelFontSize);
     const float textTop = params.contentTopInset + kOutlineTopPadding;
     const float contentGap = 6.0f;
     const float contentLeft = params.appState->outlineSide == OutlineSide::Right
@@ -1658,7 +1658,6 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
         }
 
         const float localIndent = 6.0f + (static_cast<float>(std::clamp(item.level, 1, 6) - 1) * 14.0f);
-        const float textX = contentLeft + localIndent;
         const SkRect itemRect = SkRect::MakeLTRB(contentLeft, itemY, contentRight, itemY + kOutlineItemHeight);
         if (index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)) {
             SkPaint selectedPaint;
@@ -1670,23 +1669,64 @@ void DrawOutlineSidebar(RenderContext& ctx, const DocumentSceneParams& params) {
 
         const std::string fallbackText = "(untitled)";
         const std::string& text = item.text.empty() ? fallbackText : item.text;
-        const float maxTextWidth = std::max(
-            contentRight - textX - kOutlineScrollbarMargin - kOutlineScrollbarWidth,
-            16.0f);
-        const size_t bytesToDraw = FitUtf8TextBytes(params.typefaces, ctx.font, text, maxTextWidth);
+        const bool canDrawShapedLine = item.hasShapedLine &&
+            !item.shapedLine.runs.empty() &&
+            std::all_of(item.shapedLine.runs.begin(), item.shapedLine.runs.end(), [](const RunLayout& run) {
+                return HasCompleteShapedGlyphData(run);
+            });
+        const bool isRtl = canDrawShapedLine &&
+            item.shapedLine.direction == ResolvedTextDirection::RightToLeft;
+        const float textAreaLeft = contentLeft + (isRtl
+            ? 0.0f
+            : localIndent);
+        const float textAreaRight = contentRight - kOutlineScrollbarMargin -
+            kOutlineScrollbarWidth - (isRtl
+            ? localIndent
+            : 0.0f);
+        const float maxTextWidth = std::max(textAreaRight - textAreaLeft, 16.0f);
 
         ctx.paint.setColor(index == currentIndex || (params.appState->outlineFocused && index == focusedIndex)
             ? params.palette.menuSelectedText
             : params.palette.menuText);
-        DrawTextWithFallback(
-            ctx.canvas,
-            params.typefaces,
-            text.c_str(),
-            bytesToDraw,
-            textX,
-            itemY + 21.0f,
-            ctx.font,
-            ctx.paint);
+        if (canDrawShapedLine) {
+            const float visualOriginX = isRtl
+                ? textAreaRight - item.shapedLine.width
+                : textAreaLeft;
+            const float visualOriginY = itemY +
+                std::max((kOutlineItemHeight - item.shapedLine.height) * 0.5f, 0.0f);
+            ctx.canvas->save();
+            ctx.canvas->clipRect(SkRect::MakeLTRB(
+                textAreaLeft,
+                itemY,
+                textAreaRight,
+                itemY + kOutlineItemHeight));
+            for (const RunLayout& run : item.shapedLine.runs) {
+                ctx.canvas->drawGlyphs(
+                    SkSpan<const SkGlyphID>(run.glyphs.data(), run.glyphs.size()),
+                    SkSpan<const SkPoint>(run.glyphPositions.data(), run.glyphPositions.size()),
+                    SkSpan<const uint32_t>(run.glyphClusters.data(), run.glyphClusters.size()),
+                    SkSpan<const char>(run.text.data(), run.text.size()),
+                    SkPoint::Make(visualOriginX, visualOriginY),
+                    run.shapedFont,
+                    ctx.paint);
+            }
+            ctx.canvas->restore();
+        } else {
+            const size_t bytesToDraw = FitUtf8TextBytes(
+                params.typefaces,
+                ctx.font,
+                text,
+                maxTextWidth);
+            DrawTextWithFallback(
+                ctx.canvas,
+                params.typefaces,
+                text.c_str(),
+                bytesToDraw,
+                textAreaLeft,
+                itemY + 21.0f,
+                ctx.font,
+                ctx.paint);
+        }
     }
     ctx.canvas->restore();
 
