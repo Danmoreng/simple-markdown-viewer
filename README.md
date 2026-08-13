@@ -81,7 +81,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
 - Responsive document margins and live relayout while resizing the window or outline; cached image dimensions avoid repeated image scaling during a resize
 - Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
 - Remote images are not fetched inside the app; HTML badges and other remote images use labeled placeholders and can still be opened explicitly
-- Mouse text selection and `Ctrl+C` copy
+- Mouse text selection and `Ctrl+C` copy with explicit hard breaks and block/list boundaries preserved
 - Unicode-aware in-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
 - Native right-click context menu for selection/link actions, reload, document-path copying, and opening files in the file manager

@@ -1118,6 +1118,76 @@ void MarkdownCorrectnessFoundation() {
     Require(mdviewer::HasFormatting(linkHit.formatting, mdviewer::InlineFormatting::Strong), "hit testing should preserve combined formatting metadata");
 }
 
+void PlainTextPreservesExplicitBlockBoundaries() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager);
+    Require(fontManager != nullptr && regular != nullptr,
+            "plain-text boundary regression requires document fonts");
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), regular.get());
+
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
+        "First paragraph\n\n"
+        "Second paragraph\n\n"
+        "- Alpha\n"
+        "- Beta  \n"
+        "  continued\n\n"
+        "After list\n");
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        document,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    const std::string expected =
+        "First paragraph\n"
+        "Second paragraph\n"
+        "Alpha\n"
+        "Beta\n"
+        "continued\n"
+        "After list";
+    RequireEqual(
+        layout.plainText,
+        expected,
+        "copy text should preserve paragraph, list-item, and explicit hard-break boundaries");
+
+    mdviewer::AppState selectionState;
+    selectionState.docLayout = layout;
+    mdviewer::SelectAll(selectionState);
+    RequireEqual(
+        selectionState.docLayout.plainText.substr(
+            mdviewer::GetSelectionStart(selectionState),
+            mdviewer::GetSelectionEnd(selectionState) - mdviewer::GetSelectionStart(selectionState)),
+        expected,
+        "select-all copy ranges should include logical block separators");
+
+    const mdviewer::DocumentModel nestedList = mdviewer::MarkdownParser::Parse(
+        "- Parent\n"
+        "  - Child\n"
+        "- Sibling\n");
+    const mdviewer::DocumentLayout nestedLayout = mdviewer::LayoutEngine::ComputeLayout(
+        nestedList,
+        760.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    RequireEqual(
+        nestedLayout.plainText,
+        std::string("Parent\nChild\nSibling"),
+        "nested and sibling list items should remain separate copy-text lines");
+
+    const mdviewer::DocumentModel wrappedParagraph = mdviewer::MarkdownParser::Parse(
+        "A long paragraph that wraps visually without an explicit Markdown break.\n");
+    const mdviewer::DocumentLayout wrappedLayout = mdviewer::LayoutEngine::ComputeLayout(
+        wrappedParagraph,
+        90.0f,
+        typefaces,
+        mdviewer::kDefaultBaseFontSize);
+    Require(wrappedLayout.blocks.front().lines.size() > 1,
+            "narrow copy-text fixture should wrap visually");
+    RequireEqual(
+        wrappedLayout.plainText,
+        std::string("A long paragraph that wraps visually without an explicit Markdown break."),
+        "visual word wrapping must not create copied line breaks");
+}
+
 void BidirectionalMarkdownBaseline() {
     const fs::path fixturePath = SourceRoot() / "test-docs" / "bidi-complex-text.md";
     const std::string source = ReadText(fixturePath);
@@ -3671,6 +3741,7 @@ int main() {
         {"DocumentSizeLimit", DocumentSizeLimit},
         {"FrontMatterAndMarkdownExtensions", FrontMatterAndMarkdownExtensions},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
+        {"PlainTextPreservesExplicitBlockBoundaries", PlainTextPreservesExplicitBlockBoundaries},
         {"UnicodeSearchCaseFolding", UnicodeSearchCaseFolding},
         {"KeyboardUsabilityCommands", KeyboardUsabilityCommands},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},

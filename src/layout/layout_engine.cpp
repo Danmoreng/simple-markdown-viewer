@@ -271,6 +271,27 @@ std::pair<std::string, std::string> SerializeTable(const Block& table) {
     return {std::move(tsv), std::move(csv)};
 }
 
+bool InlineRunsProducePlainText(const std::vector<InlineRun>& runs) {
+    return std::any_of(runs.begin(), runs.end(), [](const InlineRun& run) {
+        if (run.kind == InlineKind::SoftBreak || run.kind == InlineKind::HardBreak) {
+            return true;
+        }
+        return run.kind != InlineKind::Image && !run.text.empty();
+    });
+}
+
+bool BlockSubtreeProducesPlainText(const Block& block) {
+    if (InlineRunsProducePlainText(block.inlineRuns)) {
+        return true;
+    }
+    if (block.type == BlockType::Details && !block.detailsOpen) {
+        return false;
+    }
+    return std::any_of(block.children.begin(), block.children.end(), [](const Block& child) {
+        return BlockSubtreeProducesPlainText(child);
+    });
+}
+
 } // namespace
 
 DocumentHorizontalInsets GetDocumentHorizontalInsets(float viewportWidth) {
@@ -326,6 +347,9 @@ public:
         float pendingListInset = 0.0f,
         AlertKind inheritedAlertKind = AlertKind::None) {
         for (const auto& block : blocks) {
+            if (BlockSubtreeProducesPlainText(block)) {
+                EnsurePlainTextBlockSeparator();
+            }
             if (block.type == BlockType::Table) {
                 LayoutTable(block, layouts, insets);
                 continue;
@@ -1353,6 +1377,12 @@ private:
     void AppendPlainTextSeparator(char ch) {
         plainText.push_back(ch);
         currentTextOffset += 1;
+    }
+
+    void EnsurePlainTextBlockSeparator() {
+        if (!plainText.empty() && plainText.back() != '\n') {
+            AppendPlainTextSeparator('\n');
+        }
     }
 
     void LayoutTable(
