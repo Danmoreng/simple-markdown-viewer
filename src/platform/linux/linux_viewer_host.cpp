@@ -264,8 +264,8 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
     glfwGetWindowSize(window, &width, &height);
     const float contentWidth = std::max(static_cast<float>(width) - kScrollbarWidth - (kScrollbarMargin * 2.0f), 1.0f);
 
-    auto* regularTypeface = GetRegularTypeface(context);
-    if (!regularTypeface) {
+    const DocumentTypefaceSet typefaces = context.typefaces.GetTypefaceSet();
+    if (!typefaces.regular) {
         return false;
     }
 
@@ -273,7 +273,7 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
     auto status = context.controller.OpenFile(
         path,
         contentWidth,
-        regularTypeface,
+        typefaces,
         [&context](const DocumentModel& doc, const std::filesystem::path& base) {
             context.imageCache.PreloadDocumentImages(doc, base);
         },
@@ -312,7 +312,6 @@ bool SaveCurrentDocumentAsPdf(GLFWwindow* window, LinuxHostContext context, cons
     PdfExportRequest request;
     request.outputPath = outputPath;
     request.typefaces = context.typefaces.GetTypefaceSet();
-    request.layoutTypeface = GetRegularTypeface(context);
 
     auto& appState = GetAppState(context);
     request.sourcePath = appState.currentFilePath;
@@ -403,7 +402,7 @@ void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
 
     context.controller.Relayout(
         contentWidth,
-        GetRegularTypeface(context),
+        context.typefaces.GetTypefaceSet(),
         {},
         [&context, currentPath](const std::string& url) {
             return context.imageCache.GetImageSize(url, currentPath.parent_path());
@@ -419,8 +418,8 @@ bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preser
         return false;
     }
 
-    auto* regularTypeface = GetRegularTypeface(context);
-    if (!regularTypeface) {
+    const DocumentTypefaceSet typefaces = context.typefaces.GetTypefaceSet();
+    if (!typefaces.regular) {
         return false;
     }
 
@@ -429,7 +428,7 @@ bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preser
     context.imageCache.Clear();
     const auto status = context.controller.ReloadCurrentFile(
         GetDocumentLayoutWidth(window, context),
-        regularTypeface,
+        typefaces,
         [&context](const DocumentModel& doc, const std::filesystem::path& base) {
             context.imageCache.PreloadDocumentImages(doc, base);
         },

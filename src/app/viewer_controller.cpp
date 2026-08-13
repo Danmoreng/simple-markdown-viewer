@@ -209,7 +209,7 @@ std::optional<std::filesystem::file_time_type> ViewerController::TryGetFileWrite
 OpenDocumentStatus ViewerController::OpenFile(
     const std::filesystem::path& path,
     float width,
-    SkTypeface* typeface,
+    const DocumentTypefaceSet& typefaces,
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider,
     bool pushHistory,
@@ -232,7 +232,7 @@ OpenDocumentStatus ViewerController::OpenFile(
     auto layout = LayoutEngine::ComputeLayout(
         result.docModel,
         width,
-        typeface,
+        typefaces,
         ClampBaseFontSize(appState_.baseFontSize),
         imageSizeProvider);
 
@@ -249,7 +249,7 @@ OpenDocumentStatus ViewerController::OpenFile(
 
 OpenDocumentStatus ViewerController::ReloadCurrentFile(
     float width,
-    SkTypeface* typeface,
+    const DocumentTypefaceSet& typefaces,
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider) {
     const std::filesystem::path currentPath = appState_.currentFilePath;
@@ -257,12 +257,12 @@ OpenDocumentStatus ViewerController::ReloadCurrentFile(
         return OpenDocumentStatus::FileReadError;
     }
 
-    return OpenFile(currentPath, width, typeface, preloadDocument, imageSizeProvider, false, false);
+    return OpenFile(currentPath, width, typefaces, preloadDocument, imageSizeProvider, false, false);
 }
 
 bool ViewerController::Relayout(
     float width,
-    SkTypeface* typeface,
+    const DocumentTypefaceSet& typefaces,
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider) {
     DocumentModel docModel;
@@ -283,7 +283,7 @@ bool ViewerController::Relayout(
     auto layout = LayoutEngine::ComputeLayout(
         docModel,
         width,
-        typeface,
+        typefaces,
         ClampBaseFontSize(appState_.baseFontSize),
         imageSizeProvider);
 

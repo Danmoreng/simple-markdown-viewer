@@ -6,8 +6,9 @@
 #include <string>
 
 #include "app/app_state.h"
-#include "render/document_typefaces.h"
 #include "render/theme.h"
+#include "text/document_font_style.h"
+#include "text/document_fonts.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -46,13 +47,6 @@ struct DocumentSceneParams {
     std::function<void(const HorizontalScrollbarRegion& region)> addHorizontalScrollbar;
 };
 
-bool IsHeadingBlock(BlockType blockType);
-void ConfigureDocumentFont(
-    SkFont& font,
-    const DocumentTypefaceSet& typefaces,
-    BlockType blockType,
-    InlineFormatting formatting,
-    float baseFontSize);
 SkColor GetDocumentTextColor(
     const ThemePalette& palette,
     BlockType blockType,

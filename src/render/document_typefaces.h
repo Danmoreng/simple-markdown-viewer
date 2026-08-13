@@ -2,20 +2,12 @@
 
 #include <string>
 
-#include "layout/document_model.h"
+#include "text/document_fonts.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkTypeface.h"
 
 namespace mdviewer {
-
-struct DocumentTypefaceSet {
-    SkFontMgr* fontMgr = nullptr;
-    SkTypeface* regular = nullptr;
-    SkTypeface* bold = nullptr;
-    SkTypeface* heading = nullptr;
-    SkTypeface* code = nullptr;
-};
 
 class DocumentTypefaceCache {
 public:

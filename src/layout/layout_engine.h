@@ -6,9 +6,8 @@
 #include "layout/document_model.h"
 #include "render/math_renderer.h"
 #include "render/syntax/tree_sitter_highlighter.h"
+#include "text/document_fonts.h"
 #include "include/core/SkRect.h"
-
-class SkTypeface;
 
 namespace mdviewer {
 
@@ -100,7 +99,7 @@ public:
     static DocumentLayout ComputeLayout(
         const DocumentModel& doc,
         float width,
-        SkTypeface* typeface,
+        const DocumentTypefaceSet& typefaces,
         float baseFontSize,
         ImageSizeProvider imageSizeProvider = nullptr,
         LayoutOptions options = {});

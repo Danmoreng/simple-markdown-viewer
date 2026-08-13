@@ -9,8 +9,7 @@
 #include "app/app_config.h"
 #include "app/app_state.h"
 #include "app/link_resolver.h"
-
-class SkTypeface;
+#include "text/document_fonts.h"
 
 namespace mdviewer {
 
@@ -78,20 +77,20 @@ public:
     OpenDocumentStatus OpenFile(
         const std::filesystem::path& path,
         float width,
-        SkTypeface* typeface,
+        const DocumentTypefaceSet& typefaces,
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider,
         bool pushHistory = true,
         bool updateRecentFiles = true);
     OpenDocumentStatus ReloadCurrentFile(
         float width,
-        SkTypeface* typeface,
+        const DocumentTypefaceSet& typefaces,
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider);
 
     bool Relayout(
         float width,
-        SkTypeface* typeface,
+        const DocumentTypefaceSet& typefaces,
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider);
 

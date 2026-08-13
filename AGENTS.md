@@ -34,6 +34,7 @@ src/
   app/             Shared app state, config, loading, links, controller
   layout/          Document model and layout engine
   markdown/        Markdown parsing
+  text/            Shared document font context and text-style resolution
   render/          Shared Skia rendering, themes, typography, image/typeface helpers
   render/syntax/   Tree-sitter syntax highlighting
   util/            File I/O, UTF-8, and font helpers

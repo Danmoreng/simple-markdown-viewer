@@ -296,7 +296,7 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
     const auto status = context.controller.OpenFile(
         path,
         width,
-        GetRegularTypeface(context),
+        GetDocumentTypefaces(context),
         [&](const DocumentModel& docModel, const std::filesystem::path& preloadBaseDir) {
             context.imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
         },
@@ -340,7 +340,6 @@ bool SaveCurrentDocumentAsPdf(HWND hwnd, ViewerHostContext& context, const std::
     PdfExportRequest request;
     request.outputPath = outputPath;
     request.typefaces = GetDocumentTypefaces(context);
-    request.layoutTypeface = GetRegularTypeface(context);
 
     AppState& appState = State(context);
     {
@@ -398,7 +397,6 @@ bool PrintCurrentDocument(HWND hwnd, ViewerHostContext& context) {
 
     PrintDocumentRequest request;
     request.typefaces = GetDocumentTypefaces(context);
-    request.layoutTypeface = GetRegularTypeface(context);
 
     AppState& appState = State(context);
     {
@@ -612,7 +610,7 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
 
     if (!context.controller.Relayout(
             width,
-            GetRegularTypeface(context),
+            GetDocumentTypefaces(context),
             {},
             imageSizeProvider)) {
         return;
@@ -638,7 +636,7 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
     context.imageCache.Clear();
     const auto status = context.controller.ReloadCurrentFile(
         width,
-        GetRegularTypeface(context),
+        GetDocumentTypefaces(context),
         [&](const DocumentModel& docModel, const std::filesystem::path& preloadBaseDir) {
             context.imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
         },

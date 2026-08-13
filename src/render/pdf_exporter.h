@@ -7,7 +7,7 @@
 #include "app/app_config.h"
 #include "layout/document_model.h"
 #include "layout/layout_engine.h"
-#include "render/document_typefaces.h"
+#include "text/document_fonts.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -15,7 +15,6 @@
 #pragma warning(disable: 4267)
 #include "include/core/SkImage.h"
 #include "include/core/SkRefCnt.h"
-#include "include/core/SkTypeface.h"
 #pragma warning(pop)
 
 namespace mdviewer {
@@ -39,7 +38,6 @@ struct PdfExportRequest {
     ThemeMode theme = ThemeMode::Light;
     float baseFontSize = 17.0f;
     DocumentTypefaceSet typefaces = {};
-    SkTypeface* layoutTypeface = nullptr;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
     std::function<sk_sp<SkImage>(const std::string& url, float displayWidth, float displayHeight)> resolveImage;
     float pageWidth = kDefaultPdfPageWidthPt;

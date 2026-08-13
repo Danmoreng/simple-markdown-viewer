@@ -1044,7 +1044,7 @@ Run the existing sanitizer configuration from `.github/workflows/linux-build.yml
 - [x] Existing parser regression proves nested fenced code is retained.
 - [x] ICU and HarfBuzz are enabled in pinned Skia builds.
 - [x] Windows ships `icudtl.dat` and rejects stale bundles.
-- [ ] Full `DocumentTypefaceSet` is shared with layout.
+- [x] Full `DocumentTypefaceSet` is shared with layout.
 - [ ] Paragraph text is shaped and wrapped by SkShaper/SkUnicode.
 - [ ] Code lines are shaped without source-line wrapping.
 - [ ] Visual runs carry glyphs, clusters, direction, x positions, and caret stops.

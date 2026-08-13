@@ -129,7 +129,6 @@ bool PrintCurrentDocument(LinuxHostContext context) {
 
     LinuxPrintState state{context};
     state.request.typefaces = context.typefaces.GetTypefaceSet();
-    state.request.layoutTypeface = GetRegularTypeface(context);
 
     AppState& appState = GetAppState(context);
     {

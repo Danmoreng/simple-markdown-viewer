@@ -115,7 +115,7 @@ bool PreparePrintDocument(const PrintDocumentRequest& request, PreparedPrintDocu
     if (request.sourceText.empty() || request.document.blocks.empty()) {
         return false;
     }
-    if (!request.layoutTypeface || !request.typefaces.regular) {
+    if (!request.typefaces.regular) {
         return false;
     }
     if (request.pageWidth <= 1.0f || request.pageHeight <= 1.0f) {
@@ -131,7 +131,7 @@ bool PreparePrintDocument(const PrintDocumentRequest& request, PreparedPrintDocu
     DocumentLayout layout = LayoutEngine::ComputeLayout(
         request.document,
         request.pageWidth,
-        request.layoutTypeface,
+        request.typefaces,
         printBaseFontSize,
         request.imageSizeProvider,
         LayoutOptions{

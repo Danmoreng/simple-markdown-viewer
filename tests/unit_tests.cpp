@@ -66,6 +66,21 @@ void RequireNear(float actual, float expected, float tolerance, const std::strin
     }
 }
 
+mdviewer::DocumentTypefaceSet MakeTestTypefaces(
+    SkFontMgr* fontManager,
+    SkTypeface* regular,
+    SkTypeface* bold = nullptr,
+    SkTypeface* heading = nullptr,
+    SkTypeface* code = nullptr) {
+    return mdviewer::DocumentTypefaceSet{
+        .fontMgr = fontManager,
+        .regular = regular,
+        .bold = bold ? bold : regular,
+        .heading = heading ? heading : (bold ? bold : regular),
+        .code = code ? code : regular,
+    };
+}
+
 class TempDir {
 public:
     TempDir() {
@@ -305,17 +320,17 @@ void RecentFilesAndHistory() {
     WriteText(openedPath, "# Fresh\n");
     const fs::path rememberedPath = recent.front().path;
     Require(
-        controller.OpenFile(rememberedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
+        controller.OpenFile(rememberedPath, 800.0f, {}, {}, {}) == mdviewer::OpenDocumentStatus::Success,
         "opening a remembered recent file should succeed");
     RequireNear(controller.GetAppState().scrollOffset, 125.0f, 0.001f, "opening a recent file should restore its scroll offset");
     controller.GetMutableAppState().scrollOffset = 432.5f;
     Require(
-        controller.OpenFile(openedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
+        controller.OpenFile(openedPath, 800.0f, {}, {}, {}) == mdviewer::OpenDocumentStatus::Success,
         "opening a file should succeed");
     Require(controller.GetRecentFiles().front().path.filename() == "fresh.md", "newly opened file should be first in recent files");
     Require(controller.GetRecentFiles().front().openedAtUnixSeconds > 0, "newly opened file should record an opened timestamp");
     Require(
-        controller.OpenFile(rememberedPath, 800.0f, nullptr, {}, {}) == mdviewer::OpenDocumentStatus::Success,
+        controller.OpenFile(rememberedPath, 800.0f, {}, {}, {}) == mdviewer::OpenDocumentStatus::Success,
         "reopening a recent file should succeed");
     RequireNear(controller.GetAppState().scrollOffset, 432.5f, 0.001f, "reopening a recent file should restore its latest scroll offset");
     controller.GetMutableAppState().scrollOffset = 678.25f;
@@ -636,7 +651,7 @@ void HeadingAnchors() {
         "# 日本語\n"
         "# RÉSUMÉ GUIDE\n"
         "# ПРИВЕТ Мир\n");
-    const auto layout = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, nullptr, mdviewer::kDefaultBaseFontSize);
+    const auto layout = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, {}, mdviewer::kDefaultBaseFontSize);
     Require(layout.anchors.contains("hello"), "first duplicate heading should use base slug");
     Require(layout.anchors.contains("hello-1"), "second duplicate heading should start numeric suffixes at one");
     Require(layout.anchors.contains("hello-2"), "third duplicate heading should increment the numeric suffix");
@@ -902,7 +917,8 @@ void FrontMatterAndMarkdownExtensions() {
 
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
-    const auto layout = mdviewer::LayoutEngine::ComputeLayout(yaml, 700.0f, typeface.get(), 17.0f);
+    const auto typefaces = MakeTestTypefaces(fontMgr.get(), typeface.get());
+    const auto layout = mdviewer::LayoutEngine::ComputeLayout(yaml, 700.0f, typefaces, 17.0f);
     Require(!layout.blocks.empty() && layout.blocks.front().type == mdviewer::BlockType::Metadata,
             "metadata should have a dedicated layout block");
     Require(layout.blocks.front().bounds.height() > 30.0f, "metadata layout should reserve room for its compact contents");
@@ -912,7 +928,7 @@ void FrontMatterAndMarkdownExtensions() {
         return run.metadataRole == mdviewer::MetadataRunRole::Tag && run.visualWidth > 0.0f;
     }), "tag pills should expose their full visual width to rendering and hit testing");
 
-    const auto narrowLayout = mdviewer::LayoutEngine::ComputeLayout(yaml, 260.0f, typeface.get(), 17.0f);
+    const auto narrowLayout = mdviewer::LayoutEngine::ComputeLayout(yaml, 260.0f, typefaces, 17.0f);
     Require(narrowLayout.blocks.front().lines.size() > 1,
             "the metadata row should wrap when the viewport is narrow");
     for (const auto& line : narrowLayout.blocks.front().lines) {
@@ -977,10 +993,12 @@ void MarkdownCorrectnessFoundation() {
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> regularTypeface = mdviewer::CreateDefaultTypeface(fontMgr);
     const sk_sp<SkTypeface> boldTypeface = mdviewer::CreateDefaultTypeface(fontMgr, SkFontStyle::Bold());
+    const auto typefaces = MakeTestTypefaces(
+        fontMgr.get(), regularTypeface.get(), boldTypeface.get(), boldTypeface.get());
     const auto breakLayout = mdviewer::LayoutEngine::ComputeLayout(
         breaks,
         1200.0f,
-        regularTypeface.get(),
+        typefaces,
         mdviewer::kDefaultBaseFontSize);
     Require(breakLayout.blocks.size() >= 2, "break fixture should produce two paragraphs");
     RequireEqual(breakLayout.blocks[0].lines.size(), static_cast<size_t>(1), "soft break should render as normal whitespace on a wide line");
@@ -994,12 +1012,6 @@ void MarkdownCorrectnessFoundation() {
     mdviewer::InsertSearchText(searchState, "soft line continues here");
     RequireEqual(searchState.searchMatches.size(), static_cast<size_t>(1), "search should match across a rendered soft break");
 
-    mdviewer::DocumentTypefaceSet typefaces;
-    typefaces.fontMgr = fontMgr.get();
-    typefaces.regular = regularTypeface.get();
-    typefaces.bold = boldTypeface.get();
-    typefaces.heading = boldTypeface.get();
-    typefaces.code = regularTypeface.get();
     SkFont combinedFont;
     mdviewer::ConfigureDocumentFont(
         combinedFont,
@@ -1013,7 +1025,7 @@ void MarkdownCorrectnessFoundation() {
     const auto linkLayout = mdviewer::LayoutEngine::ComputeLayout(
         mdviewer::MarkdownParser::Parse("[**bold link**](https://example.com)\n"),
         600.0f,
-        regularTypeface.get(),
+        typefaces,
         mdviewer::kDefaultBaseFontSize);
     Require(!linkLayout.blocks.empty() && !linkLayout.blocks[0].lines.empty(), "link fixture should create a laid-out line");
     mdviewer::HitTestCallbacks callbacks;
@@ -1058,10 +1070,11 @@ void BidirectionalMarkdownBaseline() {
 
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontManager);
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), typeface.get());
     const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
         document,
         1200.0f,
-        typeface.get(),
+        typefaces,
         mdviewer::kDefaultBaseFontSize);
 
     const mdviewer::BlockLayout* laidOutCode =
@@ -1102,6 +1115,47 @@ void ComplexTextRuntimeAvailability() {
     Require(runtime.IsAvailable(), runtime.Diagnostic());
     Require(runtime.Unicode() != nullptr, "complex text runtime should expose ICU Unicode services");
     Require(runtime.Shaper() != nullptr, "complex text runtime should expose the HarfBuzz shaper");
+}
+
+void DocumentFontContextFeedsLayout() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    const sk_sp<SkTypeface> regular = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Normal());
+    const sk_sp<SkTypeface> bold = mdviewer::CreateDefaultTypeface(fontManager, SkFontStyle::Bold());
+    Require(regular != nullptr && bold != nullptr, "font-context regression requires regular and bold faces");
+
+    const auto typefaces = MakeTestTypefaces(
+        fontManager.get(), regular.get(), bold.get(), bold.get(), bold.get());
+    const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
+        "# Shared heading face\n\n"
+        "**Shared bold face**\n\n"
+        "```text\n"
+        "MMMMMMMMiiiiiiii\n"
+        "```\n");
+    const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
+        document, 900.0f, typefaces, mdviewer::kDefaultBaseFontSize);
+    const mdviewer::BlockLayout& codeBlock = FirstBlockOfType(layout, mdviewer::BlockType::CodeBlock);
+    Require(!codeBlock.lines.empty(), "font-context fixture should produce a code line");
+
+    float expectedCodeWidth = 0.0f;
+    for (const auto& line : codeBlock.lines) {
+        float lineWidth = 0.0f;
+        for (const auto& run : line.runs) {
+            SkFont font;
+            mdviewer::ConfigureDocumentFont(
+                font,
+                typefaces,
+                mdviewer::BlockType::CodeBlock,
+                run.formatting,
+                mdviewer::kDefaultBaseFontSize);
+            lineWidth += font.measureText(run.text.data(), run.text.size(), SkTextEncoding::kUTF8);
+        }
+        expectedCodeWidth = std::max(expectedCodeWidth, lineWidth);
+    }
+    RequireNear(
+        codeBlock.codeContentWidth,
+        expectedCodeWidth,
+        0.01f,
+        "layout and rendering should resolve the same code typeface and font style");
 }
 
 void SafeHtmlSubset() {
@@ -1154,6 +1208,7 @@ void SafeHtmlSubset() {
 
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
+    const auto typefaces = MakeTestTypefaces(fontMgr.get(), typeface.get());
 
     const mdviewer::DocumentModel inlineSemantics = mdviewer::MarkdownParser::Parse(
         "Press <kbd>Ctrl</kbd>+<kbd>K</kbd>; H<sub>2</sub>O and x<sup>2</sup>.\n\n"
@@ -1195,7 +1250,7 @@ void SafeHtmlSubset() {
             "Markdown inside details should remain native child blocks");
 
     const auto closedDetailsLayout = mdviewer::LayoutEngine::ComputeLayout(
-        details, 700.0f, typeface.get(), 17.0f);
+        details, 700.0f, typefaces, 17.0f);
     Require(closedDetailsLayout.plainText.find("Hidden content") == std::string::npos,
             "collapsed details content should not participate in search and copy text");
     Require(closedDetailsLayout.plainText.find("Visible body") != std::string::npos,
@@ -1208,7 +1263,7 @@ void SafeHtmlSubset() {
     const size_t collapsedId = details.blocks[0].detailsId;
     Require(mdviewer::ToggleDetailsBlock(details, collapsedId), "details should toggle through the shared interaction helper");
     const auto openedDetailsLayout = mdviewer::LayoutEngine::ComputeLayout(
-        details, 700.0f, typeface.get(), 17.0f);
+        details, 700.0f, typefaces, 17.0f);
     Require(openedDetailsLayout.plainText.find("Hidden content") != std::string::npos,
             "opening details should expose its native child content");
     const auto& detailsLayoutBlock = openedDetailsLayout.blocks[0];
@@ -1238,7 +1293,7 @@ void SafeHtmlSubset() {
     const auto layout = mdviewer::LayoutEngine::ComputeLayout(
         document,
         900.0f,
-        typeface.get(),
+        typefaces,
         17.0f,
         [](const std::string& source) {
             return source == "docs/logo.svg"
@@ -1280,7 +1335,8 @@ void GithubAlerts() {
 
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
-    const auto layout = mdviewer::LayoutEngine::ComputeLayout(document, 680.0f, typeface.get(), 17.0f);
+    const auto typefaces = MakeTestTypefaces(fontMgr.get(), typeface.get());
+    const auto layout = mdviewer::LayoutEngine::ComputeLayout(document, 680.0f, typefaces, 17.0f);
     RequireEqual(layout.blocks.size(), document.blocks.size(), "every alert should produce a layout block");
     Require(layout.blocks[2].alertKind == mdviewer::AlertKind::Important,
             "important styling should survive into the renderer model");
@@ -1334,9 +1390,10 @@ void LayoutSensitiveBehavior() {
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
     SkTypeface* typefacePtr = typeface.get();
-    const auto normal = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, typefacePtr, 17.0f, imageProvider);
-    const auto zoomed = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, typefacePtr, 24.0f, imageProvider);
-    const auto narrow = mdviewer::LayoutEngine::ComputeLayout(doc, 480.0f, typefacePtr, 17.0f, imageProvider);
+    const auto typefaces = MakeTestTypefaces(fontMgr.get(), typefacePtr);
+    const auto normal = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, typefaces, 17.0f, imageProvider);
+    const auto zoomed = mdviewer::LayoutEngine::ComputeLayout(doc, 900.0f, typefaces, 24.0f, imageProvider);
+    const auto narrow = mdviewer::LayoutEngine::ComputeLayout(doc, 480.0f, typefaces, 17.0f, imageProvider);
 
     Require(HasBlockType(normal, mdviewer::BlockType::Table), "layout should contain table block");
     Require(HasBlockType(normal, mdviewer::BlockType::CodeBlock), "layout should contain code block");
@@ -1407,7 +1464,7 @@ void LayoutSensitiveBehavior() {
             "| - | - |\n"
             "| Alpha | hello, \"world\" |\n"),
         700.0f,
-        typefacePtr,
+        typefaces,
         17.0f);
     const auto& csvTable = FirstBlockOfType(csvLayout, mdviewer::BlockType::Table);
     RequireEqual(
@@ -1434,7 +1491,7 @@ void LayoutSensitiveBehavior() {
             "| - | - | - | - | - | - | - | - |\n"
             "| gem16 | direct-FP8-NVFP4-checkpoint | 5866.86 | 2792.64 ms | 87.66 | 11.408 ms | 11746 MiB | reproducible-result |\n"),
         420.0f,
-        typefacePtr,
+        typefaces,
         17.0f);
     const auto& wideTable = FirstBlockOfType(wideTableLayout, mdviewer::BlockType::Table);
     Require(wideTable.horizontalContentWidth > wideTable.horizontalViewportWidth,
@@ -1449,7 +1506,7 @@ void LayoutSensitiveBehavior() {
             "| - | - | - | - | - | - | - | - |\n"
             "| gem16 | direct-FP8-NVFP4-checkpoint | 5866.86 | 2792.64 ms | 87.66 | 11.408 ms | 11746 MiB | reproducible-result |\n"),
         420.0f,
-        typefacePtr,
+        typefaces,
         17.0f,
         nullptr,
         mdviewer::LayoutOptions{
@@ -1494,7 +1551,7 @@ void LayoutSensitiveBehavior() {
         mdviewer::MarkdownParser::Parse(
             "https://example.com/this-is-one-deliberately-unbroken-token-that-must-not-escape-the-document-viewport\n"),
         280.0f,
-        typefacePtr,
+        typefaces,
         17.0f);
     Require(!longTokenLayout.blocks.empty() && longTokenLayout.blocks[0].lines.size() > 1,
             "very long unbroken tokens should wrap at UTF-8 boundaries");
@@ -1505,7 +1562,7 @@ void LayoutSensitiveBehavior() {
             "const std::string message = \"This deliberately long C++ source line must remain on one visual code line\";\n"
             "```\n"),
         320.0f,
-        typefacePtr,
+        typefaces,
         17.0f);
     const auto& overflowingCode = FirstBlockOfType(overflowingCodeLayout, mdviewer::BlockType::CodeBlock);
     RequireEqual(overflowingCode.lines.size(), static_cast<size_t>(1), "overflowing code should preserve source lines instead of wrapping");
@@ -1520,7 +1577,7 @@ void LayoutSensitiveBehavior() {
             "const std::string message = \"This deliberately long C++ source line must remain on one visual code line\";\n"
             "```\n"),
         320.0f,
-        typefacePtr,
+        typefaces,
         17.0f,
         nullptr,
         mdviewer::LayoutOptions{
@@ -1617,7 +1674,6 @@ void PdfExportWritesFile() {
     request.theme = mdviewer::ThemeMode::Light;
     request.baseFontSize = mdviewer::kDefaultBaseFontSize;
     request.typefaces = typefaces;
-    request.layoutTypeface = typeface.get();
 
     const mdviewer::PdfExportStatus status = mdviewer::ExportMarkdownToPdf(request);
 #if MDVIEWER_ENABLE_PDF
@@ -1833,10 +1889,11 @@ void LatexMathParsingLayoutAndFallback() {
 
     const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontManager);
+    const auto typefaces = MakeTestTypefaces(fontManager.get(), typeface.get());
     const mdviewer::DocumentLayout layout = mdviewer::LayoutEngine::ComputeLayout(
-        document, 760.0f, typeface.get(), 17.0f);
+        document, 760.0f, typefaces, 17.0f);
     const mdviewer::DocumentLayout matrixLayout = mdviewer::LayoutEngine::ComputeLayout(
-        matrixDocument, 760.0f, typeface.get(), 17.0f);
+        matrixDocument, 760.0f, typefaces, 17.0f);
     Require(
         matrixLayout.blocks.size() == 1 && matrixLayout.blocks[0].lines.size() == 1 &&
             matrixLayout.blocks[0].lines[0].runs.size() == 1 &&
@@ -1926,11 +1983,12 @@ void ScrollAnchorPreservesReadingPosition() {
     const sk_sp<SkFontMgr> fontMgr = mdviewer::CreateFontManager();
     const sk_sp<SkTypeface> typeface = mdviewer::CreateDefaultTypeface(fontMgr);
     SkTypeface* typefacePtr = typeface.get();
+    const auto typefaces = MakeTestTypefaces(fontMgr.get(), typefacePtr);
 
-    const auto normal = mdviewer::LayoutEngine::ComputeLayout(doc, 760.0f, typefacePtr, 17.0f);
-    const auto zoomed = mdviewer::LayoutEngine::ComputeLayout(doc, 760.0f, typefacePtr, 24.0f);
-    const auto wide = mdviewer::LayoutEngine::ComputeLayout(doc, 920.0f, typefacePtr, 17.0f);
-    const auto narrow = mdviewer::LayoutEngine::ComputeLayout(doc, 420.0f, typefacePtr, 17.0f);
+    const auto normal = mdviewer::LayoutEngine::ComputeLayout(doc, 760.0f, typefaces, 17.0f);
+    const auto zoomed = mdviewer::LayoutEngine::ComputeLayout(doc, 760.0f, typefaces, 24.0f);
+    const auto wide = mdviewer::LayoutEngine::ComputeLayout(doc, 920.0f, typefaces, 17.0f);
+    const auto narrow = mdviewer::LayoutEngine::ComputeLayout(doc, 420.0f, typefaces, 17.0f);
     Require(normal.blocks.size() > 20, "fixture should produce enough blocks");
 
     const float viewportHeight = 420.0f;
@@ -1999,6 +2057,7 @@ int main() {
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
+        {"DocumentFontContextFeedsLayout", DocumentFontContextFeedsLayout},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},

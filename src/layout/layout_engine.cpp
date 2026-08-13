@@ -9,6 +9,7 @@
 #include "app/heading_anchor.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
+#include "text/document_font_style.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -16,8 +17,6 @@
 #pragma warning(disable: 4267) 
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMetrics.h"
-#include "include/core/SkRefCnt.h"
-#include "include/core/SkTypeface.h"
 #include "include/core/SkFontTypes.h"
 #pragma warning(pop)
 
@@ -55,15 +54,6 @@ constexpr float kDetailsContentPaddingBottom = 8.0f;
 
 bool IsBreakableWhitespace(char ch) {
     return ch == ' ' || ch == '\t';
-}
-
-bool IsHeading(BlockType type) {
-    return type == BlockType::Heading1 ||
-           type == BlockType::Heading2 ||
-           type == BlockType::Heading3 ||
-           type == BlockType::Heading4 ||
-           type == BlockType::Heading5 ||
-           type == BlockType::Heading6;
 }
 
 int HeadingLevel(BlockType type) {
@@ -187,6 +177,7 @@ public:
     std::unordered_map<std::string, float> anchors;
     std::vector<HeadingOutlineItem> outline;
     SkFont font;
+    const DocumentTypefaceSet& typefaces;
     float baseFontSize;
     float activeFontScale = 1.0f;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
@@ -194,20 +185,17 @@ public:
 
     LayoutContext(
         float width,
-        SkTypeface* typeface,
+        const DocumentTypefaceSet& documentTypefaces,
         float documentBaseFontSize,
         LayoutEngine::ImageSizeProvider provider,
         LayoutOptions layoutOptions)
         : leftMargin(GetDocumentHorizontalInsets(width).left),
           rightMargin(GetDocumentHorizontalInsets(width).right),
           availableWidth(std::max(width - leftMargin - rightMargin, 1.0f)),
+          typefaces(documentTypefaces),
           baseFontSize(ClampBaseFontSize(documentBaseFontSize)),
           imageSizeProvider(provider),
-          options(layoutOptions) {
-        if (typeface) {
-            font.setTypeface(sk_ref_sp(typeface));
-        }
-    }
+          options(layoutOptions) {}
 
     void LayoutBlocks(
         const std::vector<Block>& blocks,
@@ -248,10 +236,8 @@ public:
                 }
             }
 
-            const float fontSize = GetBlockFontSize(block.type, baseFontSize) * activeFontScale;
-            font.setSize(fontSize);
-            font.setEmbolden(false);
-            font.setSkewX(0.0f);
+            ConfigureDocumentFont(font, typefaces, block.type, InlineFormatting::None, baseFontSize);
+            font.setSize(font.getSize() * activeFontScale);
             SkFontMetrics metrics;
             font.getMetrics(&metrics);
             const float lineHeight = metrics.fDescent - metrics.fAscent + metrics.fLeading;
@@ -276,7 +262,7 @@ public:
                 contentWidth = std::max(contentWidth - kDetailsSummaryIndent, 1.0f);
             }
 
-            if (IsHeading(block.type)) {
+            if (IsHeadingBlock(block.type)) {
                 AddHeadingAnchor(block, blockTop);
             }
 
@@ -762,20 +748,8 @@ private:
     }
 
     void ConfigureInlineFont(BlockType blockType, InlineFormatting formatting) {
-        const BlockType fontBlockType = HasFormatting(formatting, InlineFormatting::Code) ||
-            HasFormatting(formatting, InlineFormatting::Keyboard)
-            ? BlockType::CodeBlock
-            : blockType;
-        font.setSize(GetBlockFontSize(fontBlockType, baseFontSize) * activeFontScale);
-        if (HasFormatting(formatting, InlineFormatting::Keyboard)) {
-            font.setSize(font.getSize() * 0.9f);
-        }
-        if (HasFormatting(formatting, InlineFormatting::Subscript) ||
-            HasFormatting(formatting, InlineFormatting::Superscript)) {
-            font.setSize(font.getSize() * 0.78f);
-        }
-        font.setEmbolden(HasFormatting(formatting, InlineFormatting::Strong));
-        font.setSkewX(HasFormatting(formatting, InlineFormatting::Emphasis) ? -0.18f : 0.0f);
+        ConfigureDocumentFont(font, typefaces, blockType, formatting, baseFontSize);
+        font.setSize(font.getSize() * activeFontScale);
     }
 
     void AddHeadingAnchor(const Block& block, float y) {
@@ -1065,12 +1039,12 @@ private:
 DocumentLayout LayoutEngine::ComputeLayout(
     const DocumentModel& doc,
     float width,
-    SkTypeface* typeface,
+    const DocumentTypefaceSet& typefaces,
     float baseFontSize,
     ImageSizeProvider imageSizeProvider,
     LayoutOptions options) {
     DocumentLayout layout;
-    LayoutContext ctx(width, typeface, baseFontSize, imageSizeProvider, options);
+    LayoutContext ctx(width, typefaces, baseFontSize, imageSizeProvider, options);
     ctx.LayoutBlocks(doc.blocks, layout.blocks);
     layout.totalHeight = ctx.currentY + kDocumentBottomPadding;
     layout.plainText = std::move(ctx.plainText);

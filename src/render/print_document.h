@@ -9,7 +9,7 @@
 #include "app/app_state.h"
 #include "layout/document_model.h"
 #include "layout/layout_engine.h"
-#include "render/document_typefaces.h"
+#include "text/document_fonts.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -18,7 +18,6 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkRefCnt.h"
-#include "include/core/SkTypeface.h"
 #pragma warning(pop)
 
 namespace mdviewer {
@@ -41,7 +40,6 @@ struct PrintDocumentRequest {
     ThemeMode theme = ThemeMode::Light;
     float baseFontSize = 17.0f;
     DocumentTypefaceSet typefaces = {};
-    SkTypeface* layoutTypeface = nullptr;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
     float pageWidth = 595.0f;
     float pageHeight = 842.0f;

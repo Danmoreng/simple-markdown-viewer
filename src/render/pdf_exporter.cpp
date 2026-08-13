@@ -64,7 +64,7 @@ PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
     if (request.outputPath.empty() || request.sourceText.empty() || request.document.blocks.empty()) {
         return PdfExportStatus::NoDocument;
     }
-    if (!request.layoutTypeface || !request.typefaces.regular) {
+    if (!request.typefaces.regular) {
         return PdfExportStatus::NoDocument;
     }
     if (request.pageWidth <= 1.0f || request.pageHeight <= 1.0f) {
@@ -80,7 +80,6 @@ PdfExportStatus ExportMarkdownToPdf(const PdfExportRequest& request) {
                 .theme = request.theme,
                 .baseFontSize = request.baseFontSize,
                 .typefaces = request.typefaces,
-                .layoutTypeface = request.layoutTypeface,
                 .imageSizeProvider = request.imageSizeProvider,
                 .pageWidth = request.pageWidth,
                 .pageHeight = request.pageHeight,
