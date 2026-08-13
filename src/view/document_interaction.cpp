@@ -1,8 +1,12 @@
 #include "view/document_interaction.h"
 
 #include <algorithm>
-#include <cctype>
+#include <array>
 #include <cmath>
+#include <limits>
+#include <vector>
+
+#include <utf8proc.h>
 
 namespace mdviewer {
 namespace {
@@ -20,26 +24,99 @@ bool ToggleDetailsInBlocks(std::vector<Block>& blocks, size_t detailsId) {
     return false;
 }
 
-std::string ToLowerAscii(std::string text) {
-    for (char& ch : text) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+struct FoldedText {
+    std::string text;
+    std::vector<size_t> originalOffsets;
+};
+
+FoldedText FoldForSearch(const std::string& source) {
+    constexpr size_t kNoOriginalOffset = std::numeric_limits<size_t>::max();
+
+    FoldedText folded;
+    folded.text.reserve(source.size());
+    folded.originalOffsets.push_back(0);
+
+    size_t sourceOffset = 0;
+    while (sourceOffset < source.size()) {
+        utf8proc_int32_t codepoint = 0;
+        const auto sourceLength = utf8proc_iterate(
+            reinterpret_cast<const utf8proc_uint8_t*>(source.data() + sourceOffset),
+            static_cast<utf8proc_ssize_t>(source.size() - sourceOffset),
+            &codepoint);
+
+        if (sourceLength <= 0) {
+            folded.text.push_back(source[sourceOffset]);
+            folded.originalOffsets.push_back(sourceOffset + 1);
+            ++sourceOffset;
+            continue;
+        }
+
+        std::array<utf8proc_int32_t, 4> mappedStack = {};
+        std::vector<utf8proc_int32_t> mappedOverflow;
+        utf8proc_int32_t* mappedCodepoints = mappedStack.data();
+        auto mappedCount = utf8proc_decompose_char(
+            codepoint,
+            mappedCodepoints,
+            static_cast<utf8proc_ssize_t>(mappedStack.size()),
+            UTF8PROC_CASEFOLD,
+            nullptr);
+        if (mappedCount > static_cast<utf8proc_ssize_t>(mappedStack.size())) {
+            mappedOverflow.resize(static_cast<size_t>(mappedCount));
+            mappedCodepoints = mappedOverflow.data();
+            mappedCount = utf8proc_decompose_char(
+                codepoint,
+                mappedCodepoints,
+                mappedCount,
+                UTF8PROC_CASEFOLD,
+                nullptr);
+        }
+
+        if (mappedCount <= 0) {
+            folded.text.append(source, sourceOffset, static_cast<size_t>(sourceLength));
+            folded.originalOffsets.resize(folded.text.size() + 1, kNoOriginalOffset);
+            folded.originalOffsets.back() = sourceOffset + static_cast<size_t>(sourceLength);
+            sourceOffset += static_cast<size_t>(sourceLength);
+            continue;
+        }
+
+        for (utf8proc_ssize_t index = 0; index < mappedCount; ++index) {
+            utf8proc_uint8_t encoded[4] = {};
+            const auto encodedLength = utf8proc_encode_char(mappedCodepoints[static_cast<size_t>(index)], encoded);
+            if (encodedLength <= 0) {
+                continue;
+            }
+            folded.text.append(reinterpret_cast<const char*>(encoded), static_cast<size_t>(encodedLength));
+            folded.originalOffsets.resize(folded.text.size() + 1, kNoOriginalOffset);
+        }
+
+        folded.originalOffsets.back() = sourceOffset + static_cast<size_t>(sourceLength);
+        sourceOffset += static_cast<size_t>(sourceLength);
     }
-    return text;
+    return folded;
 }
 
-void AppendMatchesInText(AppState& appState, const std::string& haystack, const std::string& needle) {
-    if (needle.empty()) {
+void AppendMatchesInText(AppState& appState, const FoldedText& haystack, const std::string& needle) {
+    constexpr size_t kNoOriginalOffset = std::numeric_limits<size_t>::max();
+    if (needle.empty() || haystack.originalOffsets.size() != haystack.text.size() + 1) {
         return;
     }
 
     size_t offset = 0;
-    while (offset < haystack.size()) {
-        const size_t found = haystack.find(needle, offset);
+    while (offset < haystack.text.size()) {
+        const size_t found = haystack.text.find(needle, offset);
         if (found == std::string::npos) {
             break;
         }
-        appState.searchMatches.push_back({found, found + appState.searchQuery.size()});
-        offset = found + std::max<size_t>(needle.size(), 1);
+
+        const size_t foldedEnd = found + needle.size();
+        const size_t originalStart = haystack.originalOffsets[found];
+        const size_t originalEnd = haystack.originalOffsets[foldedEnd];
+        if (originalStart != kNoOriginalOffset && originalEnd != kNoOriginalOffset) {
+            appState.searchMatches.push_back({originalStart, originalEnd});
+            offset = foldedEnd;
+        } else {
+            offset = found + 1;
+        }
     }
 }
 
@@ -218,7 +295,9 @@ void RebuildSearchMatches(AppState& appState) {
         return;
     }
 
-    AppendMatchesInText(appState, ToLowerAscii(appState.docLayout.plainText), ToLowerAscii(appState.searchQuery));
+    const FoldedText foldedDocument = FoldForSearch(appState.docLayout.plainText);
+    const FoldedText foldedQuery = FoldForSearch(appState.searchQuery);
+    AppendMatchesInText(appState, foldedDocument, foldedQuery.text);
 }
 
 void OpenSearch(AppState& appState) {

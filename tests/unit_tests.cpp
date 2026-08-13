@@ -3328,6 +3328,43 @@ void SyntaxHighlightingCacheAndFallback() {
         "unknown language tags should remain an expected plain-text fallback");
 }
 
+void UnicodeSearchCaseFolding() {
+    const std::string street = "Stra\xC3\x9F" "e";
+    const std::string upperStreet = "STRASSE";
+    const std::string upperUber = "\xC3\x9C" "ber";
+    const std::string mixedUber = "\xC3\xBC" "BER";
+
+    mdviewer::AppState searchState;
+    searchState.docLayout.plainText =
+        street + " " + upperStreet + " " + upperUber + " " + mixedUber;
+    mdviewer::OpenSearch(searchState);
+    mdviewer::InsertSearchText(searchState, upperStreet);
+    RequireEqual(searchState.searchMatches.size(), static_cast<size_t>(2),
+                 "Unicode case folding should match both sharp-s and ASCII spellings");
+    RequireEqual(searchState.searchMatches[0].first, static_cast<size_t>(0),
+                 "case-folded search should retain the original match start");
+    RequireEqual(searchState.searchMatches[0].second, street.size(),
+                 "case-folded search should retain the original sharp-s byte range");
+
+    mdviewer::CloseSearch(searchState);
+    mdviewer::OpenSearch(searchState);
+    mdviewer::InsertSearchText(searchState, "\xC3\xBC" "ber");
+    RequireEqual(searchState.searchMatches.size(), static_cast<size_t>(2),
+                 "Unicode case folding should match accented letters independent of case");
+
+    searchState.docLayout.plainText = "\xC3\x9F";
+    searchState.searchQuery = "s";
+    mdviewer::RebuildSearchMatches(searchState);
+    Require(searchState.searchMatches.empty(),
+            "search should not match only half of a case-folded source character");
+    searchState.searchQuery = "ss";
+    mdviewer::RebuildSearchMatches(searchState);
+    RequireEqual(searchState.searchMatches.size(), static_cast<size_t>(1),
+                 "the full sharp-s case fold should remain searchable");
+    RequireEqual(searchState.searchMatches[0].second, static_cast<size_t>(2),
+                 "a folded expansion should map back to the complete UTF-8 source character");
+}
+
 void LatexMathParsingLayoutAndFallback() {
     const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
         "Euler: $e^{i\\pi}+1=0$ is inline.\n\n"
@@ -3564,6 +3601,7 @@ int main() {
         {"DocumentSizeLimit", DocumentSizeLimit},
         {"FrontMatterAndMarkdownExtensions", FrontMatterAndMarkdownExtensions},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
+        {"UnicodeSearchCaseFolding", UnicodeSearchCaseFolding},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
         {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
         {"ComplexTextShapingSubsystem", ComplexTextShapingSubsystem},
