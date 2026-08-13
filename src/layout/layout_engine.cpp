@@ -1193,16 +1193,16 @@ private:
                 ShapedTextInputRun{.run = InlineRun{.text = labelText}},
             });
             if (!paragraphs.paragraphs.empty()) {
-                ShapedTextLayoutOptions options;
-                options.blockType = BlockType::Paragraph;
-                options.baseFontSize = kOutlineLabelFontSize;
-                options.wrapWidth = kNoWrapShapingWidth;
-                options.fallbackLineHeight = kOutlineLabelFontSize;
+                ShapedTextLayoutOptions shapingOptions;
+                shapingOptions.blockType = BlockType::Paragraph;
+                shapingOptions.baseFontSize = kOutlineLabelFontSize;
+                shapingOptions.wrapWidth = kNoWrapShapingWidth;
+                shapingOptions.fallbackLineHeight = kOutlineLabelFontSize;
                 ShapedTextLayoutResult shaped = ShapeTextParagraph(
                     paragraphs.paragraphs.front(),
                     complexTextRuntime,
                     typefaces,
-                    options);
+                    shapingOptions);
                 if (shaped.success && shaped.lines.size() == 1) {
                     item.shapedLine = std::move(shaped.lines.front());
                     item.hasShapedLine = true;

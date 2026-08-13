@@ -474,7 +474,7 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
     }
 }
 
-void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
+void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams& params, const LineLayout& line) {
     const auto codeFragments = CollectVisualSpanFragments(line, [](const RunLayout& run) {
         return !run.text.empty() && HasFormatting(run.formatting, InlineFormatting::Code);
     });
@@ -1273,7 +1273,7 @@ void DrawBlocks(
         }
 
         for (const auto& line : block.lines) {
-            DrawInlineDecorationsForLine(ctx, params, block, line);
+            DrawInlineDecorationsForLine(ctx, params, line);
             DrawSearchForLine(ctx, params, block, line);
             DrawSelectionForLine(ctx, params, block, line);
             DrawLine(ctx, params, block, line);
