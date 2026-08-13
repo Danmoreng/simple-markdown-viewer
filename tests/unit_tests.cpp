@@ -24,6 +24,7 @@
 #include "render/pdf_exporter.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "render/typography.h"
+#include "text/complex_text_runtime.h"
 #include "util/skia_font_utils.h"
 #include "util/utf8.h"
 #include "view/document_hit_test.h"
@@ -1093,6 +1094,16 @@ void BidirectionalMarkdownBaseline() {
         "logical copy/search text should retain Arabic and Hebrew code strings");
 }
 
+void ComplexTextRuntimeAvailability() {
+    const sk_sp<SkFontMgr> fontManager = mdviewer::CreateFontManager();
+    Require(fontManager != nullptr, "complex text runtime test requires a font manager");
+
+    const mdviewer::ComplexTextRuntime runtime(fontManager);
+    Require(runtime.IsAvailable(), runtime.Diagnostic());
+    Require(runtime.Unicode() != nullptr, "complex text runtime should expose ICU Unicode services");
+    Require(runtime.Shaper() != nullptr, "complex text runtime should expose the HarfBuzz shaper");
+}
+
 void SafeHtmlSubset() {
     const mdviewer::DocumentModel document = mdviewer::MarkdownParser::Parse(
         "<p align=\"center\">\n"
@@ -1987,6 +1998,7 @@ int main() {
         {"FrontMatterAndMarkdownExtensions", FrontMatterAndMarkdownExtensions},
         {"MarkdownCorrectnessFoundation", MarkdownCorrectnessFoundation},
         {"BidirectionalMarkdownBaseline", BidirectionalMarkdownBaseline},
+        {"ComplexTextRuntimeAvailability", ComplexTextRuntimeAvailability},
         {"SafeHtmlSubset", SafeHtmlSubset},
         {"GithubAlerts", GithubAlerts},
         {"LayoutSensitiveBehavior", LayoutSensitiveBehavior},

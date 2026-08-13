@@ -254,6 +254,7 @@ set(SOURCES
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
     src/util/utf8.cpp
+    src/text/complex_text_runtime.cpp
     src/markdown/markdown_parser.cpp
     src/layout/layout_engine.cpp
     src/render/document_renderer.cpp
@@ -368,6 +369,14 @@ if(WIN32)
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skresources.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skshaper.lib>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skshaper.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_icu.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_icu.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_core.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_core.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/harfbuzz.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/harfbuzz.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/icu.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/icu.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/expat.lib>
@@ -380,6 +389,7 @@ if(WIN32)
         dbghelp.lib
         user32.lib
         gdi32.lib
+        Advapi32.lib
     )
 else()
     target_link_libraries(mdviewer PRIVATE 
@@ -392,6 +402,14 @@ else()
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskresources.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskshaper.a>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskshaper.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_icu.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_icu.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_core.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_core.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libharfbuzz.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libharfbuzz.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libicu.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libicu.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libexpat.a>
@@ -434,6 +452,16 @@ add_custom_command(TARGET mdviewer POST_BUILD
         "${microtex_SOURCE_DIR}/res/RES_README"
         "$<TARGET_FILE_DIR:mdviewer>/res")
 
+if(WIN32)
+    set(SKIA_ICU_DATA_FILE
+        "$<IF:$<CONFIG:Debug>,${SKIA_DEBUG_OUT_DIR}/icudtl.dat,${SKIA_OUT_DIR}/icudtl.dat>")
+    add_custom_command(TARGET mdviewer POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DSOURCE_FILE=${SKIA_ICU_DATA_FILE}"
+            "-DDESTINATION_FILE=$<TARGET_FILE_DIR:mdviewer>/icudtl.dat"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_required_file.cmake")
+endif()
+
 add_executable(mdviewer_tests
     tests/unit_tests.cpp
     src/app/app_config.cpp
@@ -456,6 +484,7 @@ add_executable(mdviewer_tests
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
     src/util/utf8.cpp
+    src/text/complex_text_runtime.cpp
     src/view/document_context_menu.cpp
     src/view/document_hit_test.cpp
     src/view/document_interaction.cpp
@@ -505,6 +534,14 @@ if(WIN32)
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skresources.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skshaper.lib>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skshaper.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_icu.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_icu.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_core.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_core.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/harfbuzz.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/harfbuzz.lib>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/icu.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/icu.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/expat.lib>
@@ -516,6 +553,7 @@ if(WIN32)
         user32.lib
         gdi32.lib
         comdlg32.lib
+        Advapi32.lib
     )
 elseif(UNIX AND NOT APPLE)
     target_link_libraries(mdviewer_tests PRIVATE
@@ -526,6 +564,14 @@ elseif(UNIX AND NOT APPLE)
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskresources.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskshaper.a>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskshaper.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_icu.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_icu.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_core.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_core.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libharfbuzz.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libharfbuzz.a>
+        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libicu.a>
+        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libicu.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
         $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
         $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libexpat.a>
@@ -556,6 +602,14 @@ add_custom_command(TARGET mdviewer_tests POST_BUILD
         "${microtex_SOURCE_DIR}/res/.clatexmath-res_root"
         "${microtex_SOURCE_DIR}/res/RES_README"
         "$<TARGET_FILE_DIR:mdviewer_tests>/res")
+
+if(WIN32)
+    add_custom_command(TARGET mdviewer_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DSOURCE_FILE=${SKIA_ICU_DATA_FILE}"
+            "-DDESTINATION_FILE=$<TARGET_FILE_DIR:mdviewer_tests>/icudtl.dat"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_required_file.cmake")
+endif()
 
 if(MDVIEWER_ENABLE_SANITIZERS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

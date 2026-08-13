@@ -4,6 +4,7 @@ set -e
 CONFIGURATION="Release"
 BUILD_DIR="build"
 TARGET="mdviewer"
+CLEAN=false
 SKIP_SKIA=false
 ENABLE_PDF=true
 
@@ -85,7 +86,7 @@ if [ "$SKIP_SKIA" = false ]; then
 
     echo "Configuring Skia with GN ($CONFIGURATION)..."
     SKIA_ENABLE_PDF="$ENABLE_PDF"
-    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_pdf_subset_harfbuzz=false skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
+    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_pdf_subset_harfbuzz=false skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
     
     # GN and Ninja paths
     GN_PATH="./bin/gn"
@@ -94,7 +95,14 @@ if [ "$SKIP_SKIA" = false ]; then
     $GN_PATH gen "$SKIA_OUT_DIR" --args="$GN_ARGS"
 
     echo "Building Skia..."
-    $NINJA_PATH -C "$SKIA_OUT_DIR" skia modules/svg:svg
+    $NINJA_PATH -C "$SKIA_OUT_DIR" \
+        skia \
+        modules/svg:svg \
+        modules/skshaper:skshaper \
+        modules/skunicode:skunicode_core \
+        modules/skunicode:skunicode_icu \
+        third_party/harfbuzz:harfbuzz \
+        third_party/icu:icu
 
     SKIA_MILESTONE="$(awk '/^#define SK_MILESTONE / { print $3; exit }' include/core/SkMilestone.h)"
     printf '%s\n' "$SKIA_REVISION" > "$SKIA_OUT_DIR/SKIA_REVISION"
@@ -108,6 +116,39 @@ SKIA_OUT_PATH="$SKIA_DIR/out/Static"
 if [ "$CONFIGURATION" = "Debug" ]; then
     SKIA_OUT_PATH="$SKIA_DIR/out/Debug"
 fi
+
+REQUIRED_SKIA_FILES=(
+    libskia.a
+    libsvg.a
+    libskresources.a
+    libskshaper.a
+    libskunicode_core.a
+    libskunicode_icu.a
+    libharfbuzz.a
+    libicu.a
+    libexpat.a
+    SKIA_GN_ARGS
+)
+for required_file in "${REQUIRED_SKIA_FILES[@]}"; do
+    if [ ! -f "$SKIA_OUT_PATH/$required_file" ]; then
+        echo "Required Skia text-stack artifact is missing: $SKIA_OUT_PATH/$required_file" >&2
+        echo "Rebuild Skia with ./build.sh before using --skip-skia." >&2
+        exit 1
+    fi
+done
+
+for required_arg in \
+    'skia_use_icu=true' \
+    'skia_enable_skunicode=true' \
+    'skia_use_harfbuzz=true' \
+    'skia_use_system_harfbuzz=false' \
+    'skia_enable_skshaper=true'; do
+    if ! grep -q "$required_arg" "$SKIA_OUT_PATH/SKIA_GN_ARGS"; then
+        echo "The existing Skia build is missing required GN argument: $required_arg" >&2
+        echo "Rebuild Skia with ./build.sh before using --skip-skia." >&2
+        exit 1
+    fi
+done
 
 if [ "$ENABLE_PDF" = true ]; then
     SKIA_ARGS_FILE="$SKIA_OUT_PATH/SKIA_GN_ARGS"

@@ -196,7 +196,7 @@ if (-not $SkipSkia) {
         $is_debug = if ($Configuration -eq "Debug") { "true" } else { "false" }
 
         Write-Host "Configuring Skia with GN ($Configuration)..." -ForegroundColor Cyan
-        $gnArgs = "is_official_build=true is_debug=$is_debug skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_direct3d=false skia_use_metal=false skia_enable_pdf=true skia_enable_skottie=false skia_use_icu=false skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
+        $gnArgs = "is_official_build=true is_debug=$is_debug skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_direct3d=false skia_use_metal=false skia_enable_pdf=true skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
         
         # GN and Ninja are now in bin/ or provided by depot_tools
         $gnPath = if (Test-Path "bin/gn.exe") { "bin/gn.exe" } else { "gn" }
@@ -206,8 +206,8 @@ if (-not $SkipSkia) {
         Assert-LastExitCode "$gnPath gen"
 
         Write-Host "Building Skia..." -ForegroundColor Cyan
-        & $ninjaPath -C $skiaOutDir skia modules/svg:svg
-        Assert-LastExitCode "$ninjaPath -C $skiaOutDir skia modules/svg:svg"
+        & $ninjaPath -C $skiaOutDir skia modules/svg:svg modules/skshaper:skshaper modules/skunicode:skunicode_core modules/skunicode:skunicode_icu third_party/harfbuzz:harfbuzz third_party/icu:icu
+        Assert-LastExitCode "$ninjaPath -C $skiaOutDir Skia text stack"
 
         $milestoneLine = Get-Content "include\core\SkMilestone.h" | Select-String "^#define SK_MILESTONE (\d+)$"
         if (-not $milestoneLine -or $milestoneLine.Matches.Count -ne 1) {
@@ -222,6 +222,41 @@ if (-not $SkipSkia) {
     finally {
         Remove-Item Env:GIT_SYNC_DEPS_SKIP_EMSDK -ErrorAction SilentlyContinue
         Pop-Location
+    }
+}
+
+$skiaOutPath = if ($Configuration -eq "Debug") { "$skiaDir/out/Debug" } else { "$skiaDir/out/Static" }
+$requiredSkiaFiles = @(
+    "skia.lib",
+    "svg.lib",
+    "skresources.lib",
+    "skshaper.lib",
+    "skunicode_core.lib",
+    "skunicode_icu.lib",
+    "harfbuzz.lib",
+    "icu.lib",
+    "expat.lib",
+    "icudtl.dat",
+    "SKIA_GN_ARGS"
+)
+foreach ($requiredFile in $requiredSkiaFiles) {
+    $requiredPath = Join-Path $skiaOutPath $requiredFile
+    if (-not (Test-Path $requiredPath -PathType Leaf)) {
+        throw "Required Skia text-stack artifact is missing: $requiredPath. Rebuild Skia without -SkipSkia."
+    }
+}
+
+$skiaGnArgs = Get-Content (Join-Path $skiaOutPath "SKIA_GN_ARGS") -Raw
+$requiredGnArgs = @(
+    "skia_use_icu=true",
+    "skia_enable_skunicode=true",
+    "skia_use_harfbuzz=true",
+    "skia_use_system_harfbuzz=false",
+    "skia_enable_skshaper=true"
+)
+foreach ($requiredGnArg in $requiredGnArgs) {
+    if (-not $skiaGnArgs.Contains($requiredGnArg)) {
+        throw "The existing Skia build is missing required GN argument '$requiredGnArg'. Rebuild Skia without -SkipSkia."
     }
 }
 
@@ -243,7 +278,6 @@ if ($currentGenerator -and $currentGenerator -ne $generator) {
     New-Item -ItemType Directory $BuildDir | Out-Null
 }
 
-$skiaOutPath = if ($Configuration -eq "Debug") { "$skiaDir/out/Debug" } else { "$skiaDir/out/Static" }
 $md4cSourceDir = Join-Path $PSScriptRoot "build\_deps\md4c-src"
 if (-not (Test-Path $md4cSourceDir)) {
     $md4cSourceDir = Join-Path $BuildDir "_deps\md4c-src"

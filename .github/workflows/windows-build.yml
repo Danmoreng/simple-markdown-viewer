@@ -51,9 +51,49 @@ jobs:
           if ($LASTEXITCODE -eq 0 -and (Test-Path $assetPath)) {
             Remove-Item "third_party\skia" -Recurse -Force -ErrorAction SilentlyContinue
             Expand-Archive -Path $assetPath -DestinationPath "." -Force
-            if (Test-Path "third_party\skia\out\Static\skia.lib") {
+            $requiredBundleFiles = @(
+              "third_party\skia\LICENSE",
+              "third_party\skia\include\core\SkCanvas.h",
+              "third_party\skia\modules\svg\include\SkSVGDOM.h",
+              "third_party\skia\modules\skresources\include\SkResources.h",
+              "third_party\skia\modules\skshaper\include\SkShaper.h",
+              "third_party\skia\modules\skshaper\include\SkShaper_harfbuzz.h",
+              "third_party\skia\modules\skunicode\include\SkUnicode.h",
+              "third_party\skia\modules\skunicode\include\SkUnicode_icu.h",
+              "third_party\skia\src\core\SkTHash.h",
+              "third_party\skia\out\Static\skia.lib",
+              "third_party\skia\out\Static\svg.lib",
+              "third_party\skia\out\Static\skresources.lib",
+              "third_party\skia\out\Static\skshaper.lib",
+              "third_party\skia\out\Static\skunicode_core.lib",
+              "third_party\skia\out\Static\skunicode_icu.lib",
+              "third_party\skia\out\Static\harfbuzz.lib",
+              "third_party\skia\out\Static\icu.lib",
+              "third_party\skia\out\Static\expat.lib",
+              "third_party\skia\out\Static\icudtl.dat",
+              "third_party\skia\out\Static\SKIA_REVISION",
+              "third_party\skia\out\Static\SKIA_MILESTONE",
+              "third_party\skia\out\Static\SKIA_GN_ARGS"
+            )
+            $missingBundleFiles = @($requiredBundleFiles | Where-Object { -not (Test-Path $_ -PathType Leaf) })
+            if ($missingBundleFiles.Count -eq 0) {
+              $bundleGnArgs = Get-Content "third_party\skia\out\Static\SKIA_GN_ARGS" -Raw
+              $requiredGnArgs = @(
+                "skia_use_icu=true",
+                "skia_enable_skunicode=true",
+                "skia_use_harfbuzz=true",
+                "skia_use_system_harfbuzz=false",
+                "skia_enable_skshaper=true"
+              )
+              $missingGnArgs = @($requiredGnArgs | Where-Object { -not $bundleGnArgs.Contains($_) })
+              $missingBundleFiles += @($missingGnArgs | ForEach-Object { "SKIA_GN_ARGS: $_" })
+            }
+            if ($missingBundleFiles.Count -eq 0) {
               "bundle_available=true" >> $env:GITHUB_OUTPUT
             } else {
+              Write-Host "Downloaded Skia bundle is stale; missing required text-stack artifacts:" -ForegroundColor Yellow
+              $missingBundleFiles | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+              Remove-Item "third_party\skia" -Recurse -Force -ErrorAction SilentlyContinue
               "bundle_available=false" >> $env:GITHUB_OUTPUT
             }
           } else {
@@ -70,12 +110,24 @@ jobs:
             .\build.ps1 -Configuration Release
           }
 
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target mdviewer_tests
+          if ($LASTEXITCODE -ne 0) { throw "mdviewer_tests build failed." }
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Windows unit tests failed." }
+
       - name: Stage release files
         shell: pwsh
         run: |
           $stageDir = "dist\mdviewer-windows-x64"
           New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
           Copy-Item "build\Release\mdviewer.exe" "$stageDir\mdviewer.exe"
+          if (-not (Test-Path "build\Release\icudtl.dat")) {
+            throw "ICU runtime data is missing from the Windows build."
+          }
+          Copy-Item "build\Release\icudtl.dat" "$stageDir\icudtl.dat"
           if (-not (Test-Path "build\Release\res\.clatexmath-res_root")) {
             throw "MicroTeX runtime resources are missing from the Windows build."
           }

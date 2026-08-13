@@ -51,7 +51,8 @@ builds.
 Use a Windows machine with Visual Studio C++ tools, Python, Git, sufficient disk
 space, and the repository checked out at the intended revision.
 
-Build the pinned PDF- and SVG-enabled Release Skia libraries:
+Build the pinned PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled
+Release Skia libraries:
 
 ```powershell
 .\build.ps1 -Clean -Configuration Release -SkiaOnly
@@ -63,7 +64,12 @@ Confirm provenance:
 Get-Content .\third_party\skia\out\Static\SKIA_REVISION
 Get-Content .\third_party\skia\out\Static\SKIA_MILESTONE
 Get-Content .\third_party\skia\out\Static\SKIA_GN_ARGS
+Test-Path .\third_party\skia\out\Static\icudtl.dat
 ```
+
+`SKIA_GN_ARGS` must contain `skia_use_icu=true`,
+`skia_enable_skunicode=true`, `skia_use_harfbuzz=true`,
+`skia_use_system_harfbuzz=false`, and `skia_enable_skshaper=true`.
 
 Build and test the application against that exact local output:
 
@@ -82,6 +88,7 @@ Also run the GUI smoke test:
 Before publishing, manually verify:
 
 - `test-docs/markdown-rendering-fixture.md`;
+- `test-docs/bidi-complex-text.md` and complex-text runtime initialization;
 - scrolling and rapid selection in a real Unicode document;
 - local links and Back/Forward;
 - local images and syntax-highlighted code blocks;
@@ -101,13 +108,19 @@ third_party/skia/
     svg/include/
     skresources/include/
     skshaper/include/
+    skunicode/include/
   src/core/
   out/Static/
     skia.lib
     svg.lib
     skresources.lib
     skshaper.lib
+    skunicode_core.lib
+    skunicode_icu.lib
+    harfbuzz.lib
+    icu.lib
     expat.lib
+    icudtl.dat
     SKIA_REVISION
     SKIA_MILESTONE
     SKIA_GN_ARGS
@@ -127,18 +140,25 @@ New-Item -ItemType Directory -Path $bundleOut -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\modules\svg" -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\modules\skresources" -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\modules\skshaper" -Force | Out-Null
+New-Item -ItemType Directory -Path "$bundleSkia\modules\skunicode" -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\src" -Force | Out-Null
 Copy-Item "third_party\skia\LICENSE" "$bundleSkia\LICENSE"
 Copy-Item "third_party\skia\include" "$bundleSkia\include" -Recurse
 Copy-Item "third_party\skia\modules\svg\include" "$bundleSkia\modules\svg\include" -Recurse
 Copy-Item "third_party\skia\modules\skresources\include" "$bundleSkia\modules\skresources\include" -Recurse
 Copy-Item "third_party\skia\modules\skshaper\include" "$bundleSkia\modules\skshaper\include" -Recurse
+Copy-Item "third_party\skia\modules\skunicode\include" "$bundleSkia\modules\skunicode\include" -Recurse
 Copy-Item "third_party\skia\src\core" "$bundleSkia\src\core" -Recurse
 Copy-Item "third_party\skia\out\Static\skia.lib" "$bundleOut\skia.lib"
 Copy-Item "third_party\skia\out\Static\svg.lib" "$bundleOut\svg.lib"
 Copy-Item "third_party\skia\out\Static\skresources.lib" "$bundleOut\skresources.lib"
 Copy-Item "third_party\skia\out\Static\skshaper.lib" "$bundleOut\skshaper.lib"
+Copy-Item "third_party\skia\out\Static\skunicode_core.lib" "$bundleOut\skunicode_core.lib"
+Copy-Item "third_party\skia\out\Static\skunicode_icu.lib" "$bundleOut\skunicode_icu.lib"
+Copy-Item "third_party\skia\out\Static\harfbuzz.lib" "$bundleOut\harfbuzz.lib"
+Copy-Item "third_party\skia\out\Static\icu.lib" "$bundleOut\icu.lib"
 Copy-Item "third_party\skia\out\Static\expat.lib" "$bundleOut\expat.lib"
+Copy-Item "third_party\skia\out\Static\icudtl.dat" "$bundleOut\icudtl.dat"
 Copy-Item "third_party\skia\out\Static\SKIA_REVISION" "$bundleOut\SKIA_REVISION"
 Copy-Item "third_party\skia\out\Static\SKIA_MILESTONE" "$bundleOut\SKIA_MILESTONE"
 Copy-Item "third_party\skia\out\Static\SKIA_GN_ARGS" "$bundleOut\SKIA_GN_ARGS"
@@ -155,7 +175,7 @@ while validating it:
 gh release create skia-bundle-v2 `
   .\dist\skia-windows-x64-static.zip `
   --title "Skia Bundle skia-bundle-v2" `
-  --notes "Pinned Windows x64 PDF- and SVG-enabled Skia bundle."
+  --notes "Pinned Windows x64 PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled Skia bundle."
 ```
 
 The `Publish Skia Bundle` workflow can perform the same source build when
@@ -167,6 +187,12 @@ Only after the bundle exists, change:
 ```text
 ci/skia-bundle-version.txt
 ```
+
+Do not change this file as part of the text-stack implementation itself. The
+active bundle must stay pinned until the replacement bundle has been published,
+tested with `mdviewer_tests`, and smoke-tested as a release archive. The Windows
+workflow treats any bundle without the complete SkUnicode/HarfBuzz/ICU library
+set and `icudtl.dat` as stale and falls back to a clean source build.
 
 Then push that switch as a separate commit. Normal branch pushes intentionally
 do not run GitHub builds, so start the Windows workflow manually to validate the
