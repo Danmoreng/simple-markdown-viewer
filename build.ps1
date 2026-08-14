@@ -196,7 +196,7 @@ if (-not $SkipSkia) {
         $is_debug = if ($Configuration -eq "Debug") { "true" } else { "false" }
 
         Write-Host "Configuring Skia with GN ($Configuration)..." -ForegroundColor Cyan
-        $gnArgs = "is_official_build=true is_debug=$is_debug skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_direct3d=false skia_use_metal=false skia_enable_pdf=true skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
+        $gnArgs = "is_official_build=true is_debug=$is_debug skia_enable_ganesh=true skia_use_gl=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_direct3d=true skia_use_metal=false skia_enable_pdf=true skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
         
         # GN and Ninja are now in bin/ or provided by depot_tools
         $gnPath = if (Test-Path "bin/gn.exe") { "bin/gn.exe" } else { "gn" }
@@ -248,6 +248,9 @@ foreach ($requiredFile in $requiredSkiaFiles) {
 
 $skiaGnArgs = Get-Content (Join-Path $skiaOutPath "SKIA_GN_ARGS") -Raw
 $requiredGnArgs = @(
+    "skia_enable_ganesh=true",
+    "skia_use_gl=false",
+    "skia_use_direct3d=true",
     "skia_use_icu=true",
     "skia_enable_skunicode=true",
     "skia_use_harfbuzz=true",

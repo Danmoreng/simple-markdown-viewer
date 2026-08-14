@@ -231,6 +231,7 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             app.Controller().SaveConfig();
             StopAutoScroll(hwnd, app.Interaction());
             app.Host().fileWatcher.Stop();
+            app.Host().surface.Shutdown();
             CleanupMenus();
             PostQuitMessage(0);
             return 0;

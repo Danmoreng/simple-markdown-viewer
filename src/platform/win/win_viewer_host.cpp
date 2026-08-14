@@ -177,7 +177,7 @@ void SyncMenuState(HWND hwnd, const ViewerHostContext& context) {
 }
 
 void UpdateSurface(HWND hwnd, ViewerHostContext& context) {
-    EnsureRasterSurfaceSize(hwnd, context.surface);
+    context.surface.EnsureSize(hwnd);
 }
 
 std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd, const ViewerHostContext& context) {
@@ -204,7 +204,17 @@ std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd, const ViewerHostContext& 
 }
 
 void Render(HWND hwnd, ViewerHostContext& context) {
-    if (!context.surface) {
+    AppState& appState = State(context);
+    bool interactiveResize = false;
+    {
+        std::lock_guard<std::mutex> lock(appState.mtx);
+        interactiveResize = appState.isResizingOutline;
+    }
+
+    if (!context.surface.BeginFrame(hwnd, interactiveResize)) {
+        PAINTSTRUCT ps{};
+        BeginPaint(hwnd, &ps);
+        EndPaint(hwnd, &ps);
         return;
     }
 
@@ -215,7 +225,6 @@ void Render(HWND hwnd, ViewerHostContext& context) {
         return;
     }
 
-    AppState& appState = State(context);
     SkCanvas* canvas = context.surface->getCanvas();
     const ThemePalette palette = GetCurrentThemePalette(context);
     canvas->clear(palette.windowBackground);
@@ -274,7 +283,7 @@ void Render(HWND hwnd, ViewerHostContext& context) {
         CanZoomOut(context),
         CanZoomIn(context));
 
-    PresentRasterSurface(hwnd, context.surface.get());
+    context.surface.Present(hwnd, interactiveResize);
 }
 
 bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path& path, bool pushHistory) {

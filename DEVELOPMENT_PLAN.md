@@ -30,6 +30,8 @@ The current implementation already includes:
 - [x] Tree-sitter syntax highlighting for supported fenced code languages
 - [x] code block copy buttons
 - [x] custom Skia document rendering
+- [x] Ganesh GPU presentation through Direct3D 12 on Windows with automatic
+  raster fallback and through the system OpenGL driver on Linux
 - [x] scrolling, selection, and copy
 - [x] Unicode-aware in-document search with match highlighting and next/previous navigation
 - [x] relative local Markdown/text links opening inside the viewer

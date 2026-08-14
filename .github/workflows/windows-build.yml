@@ -79,6 +79,9 @@ jobs:
             if ($missingBundleFiles.Count -eq 0) {
               $bundleGnArgs = Get-Content "third_party\skia\out\Static\SKIA_GN_ARGS" -Raw
               $requiredGnArgs = @(
+                "skia_enable_ganesh=true",
+                "skia_use_gl=false",
+                "skia_use_direct3d=true",
                 "skia_use_icu=true",
                 "skia_enable_skunicode=true",
                 "skia_use_harfbuzz=true",

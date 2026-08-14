@@ -71,8 +71,8 @@ builds.
 Use a Windows machine with Visual Studio C++ tools, Python, Git, sufficient disk
 space, and the repository checked out at the intended revision.
 
-Build the pinned PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled
-Release Skia libraries:
+Build the pinned Direct3D Ganesh-, PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and
+SkUnicode-enabled Release Skia libraries:
 
 ```powershell
 .\build.ps1 -Clean -Configuration Release -SkiaOnly
@@ -87,7 +87,8 @@ Get-Content .\third_party\skia\out\Static\SKIA_GN_ARGS
 Test-Path .\third_party\skia\out\Static\icudtl.dat
 ```
 
-`SKIA_GN_ARGS` must contain `skia_use_icu=true`,
+`SKIA_GN_ARGS` must contain `skia_enable_ganesh=true`,
+`skia_use_gl=false`, `skia_use_direct3d=true`, `skia_use_icu=true`,
 `skia_enable_skunicode=true`, `skia_use_harfbuzz=true`,
 `skia_use_system_harfbuzz=false`, and `skia_enable_skshaper=true`.
 
@@ -195,7 +196,7 @@ while validating it:
 gh release create skia-bundle-v2 `
   .\dist\skia-windows-x64-static.zip `
   --title "Skia Bundle skia-bundle-v2" `
-  --notes "Pinned Windows x64 PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled Skia bundle."
+  --notes "Pinned Windows x64 Direct3D Ganesh-, PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled Skia bundle."
 ```
 
 The `Publish Skia Bundle` workflow can perform the same source build when

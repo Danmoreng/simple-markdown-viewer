@@ -12,16 +12,10 @@
 #include "app/viewer_controller.h"
 #include "platform/win/win_file_watcher.h"
 #include "platform/win/win_interaction.h"
+#include "platform/win/win_surface.h"
 #include "platform/win/win_viewer_host.h"
 #include "render/document_typefaces.h"
 #include "render/image_cache.h"
-
-// Suppress warnings from Skia headers
-#pragma warning(push)
-#pragma warning(disable: 4244)
-#pragma warning(disable: 4267)
-#include "include/core/SkSurface.h"
-#pragma warning(pop)
 
 namespace mdviewer::win {
 
@@ -43,7 +37,7 @@ public:
 
 private:
     ViewerController controller_;
-    sk_sp<SkSurface> surface_;
+    WinSurface surface_;
     DocumentTypefaceCache typefaces_;
     DocumentImageCache imageCache_;
     WinFileWatcher fileWatcher_;

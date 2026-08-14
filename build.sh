@@ -86,7 +86,7 @@ if [ "$SKIP_SKIA" = false ]; then
 
     echo "Configuring Skia with GN ($CONFIGURATION)..."
     SKIA_ENABLE_PDF="$ENABLE_PDF"
-    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_pdf_subset_harfbuzz=false skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
+    GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_enable_ganesh=true skia_use_gl=true skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_pdf_subset_harfbuzz=false skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
     
     # GN and Ninja paths
     GN_PATH="./bin/gn"
@@ -138,6 +138,8 @@ for required_file in "${REQUIRED_SKIA_FILES[@]}"; do
 done
 
 for required_arg in \
+    'skia_enable_ganesh=true' \
+    'skia_use_gl=true' \
     'skia_use_icu=true' \
     'skia_enable_skunicode=true' \
     'skia_use_harfbuzz=true' \

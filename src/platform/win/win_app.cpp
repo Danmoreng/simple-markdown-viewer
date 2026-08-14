@@ -9,7 +9,9 @@ namespace {
 constexpr UINT_PTR kAutoScrollTimerId = 2001;
 constexpr UINT_PTR kCopiedFeedbackTimerId = 2002;
 constexpr UINT_PTR kZoomFeedbackTimerId = 2003;
+constexpr UINT_PTR kOutlineResizeLayoutTimerId = 2004;
 constexpr UINT kAutoScrollTimerMs = 16;
+constexpr UINT kOutlineResizeLayoutIntervalMs = 34; // Approximately 30 FPS.
 constexpr float kAutoScrollDeadZone = 2.0f;
 constexpr int kLinkClickSlop = 4;
 
@@ -28,7 +30,9 @@ WinApp::WinApp()
           .autoScrollTimerId = kAutoScrollTimerId,
           .copiedFeedbackTimerId = kCopiedFeedbackTimerId,
           .zoomFeedbackTimerId = kZoomFeedbackTimerId,
+          .outlineResizeLayoutTimerId = kOutlineResizeLayoutTimerId,
           .autoScrollTimerMs = kAutoScrollTimerMs,
+          .outlineResizeLayoutIntervalMs = kOutlineResizeLayoutIntervalMs,
           .autoScrollDeadZone = kAutoScrollDeadZone,
           .linkClickSlop = kLinkClickSlop,
       } {}

@@ -8,7 +8,8 @@ It is built with:
 
 - C++20
 - Win32 or GLFW/GTK for the platform shell and event loop
-- Skia for custom rendering
+- Skia Ganesh for GPU-accelerated custom rendering through Direct3D 12 on
+  Windows and OpenGL on Linux
 - md4c for Markdown parsing
 - HarfBuzz and ICU through Skia for native complex-text shaping, Unicode BiDi,
   grapheme-aware wrapping, and font fallback
@@ -114,7 +115,7 @@ Out of scope:
 
 ## How It Works
 
-The viewer parses Markdown into a shared document model, computes native layout, and draws the document and themed menu bar with Skia. It does not embed a browser or WebView. HarfBuzz and ICU provide cached glyph shaping, Unicode BiDi, line/grapheme breaking, and font fallback for the document surface. Windows and Linux share document loading, parsing, layout, rendering, themes, typography, image handling, syntax highlighting, selection, search, history, link policy, configuration, and most interaction behavior.
+The viewer parses Markdown into a shared document model, computes native layout, and draws the document and themed menu bar with Skia Ganesh. Windows presents through Direct3D 12 with an automatic CPU-raster fallback when Direct3D initialization or presentation is unavailable; Linux presents through the OpenGL driver selected by the system. The app does not embed a browser or WebView. HarfBuzz and ICU provide cached glyph shaping, Unicode BiDi, line/grapheme breaking, and font fallback for the document surface. Windows and Linux share document loading, parsing, layout, rendering, themes, typography, image handling, syntax highlighting, selection, search, history, link policy, configuration, and most interaction behavior.
 
 The Win32 and GLFW/GTK hosts translate native events and provide platform services such as windows, dialogs, printing, clipboard access, shell integration, drag and drop, timers, and surface presentation. Tree-sitter highlighting supports `c`, `cpp`, `javascript`, `typescript`, `tsx`, `json`, `python`, `bash`/`sh`, `rust`, `go`, and `csharp`; unknown language tags render as plain code.
 
@@ -197,9 +198,10 @@ If no per-user configuration exists, the app can import a legacy `mdviewer.ini` 
 
 GitHub Actions builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal and sanitizer test passes. A tag such as `v0.3.1` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
 
-The complex-text stack requires a Windows Skia bundle containing SkShaper,
-SkUnicode, HarfBuzz, ICU, and `icudtl.dat`. Build and validate that replacement
-bundle on Windows before publishing a release containing complex-text support.
+The Windows renderer and complex-text stack require a Direct3D Ganesh-enabled
+Skia bundle containing SkShaper, SkUnicode, HarfBuzz, ICU, and `icudtl.dat`.
+Build and validate that replacement bundle on Windows before publishing a
+release containing this rendering path.
 
 ## Controls
 
@@ -302,6 +304,9 @@ Windows system libraries linked by the app:
 - `user32`
 - `gdi32`
 - `shell32`
+- `d3d12`
+- `d3dcompiler`
+- `dxgi`
 
 Linux system libraries linked by the app include:
 

@@ -21,6 +21,43 @@ namespace mdviewer::win {
 
 namespace {
 
+void CancelOutlineResizeRelayout(HWND hwnd, ViewerInteractionContext& context) {
+    KillTimer(hwnd, context.outlineResizeLayoutTimerId);
+    context.outlineResizeLayoutPending = false;
+    context.nextOutlineResizeLayoutTimeMs = 0;
+}
+
+void ScheduleOutlineResizeRelayout(HWND hwnd, ViewerInteractionContext& context) {
+    const std::uint64_t nowMs = GetTickCount64();
+    if (context.nextOutlineResizeLayoutTimeMs == 0 ||
+        nowMs >= context.nextOutlineResizeLayoutTimeMs) {
+        KillTimer(hwnd, context.outlineResizeLayoutTimerId);
+        context.outlineResizeLayoutPending = false;
+        context.nextOutlineResizeLayoutTimeMs =
+            nowMs + context.outlineResizeLayoutIntervalMs;
+        RelayoutCurrentDocument(hwnd, context.host);
+        return;
+    }
+
+    if (context.outlineResizeLayoutPending) {
+        return;
+    }
+
+    context.outlineResizeLayoutPending = true;
+    const std::uint64_t remainingMs = context.nextOutlineResizeLayoutTimeMs - nowMs;
+    const UINT timerDelayMs = static_cast<UINT>(std::max<std::uint64_t>(remainingMs, 1));
+    if (SetTimer(
+            hwnd,
+            context.outlineResizeLayoutTimerId,
+            timerDelayMs,
+            nullptr) == 0) {
+        context.outlineResizeLayoutPending = false;
+        context.nextOutlineResizeLayoutTimeMs =
+            nowMs + context.outlineResizeLayoutIntervalMs;
+        RelayoutCurrentDocument(hwnd, context.host);
+    }
+}
+
 std::string PathToUtf8(const std::filesystem::path& path) {
     const auto utf8 = path.u8string();
     return std::string(utf8.begin(), utf8.end());
@@ -412,6 +449,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         SetFocus(hwnd);
         SetCapture(hwnd);
         if (startedOutlineResize) {
+            CancelOutlineResizeRelayout(hwnd, context);
             context.host.imageCache.BeginLiveResize();
         }
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -578,7 +616,7 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
         ? IDC_SIZEWE
         : IDC_ARROW));
     if (resizedOutline) {
-        RelayoutCurrentDocument(hwnd, context.host);
+        ScheduleOutlineResizeRelayout(hwnd, context);
     }
     if (outlineHoverChanged) {
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -659,6 +697,7 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
     if (endedOutlineDrag) {
         ReleaseCapture();
         if (endedOutlineResize) {
+            CancelOutlineResizeRelayout(hwnd, context);
             context.host.imageCache.EndLiveResize();
             RelayoutCurrentDocument(hwnd, context.host);
             context.host.controller.SaveConfig();
@@ -967,6 +1006,18 @@ bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId) {
         return true;
     }
 
+    if (timerId == context.outlineResizeLayoutTimerId) {
+        KillTimer(hwnd, context.outlineResizeLayoutTimerId);
+        if (context.outlineResizeLayoutPending) {
+            context.outlineResizeLayoutPending = false;
+            context.nextOutlineResizeLayoutTimeMs =
+                GetTickCount64() + context.outlineResizeLayoutIntervalMs;
+            RelayoutCurrentDocument(hwnd, context.host);
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return true;
+    }
+
     return false;
 }
 
@@ -983,6 +1034,7 @@ bool HandleCaptureChanged(HWND hwnd, ViewerInteractionContext& context, LPARAM c
             ClearPendingLinkState(appState);
         }
         if (endedOutlineResize) {
+            CancelOutlineResizeRelayout(hwnd, context);
             context.host.imageCache.EndLiveResize();
             RelayoutCurrentDocument(hwnd, context.host);
             context.host.controller.SaveConfig();

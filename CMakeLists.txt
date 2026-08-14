@@ -355,6 +355,7 @@ target_include_directories(mdviewer PRIVATE
     ${SKIA_DIR}/include/ports
     ${SKIA_DIR}/include/gpu
     ${SKIA_DIR}/include/gpu/ganesh
+    ${SKIA_DIR}/include/gpu/ganesh/d3d
     ${SKIA_DIR}/include/gpu/ganesh/gl
     ${md4c_SOURCE_DIR}/src
 )
@@ -393,6 +394,9 @@ if(WIN32)
         user32.lib
         gdi32.lib
         Advapi32.lib
+        d3d12.lib
+        d3dcompiler.lib
+        dxgi.lib
     )
 else()
     target_link_libraries(mdviewer PRIVATE 

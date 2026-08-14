@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <cstdint>
+
 #include "platform/win/win_viewer_host.h"
 
 namespace mdviewer::win {
@@ -16,9 +18,13 @@ struct ViewerInteractionContext {
     UINT_PTR autoScrollTimerId = 0;
     UINT_PTR copiedFeedbackTimerId = 0;
     UINT_PTR zoomFeedbackTimerId = 0;
+    UINT_PTR outlineResizeLayoutTimerId = 0;
     UINT autoScrollTimerMs = 0;
+    UINT outlineResizeLayoutIntervalMs = 0;
     float autoScrollDeadZone = 0.0f;
     int linkClickSlop = 0;
+    std::uint64_t nextOutlineResizeLayoutTimeMs = 0;
+    bool outlineResizeLayoutPending = false;
 };
 
 bool HandleDropFiles(HWND hwnd, ViewerInteractionContext& context, HDROP drop);

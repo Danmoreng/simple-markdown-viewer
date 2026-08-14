@@ -11,6 +11,7 @@
 #include <string>
 
 #include "app/viewer_controller.h"
+#include "platform/win/win_surface.h"
 #include "render/document_renderer.h"
 #include "render/document_typefaces.h"
 #include "render/image_cache.h"
@@ -21,7 +22,6 @@
 #pragma warning(disable: 4244)
 #pragma warning(disable: 4267)
 #include "include/core/SkRect.h"
-#include "include/core/SkSurface.h"
 #include "include/core/SkTypeface.h"
 #pragma warning(pop)
 
@@ -34,7 +34,7 @@ class WinFileWatcher;
 
 struct ViewerHostContext {
     ViewerController& controller;
-    sk_sp<SkSurface>& surface;
+    WinSurface& surface;
     DocumentTypefaceCache& typefaces;
     DocumentImageCache& imageCache;
     WinFileWatcher& fileWatcher;
