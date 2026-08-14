@@ -189,13 +189,13 @@ Get-FileHash $zipPath -Algorithm SHA256
 
 ## Publishing without disrupting the active bundle
 
-Publish a new tag such as `skia-bundle-v2`; do not overwrite the active bundle
+Publish a new tag such as `skia-bundle-v4`; do not overwrite the active bundle
 while validating it:
 
 ```powershell
-gh release create skia-bundle-v2 `
+gh release create skia-bundle-v4 `
   .\dist\skia-windows-x64-static.zip `
-  --title "Skia Bundle skia-bundle-v2" `
+  --title "Skia Bundle skia-bundle-v4" `
   --notes "Pinned Windows x64 Direct3D Ganesh-, PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled Skia bundle."
 ```
 

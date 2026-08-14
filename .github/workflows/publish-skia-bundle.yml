@@ -6,7 +6,7 @@ on:
       bundle_tag:
         description: "Bundle release tag to create or update"
         required: true
-        default: "skia-bundle-v2"
+        default: "skia-bundle-v4"
         type: string
 
 permissions:
@@ -108,5 +108,5 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $assetPath --repo $repo --clobber
           } else {
-            gh release create $tag $assetPath --repo $repo --title "Skia Bundle $tag" --notes "Prebuilt Windows x64 Skia bundle for CI." --target $env:GITHUB_SHA
+            gh release create $tag $assetPath --repo $repo --title "Skia Bundle $tag" --notes "Pinned Windows x64 Direct3D Ganesh-, PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled Skia bundle." --target $env:GITHUB_SHA
           }
