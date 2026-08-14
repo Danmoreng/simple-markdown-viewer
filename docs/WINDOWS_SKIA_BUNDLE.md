@@ -126,6 +126,9 @@ third_party/skia/
   LICENSE
   include/
   modules/
+    skcms/
+      skcms.h
+      src/skcms_public.h
     svg/include/
     skresources/include/
     skshaper/include/
@@ -158,6 +161,7 @@ $zipPath = "dist\skia-windows-x64-static.zip"
 Remove-Item $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $bundleOut -Force | Out-Null
+New-Item -ItemType Directory -Path "$bundleSkia\modules\skcms\src" -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\modules\svg" -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\modules\skresources" -Force | Out-Null
 New-Item -ItemType Directory -Path "$bundleSkia\modules\skshaper" -Force | Out-Null
@@ -165,6 +169,8 @@ New-Item -ItemType Directory -Path "$bundleSkia\modules\skunicode" -Force | Out-
 New-Item -ItemType Directory -Path "$bundleSkia\src" -Force | Out-Null
 Copy-Item "third_party\skia\LICENSE" "$bundleSkia\LICENSE"
 Copy-Item "third_party\skia\include" "$bundleSkia\include" -Recurse
+Copy-Item "third_party\skia\modules\skcms\skcms.h" "$bundleSkia\modules\skcms\skcms.h"
+Copy-Item "third_party\skia\modules\skcms\src\skcms_public.h" "$bundleSkia\modules\skcms\src\skcms_public.h"
 Copy-Item "third_party\skia\modules\svg\include" "$bundleSkia\modules\svg\include" -Recurse
 Copy-Item "third_party\skia\modules\skresources\include" "$bundleSkia\modules\skresources\include" -Recurse
 Copy-Item "third_party\skia\modules\skshaper\include" "$bundleSkia\modules\skshaper\include" -Recurse
@@ -189,13 +195,13 @@ Get-FileHash $zipPath -Algorithm SHA256
 
 ## Publishing without disrupting the active bundle
 
-Publish a new tag such as `skia-bundle-v4`; do not overwrite the active bundle
+Publish a new tag such as `skia-bundle-v5`; do not overwrite the active bundle
 while validating it:
 
 ```powershell
-gh release create skia-bundle-v4 `
+gh release create skia-bundle-v5 `
   .\dist\skia-windows-x64-static.zip `
-  --title "Skia Bundle skia-bundle-v4" `
+  --title "Skia Bundle skia-bundle-v5" `
   --notes "Pinned Windows x64 Direct3D Ganesh-, PDF-, SVG-, ICU-, HarfBuzz-, SkShaper-, and SkUnicode-enabled Skia bundle."
 ```
 

@@ -6,7 +6,7 @@ on:
       bundle_tag:
         description: "Bundle release tag to create or update"
         required: true
-        default: "skia-bundle-v4"
+        default: "skia-bundle-v5"
         type: string
 
 permissions:
@@ -52,6 +52,7 @@ jobs:
 
           Remove-Item $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $bundleOutDir -Force | Out-Null
+          New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\skcms\src" -Force | Out-Null
           New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\svg" -Force | Out-Null
           New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\skresources" -Force | Out-Null
           New-Item -ItemType Directory -Path "$bundleSkiaDir\modules\skshaper" -Force | Out-Null
@@ -60,6 +61,8 @@ jobs:
 
           Copy-Item "third_party\skia\LICENSE" "$bundleSkiaDir\LICENSE"
           Copy-Item "third_party\skia\include" "$bundleSkiaDir\include" -Recurse
+          Copy-Item "third_party\skia\modules\skcms\skcms.h" "$bundleSkiaDir\modules\skcms\skcms.h"
+          Copy-Item "third_party\skia\modules\skcms\src\skcms_public.h" "$bundleSkiaDir\modules\skcms\src\skcms_public.h"
           Copy-Item "third_party\skia\modules\svg\include" "$bundleSkiaDir\modules\svg\include" -Recurse
           Copy-Item "third_party\skia\modules\skresources\include" "$bundleSkiaDir\modules\skresources\include" -Recurse
           Copy-Item "third_party\skia\modules\skshaper\include" "$bundleSkiaDir\modules\skshaper\include" -Recurse

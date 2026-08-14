@@ -54,6 +54,8 @@ jobs:
             $requiredBundleFiles = @(
               "third_party\skia\LICENSE",
               "third_party\skia\include\core\SkCanvas.h",
+              "third_party\skia\modules\skcms\skcms.h",
+              "third_party\skia\modules\skcms\src\skcms_public.h",
               "third_party\skia\modules\svg\include\SkSVGDOM.h",
               "third_party\skia\modules\skresources\include\SkResources.h",
               "third_party\skia\modules\skshaper\include\SkShaper.h",
@@ -94,7 +96,7 @@ jobs:
             if ($missingBundleFiles.Count -eq 0) {
               "bundle_available=true" >> $env:GITHUB_OUTPUT
             } else {
-              Write-Host "Downloaded Skia bundle is stale; missing required text-stack artifacts:" -ForegroundColor Yellow
+              Write-Host "Downloaded Skia bundle is stale; missing required artifacts:" -ForegroundColor Yellow
               $missingBundleFiles | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
               Remove-Item "third_party\skia" -Recurse -Force -ErrorAction SilentlyContinue
               "bundle_available=false" >> $env:GITHUB_OUTPUT
