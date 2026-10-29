@@ -9,7 +9,8 @@
 
 namespace mdviewer::win {
 
-inline float WindowDpiScale(HWND hwnd) { return DpiScale(GetDpiForWindow(hwnd)); }
+// Preserve the viewer's original pixel-sized UI and reader zoom on Windows.
+inline float WindowDpiScale(HWND hwnd) { (void)hwnd; return 1.0f; }
 
 inline float LogicalClientWidth(HWND hwnd) {
     RECT bounds{};

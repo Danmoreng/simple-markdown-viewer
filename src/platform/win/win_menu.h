@@ -42,7 +42,6 @@ inline constexpr UINT_PTR kCommandOutlineRight = 1208;
 inline constexpr UINT_PTR kCommandZoomReset = 1209;
 
 bool CreateMenus(const ThemePalette& palette);
-void UpdateMenuDpi(HWND hwnd);
 void CleanupMenus();
 void UpdateMenuState(
     HWND hwnd,

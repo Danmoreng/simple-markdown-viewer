@@ -284,8 +284,9 @@ single-window architecture and shared behavior on Windows and Linux.
    coalesce resizes and make expensive computations cancellable where possible.
 6. [x] Unify UTF-8/native paths and URL decoding, normalize document paths,
    preserve supplementary input characters and repair relative-path watching.
-7. [x] Use logical coordinates consistently on Windows and Linux, handle monitor
-   DPI changes and keep display scaling independent from reader zoom.
+7. [x] Keep input/render coordinates consistent. Following manual user feedback,
+   Windows preserves its original pixel-sized UI and reader zoom; automatic
+   per-monitor enlargement was reverted. Linux keeps its logical coordinates.
 8. [x] Build shared code once, stage resources once, run pull-request CI, and add
    regression, fuzz and performance coverage for the findings.
 
@@ -308,12 +309,18 @@ Validation completed on Windows (2026-10-29):
   use `docs/LINUX_SMOKE_TEST.md`. Multi-monitor DPI switching also remains a
   manual host check; coordinate conversions are covered by unit tests.
 
-Boundaries: background work covers relayout and approved network-image loads;
+Windows follow-up after manual user feedback: restore the original menu sizing
+and immediate synchronous relayout/repaint on window resize. Do not defer paints
+or wait for background reflow while stretching the window. Retain image-cache
+live-resize optimizations and the height-only resize shortcut. Visual acceptance
+of this correction remains with the user's manual test.
+
+Boundaries: background work covers Linux relayout and approved network-image loads;
 initial parsing/layout and search matching remain synchronous. Formula handling
 uses a bounded display-only subset with source fallback, not process isolation.
 Windows image reads reject reparse ancestors and validate the final handle, but
 an adversarial ancestor replacement between those checks is not fully eliminated.
-A failed background font/zoom reflow keeps the last valid layout; restoring the
+A failed Linux background font/zoom reflow keeps the last valid layout; restoring the
 last successfully applied typography settings is a small follow-up improvement.
 
 ## Later Backlog

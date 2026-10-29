@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "render/menu_renderer.h"
-#include "platform/win/win_dpi.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -55,12 +54,9 @@ std::vector<RecentFileEntry> g_recentFiles;
 HBRUSH g_menuBackgroundBrush = nullptr;
 HFONT g_menuFont = nullptr;
 bool g_ownsMenuFont = false;
-UINT g_menuDpi = 96;
 MenuBarState g_menuBarState;
 std::optional<MenuBarLayout> g_lastMenuBarLayout;
 std::list<MenuItemData> g_menuItemData;
-
-int MenuPixels(int logical) { return MulDiv(logical, static_cast<int>(g_menuDpi), 96); }
 
 std::array<TopMenuItem, 2> GetTopMenuItems() {
     return {{
@@ -93,7 +89,7 @@ std::vector<float> MeasureTopMenuItemWidths(HWND hwnd) {
     for (const auto& item : GetTopMenuItems()) {
         SIZE size = {};
         GetTextExtentPoint32W(hdc, item.label, static_cast<int>(wcslen(item.label)), &size);
-        widths.push_back(PixelsToLogical(static_cast<float>(size.cx), DpiScale(g_menuDpi)));
+        widths.push_back(static_cast<float>(size.cx));
     }
     SelectObject(hdc, oldFont);
     ReleaseDC(hwnd, hdc);
@@ -123,7 +119,7 @@ HFONT GetMenuFontHandle() {
 
     NONCLIENTMETRICSW metrics = {};
     metrics.cbSize = sizeof(metrics);
-    if (SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, g_menuDpi)) {
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
         metrics.lfMenuFont.lfHeight = static_cast<LONG>(std::round(metrics.lfMenuFont.lfHeight * 1.12f));
         g_menuFont = CreateFontIndirectW(&metrics.lfMenuFont);
         g_ownsMenuFont = g_menuFont != nullptr;
@@ -273,14 +269,16 @@ void RefreshMenuThemeResources(HWND hwnd, const ThemePalette& palette) {
 
 std::vector<RECT> GetTopMenuItemRects(HWND hwnd) {
     std::vector<RECT> rects;
-    const auto layout = GetTopMenuBarLayout(hwnd, static_cast<int>(std::lround(LogicalClientWidth(hwnd))));
+    RECT clientRect = {};
+    GetClientRect(hwnd, &clientRect);
+    const auto layout = GetTopMenuBarLayout(hwnd, clientRect.right - clientRect.left);
 
     for (const auto& itemRect : layout.itemRects) {
         RECT rect = {
-            LogicalToPixels(itemRect.left(), WindowDpiScale(hwnd)),
-            LogicalToPixels(itemRect.top(), WindowDpiScale(hwnd)),
-            LogicalToPixels(itemRect.right(), WindowDpiScale(hwnd)),
-            LogicalToPixels(itemRect.bottom(), WindowDpiScale(hwnd))
+            static_cast<LONG>(std::lround(itemRect.left())),
+            static_cast<LONG>(std::lround(itemRect.top())),
+            static_cast<LONG>(std::lround(itemRect.right())),
+            static_cast<LONG>(std::lround(itemRect.bottom()))
         };
         rects.push_back(rect);
     }
@@ -288,15 +286,6 @@ std::vector<RECT> GetTopMenuItemRects(HWND hwnd) {
 }
 
 } // namespace
-
-void UpdateMenuDpi(HWND hwnd) {
-    const UINT dpi = GetDpiForWindow(hwnd);
-    g_menuDpi = dpi == 0 ? 96 : dpi;
-    if (g_ownsMenuFont && g_menuFont) DeleteObject(g_menuFont);
-    g_menuFont = nullptr;
-    g_ownsMenuFont = false;
-    g_lastMenuBarLayout.reset();
-}
 
 bool CreateMenus(const ThemePalette& palette) {
     CleanupMenus();
@@ -467,7 +456,7 @@ bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo) {
 
     if (itemData->isSeparator) {
         measureInfo->itemWidth = 1;
-        measureInfo->itemHeight = static_cast<UINT>(MenuPixels(9));
+        measureInfo->itemHeight = 9;
         return true;
     }
 
@@ -483,17 +472,17 @@ bool HandleMeasureMenuItem(MEASUREITEMSTRUCT* measureInfo) {
     SelectObject(hdc, oldFont);
     ReleaseDC(nullptr, hdc);
 
-    int width = MenuPixels(kMenuCheckGutterWidth) + labelSize.cx + MenuPixels(kMenuHorizontalPadding * 2);
+    int width = kMenuCheckGutterWidth + labelSize.cx + (kMenuHorizontalPadding * 2);
     if (!accelText.empty()) {
-        width += accelSize.cx + MenuPixels(kMenuLabelGap);
+        width += accelSize.cx + kMenuLabelGap;
     }
     if (itemData->hasSubmenu) {
-        width += MenuPixels(kMenuArrowAreaWidth);
+        width += kMenuArrowAreaWidth;
     }
 
-    measureInfo->itemWidth = static_cast<UINT>(std::max(width, MenuPixels(150)));
+    measureInfo->itemWidth = static_cast<UINT>(std::max(width, 150));
     measureInfo->itemHeight = static_cast<UINT>(
-        std::max(std::max(static_cast<int>(labelSize.cy), static_cast<int>(accelSize.cy)) + MenuPixels(kMenuVerticalPadding * 2), MenuPixels(24)));
+        std::max(std::max(static_cast<int>(labelSize.cy), static_cast<int>(accelSize.cy)) + (kMenuVerticalPadding * 2), 24));
     return true;
 }
 
@@ -522,11 +511,11 @@ bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& pale
     if (itemData->isSeparator) {
         RECT separatorRect = drawInfo->rcItem;
         const int midY = (separatorRect.top + separatorRect.bottom) / 2;
-        HPEN pen = CreatePen(PS_SOLID, std::max(1, MenuPixels(1)), ToColorRef(palette.menuSeparator));
+        HPEN pen = CreatePen(PS_SOLID, 1, ToColorRef(palette.menuSeparator));
         if (pen) {
             HGDIOBJ oldPen = SelectObject(drawInfo->hDC, pen);
-            MoveToEx(drawInfo->hDC, separatorRect.left + MenuPixels(8), midY, nullptr);
-            LineTo(drawInfo->hDC, separatorRect.right - MenuPixels(8), midY);
+            MoveToEx(drawInfo->hDC, separatorRect.left + 8, midY, nullptr);
+            LineTo(drawInfo->hDC, separatorRect.right - 8, midY);
             SelectObject(drawInfo->hDC, oldPen);
             DeleteObject(pen);
         }
@@ -539,11 +528,11 @@ bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& pale
     const auto [labelText, accelText] = SplitMenuText(itemData->text);
 
     RECT labelRect = drawInfo->rcItem;
-    labelRect.left += MenuPixels(kMenuCheckGutterWidth);
-    labelRect.right -= MenuPixels(kMenuHorizontalPadding);
+    labelRect.left += kMenuCheckGutterWidth;
+    labelRect.right -= kMenuHorizontalPadding;
 
     if (itemData->hasSubmenu) {
-        labelRect.right -= MenuPixels(kMenuArrowAreaWidth);
+        labelRect.right -= kMenuArrowAreaWidth;
     }
 
     if (!accelText.empty()) {
@@ -556,7 +545,7 @@ bool HandleDrawMenuItem(const DRAWITEMSTRUCT* drawInfo, const ThemePalette& pale
             DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
         const SIZE accelSize = MeasureMenuSegment(drawInfo->hDC, accelText);
-        labelRect.right -= accelSize.cx + MenuPixels(kMenuLabelGap);
+        labelRect.right -= accelSize.cx + kMenuLabelGap;
     }
 
     DrawTextW(
@@ -613,7 +602,9 @@ UINT OpenTopMenu(HWND hwnd, const MenuBarHitTestResult& hit) {
 
     const int menuIndex = hit.menuIndex;
     const auto items = GetTopMenuItems();
-    const auto layout = GetTopMenuBarLayout(hwnd, static_cast<int>(std::lround(LogicalClientWidth(hwnd))));
+    RECT clientRect = {};
+    GetClientRect(hwnd, &clientRect);
+    const auto layout = GetTopMenuBarLayout(hwnd, clientRect.right - clientRect.left);
     if (menuIndex < 0 || static_cast<size_t>(menuIndex) >= items.size() || static_cast<size_t>(menuIndex) >= layout.itemRects.size()) {
         return 0;
     }
@@ -628,8 +619,8 @@ UINT OpenTopMenu(HWND hwnd, const MenuBarHitTestResult& hit) {
 
     const SkRect& itemRect = layout.itemRects[menuIndex];
     POINT screenPoint = {
-        LogicalToPixels(itemRect.left(), WindowDpiScale(hwnd)),
-        LogicalToPixels(itemRect.bottom(), WindowDpiScale(hwnd))
+        static_cast<LONG>(std::lround(itemRect.left())),
+        static_cast<LONG>(std::lround(itemRect.bottom()))
     };
     ClientToScreen(hwnd, &screenPoint);
     const UINT command = TrackPopupMenuEx(

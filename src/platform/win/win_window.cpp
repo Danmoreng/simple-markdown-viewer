@@ -223,7 +223,6 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
     switch (message) {
         case WM_CREATE:
             app.Host().dpiScale = WindowDpiScale(hwnd);
-            UpdateMenuDpi(hwnd);
             DragAcceptFiles(hwnd, TRUE);
             app.Host().fileWatcher.Start(hwnd);
             UpdateSurface(hwnd, app.Host());
@@ -243,14 +242,6 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             PostQuitMessage(0);
             return 0;
         case WM_PAINT:
-            if (app.Host().liveWindowResize && app.Host().windowResizePending) {
-                // OS-generated paints must not bypass the resize cadence and
-                // rebuild the GPU swapchain for every intermediate WM_SIZE.
-                PAINTSTRUCT paint{};
-                BeginPaint(hwnd, &paint);
-                EndPaint(hwnd, &paint);
-                return 0;
-            }
             Render(hwnd, app.Host());
             return 0;
         case WM_MEASUREITEM:
@@ -346,16 +337,8 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
         case WM_SIZE:
             RememberRestoredWindowPlacement(hwnd, app.Controller());
             if (wParam == SIZE_MINIMIZED) return 0;
-            if (app.Host().liveWindowResize) {
-                if (!app.Host().windowResizePending) {
-                    app.Host().windowResizePending = true;
-                    if (!SetTimer(hwnd, kWindowResizeTimerId, 34, nullptr)) {
-                        ProcessWindowResize(hwnd, app.Host());
-                    }
-                }
-            } else {
-                ProcessWindowResize(hwnd, app.Host());
-            }
+            ProcessWindowResize(hwnd, app.Host());
+            UpdateWindow(hwnd);
             return 0;
         case WM_ENTERSIZEMOVE:
             app.Host().liveWindowResize = true;
@@ -372,8 +355,7 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             ProcessWindowResize(hwnd, app.Host());
             return 0;
         case WM_DPICHANGED: {
-            app.Host().dpiScale = DpiScale(HIWORD(wParam));
-            UpdateMenuDpi(hwnd);
+            app.Host().dpiScale = WindowDpiScale(hwnd);
             const auto* suggested = reinterpret_cast<const RECT*>(lParam);
             SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
                 suggested->right - suggested->left, suggested->bottom - suggested->top,

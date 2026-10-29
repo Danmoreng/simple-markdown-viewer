@@ -646,14 +646,20 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
         return context.imageCache.GetImageSize(url, baseDir);
     };
 
-    context.controller.QueueRelayout(
+    context.controller.CancelRelayout();
+    KillTimer(hwnd, kRelayoutPollTimerId);
+    const auto anchor = GetRelayoutScrollAnchor(appState, GetViewportHeight(hwnd, context));
+    if (!context.controller.Relayout(
             width,
             GetDocumentTypefaces(context),
+            {},
             imageSizeProvider,
             LayoutOptions{.imageLoadInfoProvider = [&context, baseDir](const std::string& source) {
                 return context.imageCache.GetSourceInfo(source, baseDir);
-            }});
-    SetTimer(hwnd, kRelayoutPollTimerId, 16, nullptr);
+            }})) return;
+    RestoreScrollAnchor(appState, anchor, GetViewportHeight(hwnd, context), GetMaxScroll(hwnd, context));
+    RememberRelayoutScrollAnchor(appState, anchor);
+    RebuildSearchMatches(appState);
     context.lastLayoutWidth = width;
 }
 
