@@ -1,6 +1,6 @@
-# Native Mermaid experiment
+# Native Mermaid diagrams
 
-The `codex/mermaid-rust` branch renders fenced `mermaid` blocks using
+The viewer renders fenced `mermaid` blocks using
 `mermaid-rs-renderer` **0.3.1**, with `default-features = false`. It uses neither
 a browser nor a subprocess. There is no CLI, Node.js, PNG renderer, `resvg`, or
 `usvg` dependency. Skia draws the resulting SVG as vectors, including in print
@@ -125,8 +125,19 @@ instrumented by those CMake flags. Run its own tests separately with:
 cargo test --locked --manifest-path third_party/mermaid_bridge/Cargo.toml --target-dir build/mermaid-rust-tests
 ```
 
-The Windows build and rendering are validated locally. Linux build/runtime
-validation must be performed on Linux before merging or releasing this branch.
+Windows and Linux builds and rendering are validated locally. The Linux pass
+on 2026-10-29 used Arch Linux x86_64, GCC 16.2.1 and Rust 1.98.1 with Mermaid
+and PDF enabled. Shared tests, the performance regression runner, Rust tests
+and C++ ASan/UBSan tests pass. The X11 application and unpacked release archive
+were checked for light/dark diagrams, source search, zoom, resize, scrolling,
+native GTK SVG saving and normal window closure. Shared tests also cover
+Mermaid PDF output. External SVG application associations and the native print
+dialog still need manual host checks.
+
+The sanitizer pass exposed an out-of-bounds lookup in MicroTeX's font tables,
+triggered by the existing accented/scalable-delimiter formula fixture. CMake
+applies a bounded binary-search patch to fresh and cached dependency sources;
+regressions cover empty, single-row and composite-key font tables.
 
 The first Windows x64 Release comparison against `1c018b0` grew the executable
 from 30,689,280 to approximately 36,044,000 bytes (about 5.1 MiB extra). This is

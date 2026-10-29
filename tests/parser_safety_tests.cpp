@@ -2,17 +2,47 @@
 #include "render/math_renderer.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "utils/indexed_arr.h"
+
 namespace mdviewer::tests {
 namespace {
 
 void Require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+void MathFontTableLookupsStayWithinBounds() {
+    const tex::IndexedArray<int, 3, 1> uninitialized;
+    Require(uninitialized(10) == nullptr, "uninitialized font table must have no entries");
+
+    const int singleRow[] = {10, 101, 102};
+    const tex::IndexedArray<int, 3, 1> empty(singleRow, 0);
+    Require(empty(10) == nullptr, "non-null empty font table must not inspect its backing array");
+    const tex::IndexedArray<int, 3, 1> single(singleRow, 3);
+    Require(single(10) == singleRow, "single font table row must remain searchable");
+    Require(single(9) == nullptr && single(11) == nullptr,
+        "single-row font lookup must reject keys outside its range");
+
+    const int rows[] = {10, 101, 102, 20, 201, 202, 30, 301, 302};
+    const tex::IndexedArray<int, 3, 1> table(rows, 9);
+    Require(table(10) == rows && table(20) == rows + 3 && table(30) == rows + 6,
+        "font table lookup must find its first, middle and last rows");
+    Require(table(5) == nullptr && table(15) == nullptr && table(99) == nullptr,
+        "missing font keys must not access the row past the table end");
+
+    const int pairs[] = {1, 1, 11, 1, 3, 13, 2, 0, 20};
+    const tex::IndexedArray<int, 3, 2> composite(pairs, 9);
+    Require(composite(1, 1) == pairs && composite(1, 3) == pairs + 3 && composite(2, 0) == pairs + 6,
+        "font kerning tables must retain lexicographic composite-key lookup");
+    Require(composite(0, 0) == nullptr && composite(1, 2) == nullptr && composite(2, 1) == nullptr,
+        "missing composite font keys must stay within the table bounds");
 }
 
 void MathDisplayLanguageIsBoundedAndStateless() {
@@ -154,6 +184,7 @@ void ImageRunsExistWithoutAltText() {
 } // namespace
 
 void RunParserSafetyTests() {
+    MathFontTableLookupsStayWithinBounds();
     MathDisplayLanguageIsBoundedAndStateless();
     DetailsAreLinearAndDepthBounded();
     ImageRunsExistWithoutAltText();

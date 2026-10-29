@@ -315,6 +315,21 @@ or wait for background reflow while stretching the window. Retain image-cache
 live-resize optimizations and the height-only resize shortcut. Visual acceptance
 of this correction remains with the user's manual test.
 
+Linux follow-up (2026-10-29, Arch x86_64, GCC 16.2.1, Rust 1.98.1):
+
+- Release build with Mermaid/PDF, all shared regression groups, the performance
+  runner, Rust bridge tests and C++ ASan/UBSan tests pass.
+- Fix MicroTeX's inclusive upper search bound, which let missing font-table
+  entries read past the backing array. Apply both dependency patches during
+  configuration, including cached/source-override builds, and cover empty,
+  single-row, boundary and composite-key lookups.
+- X11 smoke checks cover Mermaid in light/dark themes, source search, zoom,
+  resizing, scrolling, native GTK SVG saving and clean shutdown. The stripped
+  release archive also runs from outside the repository working directory;
+  its checksum and runtime library resolution pass.
+- Clang fuzzing, external SVG file associations, physical printing and the full
+  manual host checklist remain unverified by this local pass.
+
 Boundaries: background work covers Linux relayout and approved network-image loads;
 initial parsing/layout and search matching remain synchronous. Formula handling
 uses a bounded display-only subset with source fallback, not process isolation.
@@ -341,7 +356,8 @@ last successfully applied typography settings is a small follow-up improvement.
   - [x] Open rendered diagrams in the default SVG application and save full-size themed SVGs through native dialogs on both hosts.
   - [x] Retain source plus an explanation on invalid, unsupported or oversized diagrams.
   - [x] Integrate native Windows/Linux Cargo builds and release license notices.
-  - [ ] Validate the Linux build, fixture, font coverage, print and PDF behavior on Linux.
+  - [x] Validate the Linux build, Mermaid fixture, themed rendering, search/zoom/resize, native SVG saving and shared print/PDF tests.
+  - [ ] Complete manual Linux font-coverage, external SVG association and native printing checks.
   - [ ] Compare actual binary size, startup/render cost and build maintenance against a later optional system-WebView experiment.
   - Details, constraints and test commands: `docs/MERMAID.md`.
 - [x] Native browser-free math rendering for Markdown.

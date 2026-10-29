@@ -1,0 +1,21 @@
+diff --git a/src/utils/indexed_arr.h b/src/utils/indexed_arr.h
+--- a/src/utils/indexed_arr.h
++++ b/src/utils/indexed_arr.h
+@@ -47,13 +47,13 @@ public:
+   const T* operator()(const Ks&... keys) const {
+     if (_raw == nullptr) return nullptr;
+     const T k[] = {keys...};
+-    int     l = 0, h = _rows;
+-    while (l <= h) {
+-      const int  m   = l + ((h - l) >> 1);
++    size_t  l = 0, h = _rows;
++    while (l < h) {
++      const size_t m = l + ((h - l) >> 1);
+       const T*   r   = _raw + (m * N);
+       const int cmp = compare(k, r);
+       if (cmp == 0) return r;
+-      cmp < 0 ? h = m - 1 : l = m + 1;
++      cmp < 0 ? h = m : l = m + 1;
+     }
+     return nullptr;
+   }
