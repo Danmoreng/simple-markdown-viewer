@@ -94,14 +94,15 @@ if [ "$SKIP_SKIA" = false ]; then
     SKIA_ENABLE_PDF="$ENABLE_PDF"
     GN_ARGS="is_official_build=$IS_OFFICIAL is_debug=$IS_DEBUG skia_enable_ganesh=true skia_use_gl=true skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_libjpeg_turbo=false skia_use_system_zlib=false skia_use_system_icu=false skia_use_system_harfbuzz=false skia_use_expat=true skia_use_system_expat=false skia_use_libpng_encode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_encode=false skia_use_vulkan=false skia_use_metal=false skia_enable_pdf=$SKIA_ENABLE_PDF skia_pdf_subset_harfbuzz=false skia_enable_skottie=false skia_use_icu=true skia_enable_skunicode=true skia_use_harfbuzz=true skia_enable_skshaper=true skia_enable_svg=true skia_use_piex=false"
     
-    # GN and Ninja paths
+    # Use the pinned Ninja fetched above; depot_tools/ninja needs a separate
+    # bootstrap and fails on otherwise valid fresh checkouts such as CI.
     GN_PATH="./bin/gn"
-    NINJA_PATH="$DEPOT_TOOLS_DIR/ninja"
+    NINJA_PATH="./third_party/ninja/ninja"
 
-    $GN_PATH gen "$SKIA_OUT_DIR" --args="$GN_ARGS"
+    "$GN_PATH" gen "$SKIA_OUT_DIR" --args="$GN_ARGS"
 
     echo "Building Skia..."
-    $NINJA_PATH -C "$SKIA_OUT_DIR" \
+    "$NINJA_PATH" -C "$SKIA_OUT_DIR" \
         skia \
         modules/svg:svg \
         modules/skshaper:skshaper \
