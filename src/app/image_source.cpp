@@ -1,4 +1,5 @@
 #include "app/image_source.h"
+#include "app/native_badge.h"
 
 #include <algorithm>
 #include <cctype>
@@ -109,6 +110,12 @@ ImageSource DescribeImageSource(const std::string& source, const std::filesystem
     ImageSource result;
     result.info.originalSource = source;
     result.info.displayTarget = source;
+    if (ParseNativeBadge(source)) {
+        result.info.kind = ImageSourceKind::NativeBadge;
+        result.info.state = ImageLoadState::Ready;
+        result.cacheKey = "badge:" + source;
+        return result;
+    }
     result.info.error = "Unsupported image source.";
     if (source.empty() || std::any_of(source.begin(), source.end(), [](unsigned char ch) {
             return ch < 0x20 || ch == 0x7f;

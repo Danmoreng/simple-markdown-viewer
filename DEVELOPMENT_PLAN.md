@@ -325,6 +325,15 @@ last successfully applied typography settings is a small follow-up improvement.
 
 ## Later Backlog
 
+- [x] Render the demo's static Shields badges locally with Skia; parse bounded
+  label/message/color URLs and preserve the external-image policy for unsupported
+  options and dynamic data. Keep linked badges clickable.
+  - Draw badge text and geometry directly on the destination canvas at the final
+    zoom size; snap screen positions/baselines to device pixels without bitmap
+    resampling or per-badge horizontal font stretching. Keep PDF drawing vector.
+- [ ] Consider fetching dynamic badge data from explicit providers after user
+  approval, then rendering the result locally; never invent current status values.
+
 - [ ] Evaluate the native Mermaid experiment on `codex/mermaid-rust` before merging/releasing.
   - [x] Add a pinned Rust static library/C ABI bridge with CLI and PNG features disabled.
   - [x] Render fenced `mermaid` code blocks through shared Skia SVG, expanding unsupported arrow markers to native paths.

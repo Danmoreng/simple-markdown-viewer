@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -6,12 +7,14 @@
 #include "app/app_state.h"
 #include "markdown/markdown_parser.h"
 #include "render/document_renderer.h"
+#include "render/native_badge_renderer.h"
 #include "text/text_geometry.h"
 #include "util/skia_font_utils.h"
 #include "view/document_hit_test.h"
 #include "view/document_interaction.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkSurface.h"
+#include "include/core/SkPixmap.h"
 
 namespace mdviewer::tests {
 namespace {
@@ -262,6 +265,31 @@ void RunRenderInteractionTests() {
     auto manager = CreateFontManager();
     auto face = CreateDefaultTypeface(manager);
     Require(manager && face, "render interaction tests require a document font");
+    for (const auto* url : {"https://img.shields.io/badge/license-MIT-blue",
+                           "https://img.shields.io/badge/status-local--only-green"}) {
+        for (float scale : {1.0f, 1.25f, 2.0f}) {
+            for (float zoom : {0.8f, 1.0f, 1.3f}) {
+                auto first = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(500, 100));
+                auto second = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(500, 100));
+                const auto badge = ParseNativeBadge(url);
+                Require(badge.has_value(), "badge fixture parses");
+                auto draw = [&](SkSurface* surface, float offset) {
+                    auto* canvas = surface->getCanvas();
+                    canvas->clear(SK_ColorTRANSPARENT);
+                    canvas->scale(scale, scale);
+                    DrawNativeBadge(canvas, *badge, face,
+                        SkRect::MakeXYWH(offset / scale, offset / scale, 100 * zoom, 20 * zoom), true);
+                };
+                draw(first.get(), 10.1f);
+                draw(second.get(), 10.4f);
+                SkPixmap a, b;
+                Require(first->peekPixels(&a) && second->peekPixels(&b), "badge pixels available");
+                Require(a.computeByteSize() == b.computeByteSize() &&
+                    std::memcmp(a.addr(), b.addr(), a.computeByteSize()) == 0,
+                    "fractional badge positions must not change sharpness at any zoom/display scale");
+            }
+        }
+    }
     const auto fonts = Fonts(manager.get(), face.get());
     RendererVisitsOnlyVisibleLines(fonts);
     RemotePlaceholderActions(fonts);

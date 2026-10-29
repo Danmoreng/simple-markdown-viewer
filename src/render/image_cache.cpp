@@ -1,4 +1,5 @@
 #include "render/image_cache.h"
+#include "app/native_badge.h"
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -26,6 +27,9 @@
 #include "include/codec/SkCodec.h"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRRect.h"
 #include "include/core/SkData.h"
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkStream.h"
@@ -354,6 +358,19 @@ bool DocumentImageCache::ReserveBytes(size_t bytes, const std::string& protected
 DocumentImageCache::CachedImageEntry* DocumentImageCache::GetOrLoadEntry(const ImageSource& source) {
     if (source.info.kind == ImageSourceKind::Invalid) return nullptr;
     auto& entry = EnsureEntry(source);
+    if (source.info.kind == ImageSourceKind::NativeBadge) {
+        if (!entry.metadataLoaded) {
+            const auto badge = ParseNativeBadge(source.info.originalSource);
+            if (!badge) return nullptr;
+            if (!svgFontManager_) svgFontManager_ = CreateFontManager();
+            SkFont font(CreateDefaultTypeface(svgFontManager_), 11.0f);
+            const float left = badge->label.empty() ? 0.0f : std::ceil(font.measureText(badge->label.data(), badge->label.size(), SkTextEncoding::kUTF8)) + 10.0f;
+            const float right = std::ceil(font.measureText(badge->message.data(), badge->message.size(), SkTextEncoding::kUTF8)) + 10.0f;
+            entry.intrinsicSize = SkSize::Make(left + right, 20.0f);
+            entry.metadataLoaded = true;
+        }
+        return &entry;
+    }
     if (source.info.RequiresConsent()) return entry.source.info.state == ImageLoadState::Ready ? &entry : nullptr;
     if (!entry.metadataLoaded) {
         const std::atomic_bool cancelled{false}; auto result = ReadImageBytes(source.resolvedPath, cancelled);
@@ -379,6 +396,34 @@ sk_sp<SkImage> DocumentImageCache::GetImage(const std::string& url, const std::f
     if (entry->scaledImage && entry->scaledImage->width() == width && entry->scaledImage->height() == height) return entry->scaledImage;
     if (entry->baseImage && entry->baseImage->width() == width && entry->baseImage->height() == height) return entry->baseImage;
     entry->scaledImage.reset();
+    if (source.info.kind == ImageSourceKind::NativeBadge) {
+        const auto badge = ParseNativeBadge(url);
+        if (!badge || !ReserveBytes(static_cast<size_t>(width) * height * 4, source.cacheKey, false)) return nullptr;
+        auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(width, height));
+        if (!surface) return nullptr;
+        auto* canvas = surface->getCanvas();
+        canvas->clear(SK_ColorTRANSPARENT);
+        canvas->scale(width / entry->intrinsicSize.width(), height / 20.0f);
+        SkFont font(CreateDefaultTypeface(svgFontManager_), 11.0f);
+        font.setEdging(SkFont::Edging::kAntiAlias);
+        const float left = badge->label.empty() ? 0.0f : std::ceil(font.measureText(badge->label.data(), badge->label.size(), SkTextEncoding::kUTF8)) + 10.0f;
+        const float total = entry->intrinsicSize.width();
+        canvas->clipRRect(SkRRect::MakeRectXY(SkRect::MakeWH(total, 20), badge->square ? 0.0f : 3.0f, badge->square ? 0.0f : 3.0f), true);
+        SkPaint paint;
+        paint.setColor(0xff555555);
+        canvas->drawRect(SkRect::MakeWH(left, 20), paint);
+        paint.setColor(badge->color);
+        canvas->drawRect(SkRect::MakeXYWH(left, 0, total - left, 20), paint);
+        paint.setAntiAlias(true);
+        paint.setColor(SK_ColorWHITE);
+        canvas->drawSimpleText(badge->label.data(), badge->label.size(), SkTextEncoding::kUTF8, 5, 14, font, paint);
+        const auto color = badge->color;
+        const unsigned brightness = 299 * SkColorGetR(color) + 587 * SkColorGetG(color) + 114 * SkColorGetB(color);
+        paint.setColor(brightness > 160000 ? 0xff202020 : SK_ColorWHITE);
+        canvas->drawSimpleText(badge->message.data(), badge->message.size(), SkTextEncoding::kUTF8, left + 5, 14, font, paint);
+        entry->scaledImage = surface->makeImageSnapshot();
+        return entry->scaledImage;
+    }
     if (!entry->baseImage) {
         ImageDownloadResult local; const auto* encoded = &entry->encoded;
         if (!source.info.RequiresConsent()) { const std::atomic_bool cancelled{false}; local = ReadImageBytes(source.resolvedPath, cancelled); encoded = &local.bytes; }

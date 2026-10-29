@@ -6,7 +6,7 @@
 
 namespace mdviewer {
 
-enum class ImageSourceKind { Local, RemoteUrl, NetworkPath, Invalid };
+enum class ImageSourceKind { Local, RemoteUrl, NetworkPath, Invalid, NativeBadge };
 enum class ImageLoadState { Local, Blocked, Loading, Ready, Failed };
 
 struct ImageLoadInfo {

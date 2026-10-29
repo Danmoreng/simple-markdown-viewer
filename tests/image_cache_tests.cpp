@@ -1,4 +1,5 @@
 #include "app/image_source.h"
+#include "app/native_badge.h"
 #include "render/image_cache.h"
 #include "markdown/markdown_parser.h"
 #include "util/path_utils.h"
@@ -51,6 +52,25 @@ struct ScratchImages {
 } // namespace
 
 void RunImageCacheTests() {
+    {
+        int requests = 0;
+        DocumentImageCache badges([&](const ImageSource&, const std::atomic_bool&) {
+            ++requests; return ImageDownloadResult{};
+        });
+        const std::string url = "https://img.shields.io/badge/status-local--only-green";
+        const auto parsed = ParseNativeBadge(url);
+        Check(parsed && parsed->label == "status" && parsed->message == "local-only", "static badge escaped dash");
+        Check(ParseNativeBadge("https://img.shields.io/badge/a__b-hello_world-09f?style=flat-square")->label == "a_b", "badge escaped underscore");
+        for (const auto* invalid : {"https://img.shields.io/github/actions/workflow/status/a/b/build.yml",
+            "https://img.shields.io/badge/a-b-blue?logo=github", "https://img.shields.io.evil/badge/a-b-blue",
+            "https://img.shields.io/badge/a-%00-blue", "https://img.shields.io/badge/a-b-unknown"})
+            Check(!ParseNativeBadge(invalid), "unsupported badge remains external");
+        Check(!badges.GetSourceInfo(url, {}).RequiresConsent(), "native badge needs no download consent");
+        const auto size = badges.GetImageSize(url, {});
+        Check(size.first > 20 && size.second == 20, "native badge compact size");
+        Check(badges.GetImage(url, {}, size.first, size.second) != nullptr, "native Skia badge rasterizes");
+        Check(!badges.RequestLoad(url, {}) && requests == 0, "native badge never downloads");
+    }
     ScratchImages scratch;
     const auto bitmap = SmallBitmap();
     const auto name = PathFromUtf8("日本語+image.bmp");

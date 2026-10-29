@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/status-local--only-green" alt="status local-only">
 </p>
 
-The remote badge images above are deliberately not downloaded. They should appear as compact labeled placeholders, and the linked badge remains clickable.
+The static badge URLs above are interpreted locally and drawn natively with Skia, without downloading images. The linked license badge remains clickable. Dynamic badges and unsupported badge options retain the normal external-image consent flow.
 
 ## Native inline HTML
 

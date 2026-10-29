@@ -84,6 +84,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
 - Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
 - HTTP/HTTPS and network-share images start as placeholders showing the complete source URL/path. Choose **Load image** to fetch that image into the document; other sources remain blocked. Long addresses wrap without truncation, and invisible control characters are shown explicitly. Loading runs in the background, with visible failures and a retry action. Redirects are blocked and their destinations shown. Permissions and downloaded data are cleared when opening or reloading a document.
 - Mouse text selection and `Ctrl+C` copy with explicit hard breaks and block/list boundaries preserved
+- Static `img.shields.io/badge/...` badges with ASCII labels/messages, standard badge colors or hex colors, and flat/flat-square styling render locally with Skia, without fetching the image. Unsupported options and dynamic badge endpoints retain the external-image consent flow.
 - Unicode-aware in-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
 - Native right-click context menu for selection/link actions, reload, document-path copying, and opening files in the file manager

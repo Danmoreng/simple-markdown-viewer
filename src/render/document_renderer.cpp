@@ -8,6 +8,8 @@
 #include <string_view>
 
 #include "render/typography.h"
+#include "render/native_badge_renderer.h"
+#include "util/skia_font_utils.h"
 #include "text/text_geometry.h"
 #include "text/source_label.h"
 #include "view/document_interaction.h"
@@ -1027,6 +1029,12 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
         if (run.kind == InlineKind::Image && !run.imageSource.empty()) {
             const float displayW = run.imageWidth;
             const float displayH = run.imageHeight;
+            if (const auto badge = ParseNativeBadge(run.imageSource)) {
+                DrawNativeBadge(ctx.canvas, *badge, CreateDefaultTypeface(sk_ref_sp(params.typefaces.fontMgr)),
+                    SkRect::MakeXYWH(runX, line.y + (line.height - displayH) * 0.5f, displayW, displayH),
+                    params.showInteractiveElements);
+                continue;
+            }
             if (run.imageLoadRequired || !run.imageErrorLines.empty()) {
                 DrawImageLoadPlaceholder(ctx, params, block, run,
                     SkRect::MakeXYWH(runX, line.y + (line.height - displayH) * 0.5f, displayW, displayH));
