@@ -330,6 +330,13 @@ Linux follow-up (2026-10-29, Arch x86_64, GCC 16.2.1, Rust 1.98.1):
 - Clang fuzzing, external SVG file associations, physical printing and the full
   manual host checklist remain unverified by this local pass.
 
+GitHub release follow-up: the Windows v0.5.0 build and tests passed. Linux
+Release tests, packaging and both Clang fuzz smoke tests passed, but Clang's
+function-type UBSan check caught legacy Tree-sitter scanner definitions using
+`()` instead of the callback's `(void)` prototype. Version 0.5.1 normalizes those
+definitions without disabling sanitizer checks. Linux CI now saves the finished
+Skia cache before later tests and reuses fetched sources for its sanitizer tree.
+
 Boundaries: background work covers Linux relayout and approved network-image loads;
 initial parsing/layout and search matching remain synchronous. Formula handling
 uses a bounded display-only subset with source fallback, not process isolation.

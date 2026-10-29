@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mdviewer VERSION 0.5.0 LANGUAGES C CXX)
+project(mdviewer VERSION 0.5.1 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -201,6 +201,19 @@ foreach(optional_scanner
     "${tree_sitter_c_sharp_SOURCE_DIR}/src/scanner.c")
     if(EXISTS "${optional_scanner}")
         list(APPEND TREE_SITTER_LANGUAGE_SOURCES "${optional_scanner}")
+    endif()
+endforeach()
+# Legacy C scanner definitions use () while the generated parser and core use
+# (void). Give both sides the same prototype for Clang's function-type UBSan
+# checks without disabling those checks on the Tree-sitter callback boundary.
+foreach(scanner_source IN LISTS TREE_SITTER_LANGUAGE_SOURCES)
+    if(scanner_source MATCHES "/scanner\\.c$")
+        file(READ "${scanner_source}" scanner_original)
+        string(REGEX REPLACE "_external_scanner_create\\(\\)([ \t\r\n]*\\{)"
+            "_external_scanner_create(void)\\1" scanner_patched "${scanner_original}")
+        if(NOT scanner_original STREQUAL scanner_patched)
+            file(WRITE "${scanner_source}" "${scanner_patched}")
+        endif()
     endif()
 endforeach()
 set(TREE_SITTER_QUERY_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated_tree_sitter_queries.cpp")

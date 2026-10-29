@@ -49,7 +49,7 @@ jobs:
 
       - name: Restore Skia build cache
         id: skia_cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: third_party/skia
           key: linux-skia-${{ runner.arch }}-${{ hashFiles('ci/skia-revision.txt', 'build.sh') }}
@@ -65,6 +65,13 @@ jobs:
           else
             ./build.sh --benchmarks
           fi
+
+      - name: Save completed Skia build cache
+        if: steps.skia_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: third_party/skia
+          key: ${{ steps.skia_cache.outputs.cache-primary-key }}
 
       - name: Build unit tests
         run: cmake --build build --target mdviewer_tests mdviewer_benchmarks --parallel 2
@@ -95,7 +102,15 @@ jobs:
 
       - name: Configure sanitizer tests
         run: |
+          # Reuse fetched sources while keeping instrumented object files in
+          # their own build tree. Avoid cloning every pinned dependency twice.
+          source_args=()
+          for source in "$PWD"/build/_deps/*-src; do
+            dependency="$(basename "$source" -src)"
+            source_args+=("-DFETCHCONTENT_SOURCE_DIR_${dependency^^}=$source")
+          done
           cmake -S . -B build-sanitizers \
+            "${source_args[@]}" \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
