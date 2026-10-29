@@ -19,6 +19,8 @@ struct InteractionTextHit {
     std::string tableTsv;
     std::string tableCsv;
     size_t detailsToggleId = 0;
+    MermaidLayout diagram;
+    size_t diagramTextStart = 0;
 };
 
 enum class InteractionKey {
@@ -79,6 +81,7 @@ struct PointerUpResult {
     bool activateLink = false;
     std::string linkUrl;
     bool forceExternal = false;
+    MermaidLayout diagramToOpen;
 };
 
 size_t GetSelectionStart(const AppState& appState);

@@ -65,6 +65,26 @@ The build scripts reset this option from their own flags on each invocation.
 No platform-specific diagram rendering is needed. Normal Windows and Linux
 hosts, PDF export and printing all use the same code.
 
+## Open and save diagrams
+
+Click a rendered diagram to open a full-size SVG in the system's default SVG
+application. Depending on the file association, that may be an image viewer,
+vector editor or browser. Dragging still selects text instead of opening the
+diagram. The code-block copy button still copies Mermaid source.
+
+Right-click a diagram for **Open Diagram** or **Save Diagram as SVG...**. The
+native save dialog suggests `<document>-diagram.svg` and confirms overwriting.
+The exported image uses the intrinsic vector dimensions, independent of reader
+zoom and column width. It includes expanded arrowheads and the current light,
+dark or sepia panel background, so dark labels remain readable in other apps.
+It references installed fonts rather than embedding font files.
+
+Preview SVGs are written to unique private directories under the system temp
+directory. They remain there after the viewer closes so external applications
+can continue reading them; normal temporary-file cleanup can remove them later.
+Saving uses the destination chosen in the dialog. Source-fallback blocks do
+not offer image actions. No extra library is required for these actions.
+
 ## Compatibility and limits
 
 This is an independent implementation, not mermaid.js. Layout and syntax support
@@ -91,7 +111,11 @@ node/edge styling can still be used. The renderer loads no external SVG resource
 The shared tests cover visible arrowhead pixels, flowchart/sequence rendering,
 source offsets and copying, search, atomic hit testing, width/zoom scaling,
 cache reuse, both themes, invalid/configured/oversized inputs, graph/document
-limits and PDF output. `test-docs/mermaid.md` exercises the GUI cases.
+limits and PDF output. Export tests cover click-versus-drag behavior, duplicate
+diagrams, context-menu targeting, Unicode filenames, write failures, standalone
+SVG round-trips, original dimensions and theme backgrounds. External application
+launch and native save dialogs require manual testing on each host.
+`test-docs/mermaid.md` exercises the GUI cases.
 
 Set `MDVIEWER_TEST_ARTIFACT_DIR` to save light/dark PPM previews from the tests.
 Linux C++ ASan/UBSan checks still run; the Rust library itself is not sanitizer

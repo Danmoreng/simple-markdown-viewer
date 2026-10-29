@@ -21,6 +21,8 @@ void ClearSemanticHit(DocumentTextHit& hit) {
     hit.linkTarget.clear();
     hit.imageSource.clear();
     hit.kind = InlineKind::Text;
+    hit.diagram = {};
+    hit.diagramTextStart = 0;
 }
 
 float GetVerticalDistance(const LineLayout& line, float documentY) {
@@ -137,6 +139,10 @@ DocumentTextHit HitTestLine(
         hit.linkTarget = closestRun->linkTarget;
         if (closestRun->kind == InlineKind::Image) {
             hit.imageSource = closestRun->imageSource;
+        }
+        if (closestRun->kind == InlineKind::Diagram) {
+            hit.diagram = closestRun->mermaidLayout;
+            hit.diagramTextStart = closestRun->textStart;
         }
     }
     return hit;

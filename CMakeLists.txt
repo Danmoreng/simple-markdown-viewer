@@ -251,6 +251,7 @@ set(SKIA_DEBUG_OUT_DIR "${SKIA_DIR}/out/Debug" CACHE PATH "Path to the Debug Ski
 set(SOURCES
     src/main.cpp
     src/app/app_config.cpp
+    src/app/diagram_export.cpp
     src/app/document_loader.cpp
     src/app/heading_anchor.cpp
     src/app/link_resolver.cpp
@@ -482,6 +483,7 @@ endif()
 add_executable(mdviewer_tests
     tests/unit_tests.cpp
     src/app/app_config.cpp
+    src/app/diagram_export.cpp
     src/app/document_loader.cpp
     src/app/heading_anchor.cpp
     src/app/link_resolver.cpp

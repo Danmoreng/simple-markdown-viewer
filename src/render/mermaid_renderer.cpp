@@ -35,6 +35,8 @@ namespace mdviewer {
 struct MermaidRenderData {
     sk_sp<SkSVGDOM> light;
     sk_sp<SkSVGDOM> dark;
+    std::string lightSvg;
+    std::string darkSvg;
     float width = 0.0f;
     float height = 0.0f;
     std::mutex mutex;
@@ -50,6 +52,7 @@ constexpr size_t kMaxCachedSvgBytes = 16 * 1024 * 1024;
 struct CachedDiagram {
     std::shared_ptr<MermaidRenderData> data;
     std::string error;
+    size_t svgBytes = 0;
 };
 
 struct RustResultOwner {
@@ -81,8 +84,8 @@ CachedDiagram GetDiagram(std::string_view source, std::string_view family, SkFon
     } else {
         std::string lightSvg;
         std::string darkSvg;
-        const bool supported = NormalizeMermaidSvg(std::string_view(reinterpret_cast<const char*>(result.light), result.lightLength), lightSvg, entry.error) &&
-            NormalizeMermaidSvg(std::string_view(reinterpret_cast<const char*>(result.dark), result.darkLength), darkSvg, entry.error);
+        const bool supported = NormalizeMermaidSvg(std::string_view(reinterpret_cast<const char*>(result.light), result.lightLength), lightSvg, entry.error, result.width, result.height) &&
+            NormalizeMermaidSvg(std::string_view(reinterpret_cast<const char*>(result.dark), result.darkLength), darkSvg, entry.error, result.width, result.height);
         if (supported) {
             auto data = std::make_shared<MermaidRenderData>();
             SkSVGDOM::Builder builder;
@@ -96,19 +99,24 @@ CachedDiagram GetDiagram(std::string_view source, std::string_view family, SkFon
                 std::isfinite(result.height) && result.width > 0.0f && result.height > 0.0f) {
                 data->width = result.width;
                 data->height = result.height;
+                entry.svgBytes = lightSvg.size() + darkSvg.size();
+                data->lightSvg = std::move(lightSvg);
+                data->darkSvg = std::move(darkSvg);
                 entry.data = std::move(data);
             } else {
                 entry.error = "Could not load the rendered Mermaid SVG.";
             }
         }
     }
-    const size_t bytes = result.lightLength + result.darkLength + source.size() + family.size();
+    const size_t bytes = entry.svgBytes + entry.error.size() + source.size() + family.size();
     if (cache.size() >= kMaxCacheEntries || cachedBytes + bytes > kMaxCachedSvgBytes) {
         cache.clear();
         cachedBytes = 0;
     }
-    cache.emplace(key, entry);
-    cachedBytes += bytes;
+    if (bytes <= kMaxCachedSvgBytes) {
+        cache.emplace(key, entry);
+        cachedBytes += bytes;
+    }
     return entry;
 }
 #endif
@@ -158,6 +166,11 @@ void DrawMermaid(SkCanvas* canvas, const MermaidLayout& layout, float x, float y
     dom->setContainerSize(SkSize::Make(data.width, data.height));
     dom->render(canvas);
     canvas->restore();
+}
+
+std::string_view GetMermaidSvg(const MermaidLayout& layout, bool dark) {
+    if (!layout.renderData) return {};
+    return dark ? layout.renderData->darkSvg : layout.renderData->lightSvg;
 }
 
 } // namespace mdviewer

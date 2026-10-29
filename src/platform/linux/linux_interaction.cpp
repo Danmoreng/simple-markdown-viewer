@@ -7,6 +7,7 @@
 #include "platform/linux/linux_print.h"
 #include "platform/linux/linux_clipboard.h"
 #include "platform/linux/linux_file_dialog.h"
+#include "app/diagram_export.h"
 #include "platform/linux/linux_font_dialog.h"
 #include "platform/linux/linux_shell.h"
 #include "render/typography.h"
@@ -28,6 +29,18 @@ namespace {
 
 constexpr float kDropdownItemHeight = 30.0f;
 GLFWcursor* gOutlineResizeCursor = nullptr;
+GLFWcursor* gDiagramCursor = nullptr;
+
+void OpenDiagram(const MermaidLayout& diagram, ThemeMode theme) {
+    std::string error;
+    const auto path = CreateDiagramPreview(diagram, theme, error);
+    if (!path) {
+        ShowErrorMessage("Open Diagram failed", error);
+    } else if (!OpenPath(*path)) {
+        ShowErrorMessage("Open Diagram failed",
+            "The diagram could not be opened in the default SVG viewer. You can save it using Save Diagram as SVG.");
+    }
+}
 
 std::string PathToUtf8(const std::filesystem::path& path) {
     const auto utf8 = path.u8string();
@@ -217,6 +230,8 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
         .tableTsv = docHit.tableTsv,
         .tableCsv = docHit.tableCsv,
         .detailsToggleId = docHit.detailsToggleId,
+        .diagram = docHit.diagram,
+        .diagramTextStart = docHit.diagramTextStart,
     };
 }
 
@@ -458,6 +473,7 @@ void OnMouseMoveImpl(GLFWwindow* window, double xpos, double ypos) {
         if (UpdateHoveredUrl(appState, hit)) {
             appState.needsRepaint = true;
         }
+        if (!hoverOutlineResize && hit.diagram.IsValid()) glfwSetCursor(window, gDiagramCursor);
     }
 }
 
@@ -500,6 +516,17 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             case DocumentContextCommand::CopySelection:
                 if (CopySelection(window, *app)) {
                     appState.needsRepaint = true;
+                }
+                break;
+            case DocumentContextCommand::OpenDiagram:
+                OpenDiagram(menu.diagram, menu.diagramTheme);
+                break;
+            case DocumentContextCommand::SaveDiagramSvg:
+                if (const auto path = ShowSaveSvgDialog(menu.diagramExportPath)) {
+                    std::string error;
+                    if (!SaveDiagramSvg(menu.diagram, menu.diagramTheme, *path, error)) {
+                        ShowErrorMessage("Save Diagram failed", error);
+                    }
                 }
                 break;
             case DocumentContextCommand::OpenImage:
@@ -778,6 +805,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
         auto result = FinishPrimaryPointerInteraction(appState, hit);
         if (result.activateLink) HandleLinkClick(window, app->GetHostContext(), result.linkUrl, result.forceExternal);
         FinalizeSelectionInteraction(appState);
+        if (result.diagramToOpen.IsValid()) OpenDiagram(result.diagramToOpen, appState.theme);
         appState.needsRepaint = true;
     }
 }
@@ -1160,6 +1188,7 @@ void OnDrop(GLFWwindow* window, int count, const char** paths) noexcept {
 } // namespace
 
 void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
+    if (!gDiagramCursor) gDiagramCursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
     if (!gOutlineResizeCursor) {
         gOutlineResizeCursor = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
     }
@@ -1174,6 +1203,10 @@ void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
 }
 
 void CleanupInteractionResources() {
+    if (gDiagramCursor) {
+        glfwDestroyCursor(gDiagramCursor);
+        gDiagramCursor = nullptr;
+    }
     if (gOutlineResizeCursor) {
         glfwDestroyCursor(gOutlineResizeCursor);
         gOutlineResizeCursor = nullptr;

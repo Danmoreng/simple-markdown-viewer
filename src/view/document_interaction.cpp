@@ -403,6 +403,8 @@ void ClearPendingLinkState(AppState& appState) {
     appState.pendingLinkPressX = 0;
     appState.pendingLinkPressY = 0;
     appState.pendingLinkUrl.clear();
+    appState.pendingDiagram = {};
+    appState.pendingDiagramTextStart = 0;
 }
 
 void BeginScrollbarDrag(AppState& appState, float dragOffset) {
@@ -506,7 +508,9 @@ void BeginSelection(AppState& appState, const InteractionTextHit& hit, bool forc
         appState.selectionAnchor = 0;
         appState.selectionFocus = 0;
     }
-    appState.pendingLinkClick = hit.valid && !hit.url.empty();
+    appState.pendingDiagram = hit.valid ? hit.diagram : MermaidLayout{};
+    appState.pendingDiagramTextStart = hit.diagramTextStart;
+    appState.pendingLinkClick = hit.valid && (!hit.url.empty() || appState.pendingDiagram.IsValid());
     appState.pendingLinkForceExternal = forceExternal;
     appState.pendingLinkPressX = pressX;
     appState.pendingLinkPressY = pressY;
@@ -514,7 +518,9 @@ void BeginSelection(AppState& appState, const InteractionTextHit& hit, bool forc
 }
 
 bool UpdateHoveredUrl(AppState& appState, const InteractionTextHit& hit) {
-    const std::string nextUrl = (hit.valid && !hit.url.empty()) ? hit.url : "";
+    const std::string nextUrl = hit.valid && hit.diagram.IsValid()
+        ? "Open diagram in default viewer"
+        : (hit.valid ? hit.url : "");
     if (appState.hoveredUrl == nextUrl) {
         return false;
     }
@@ -652,12 +658,20 @@ PointerUpResult FinishPrimaryPointerInteraction(AppState& appState, const Intera
     appState.isDraggingScrollbar = false;
     if (appState.isSelecting) {
         if (appState.pendingLinkClick) {
-            result.activateLink = releaseHit.valid &&
+            if (appState.pendingDiagram.IsValid()) {
+                if (releaseHit.valid && releaseHit.diagram.IsValid() &&
+                    releaseHit.diagram.renderData == appState.pendingDiagram.renderData &&
+                    releaseHit.diagramTextStart == appState.pendingDiagramTextStart) {
+                    result.diagramToOpen = appState.pendingDiagram;
+                }
+            } else {
+                result.activateLink = releaseHit.valid &&
                                   !releaseHit.url.empty() &&
                                   releaseHit.url == appState.pendingLinkUrl;
+            }
             result.forceExternal = appState.pendingLinkForceExternal;
             result.linkUrl = appState.pendingLinkUrl;
-            if (result.activateLink) {
+            if (result.activateLink || result.diagramToOpen.IsValid()) {
                 appState.selectionAnchor = 0;
                 appState.selectionFocus = 0;
             } else {

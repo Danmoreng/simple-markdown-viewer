@@ -70,6 +70,8 @@ struct AppState {
     int pendingLinkPressX = 0;
     int pendingLinkPressY = 0;
     std::string pendingLinkUrl;
+    MermaidLayout pendingDiagram;
+    size_t pendingDiagramTextStart = 0;
     
     MenuBarState menuBarState;
     
@@ -155,6 +157,8 @@ struct AppState {
         pendingLinkPressX = 0;
         pendingLinkPressY = 0;
         pendingLinkUrl.clear();
+        pendingDiagram = {};
+        pendingDiagramTextStart = 0;
         codeBlockButtons.clear();
         horizontalScrollOffsets.clear();
         horizontalScrollbars.clear();

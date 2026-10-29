@@ -18,6 +18,8 @@ struct DocumentTextHit {
     std::string tableTsv;
     std::string tableCsv;
     size_t detailsToggleId = 0;
+    MermaidLayout diagram;
+    size_t diagramTextStart = 0;
 };
 
 struct HitTestCallbacks {

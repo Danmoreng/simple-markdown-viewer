@@ -13,6 +13,7 @@
 #include "app/app_config.h"
 #include "app/app_state.h"
 #include "app/document_loader.h"
+#include "app/diagram_export.h"
 #include "app/heading_anchor.h"
 #include "app/link_resolver.h"
 #include "app/viewer_controller.h"
@@ -3896,6 +3897,120 @@ void MermaidRenderingAndSourceFallback() {
 #endif
 }
 
+void MermaidDiagramActionsAndExport() {
+    TempDir temp;
+    std::string error;
+    const fs::path invalidPath = temp.Path() / "invalid.svg";
+    Require(!mdviewer::SaveDiagramSvg({}, mdviewer::ThemeMode::Light, invalidPath, error) &&
+        !error.empty() && !fs::exists(invalidPath), "a source fallback must not export an empty image");
+    Require(!mdviewer::CreateDiagramPreview({}, mdviewer::ThemeMode::Light, error),
+        "a source fallback must not create a temporary preview");
+#if MDVIEWER_ENABLE_MERMAID
+    const auto fonts = mdviewer::CreateFontManager();
+    const auto face = mdviewer::CreateDefaultTypeface(fonts);
+    const auto typefaces = MakeTestTypefaces(fonts.get(), face.get());
+    const std::string fence = "```mermaid\nflowchart LR; A[Original] --> B[Diagram]\n```\n\n";
+    auto layout = mdviewer::LayoutEngine::ComputeLayout(mdviewer::MarkdownParser::Parse(fence + fence), 260, typefaces, 17);
+    const auto hitFor = [&](size_t index, float xFraction) {
+        const auto& line = layout.blocks[index].lines.front();
+        const auto hit = mdviewer::HitTestDocument(layout, 0, 0,
+            line.x + line.width * xFraction, line.y + line.height * 0.5f, {});
+        return mdviewer::InteractionTextHit{
+            .position = hit.position, .valid = hit.valid, .kind = hit.kind,
+            .diagram = hit.diagram, .diagramTextStart = hit.diagramTextStart,
+        };
+    };
+    const auto firstHit = hitFor(0, 0.25f);
+    const auto rightHalf = hitFor(0, 0.75f);
+    const auto secondHit = hitFor(1, 0.25f);
+    Require(firstHit.diagram.IsValid() && firstHit.diagram.renderData == secondHit.diagram.renderData,
+        "hit testing should retain the cached rendered diagram");
+    mdviewer::AppState state;
+    state.theme = mdviewer::ThemeMode::Dark;
+    state.currentFilePath = temp.Path() / fs::path(u8"Grüße.md");
+    const auto menu = mdviewer::BuildDocumentContextMenu(state, firstHit);
+    const auto hasCommand = [](const auto& candidate, mdviewer::DocumentContextCommand command) {
+        return std::any_of(candidate.items.begin(), candidate.items.end(), [&](const auto& item) {
+            return item.command == command && item.enabled;
+        });
+    };
+    Require(hasCommand(menu, mdviewer::DocumentContextCommand::OpenDiagram) &&
+        hasCommand(menu, mdviewer::DocumentContextCommand::SaveDiagramSvg),
+        "valid diagrams should offer Open and Save as SVG actions");
+    Require(!hasCommand(menu, mdviewer::DocumentContextCommand::OpenLink) &&
+        !hasCommand(menu, mdviewer::DocumentContextCommand::OpenImage),
+        "diagram actions must not be mistaken for document links or raster images");
+    Require(menu.diagramTheme == mdviewer::ThemeMode::Dark && menu.diagram.IsValid(),
+        "the popup should retain the diagram and its displayed theme");
+    RequireEqual(menu.diagramExportPath.filename(), fs::path(u8"Grüße-diagram.svg"),
+        "save suggestions should retain Unicode document names");
+    RequireEqual(mdviewer::SuggestedDiagramExportPath({}), fs::path("diagram.svg"),
+        "documents without paths should still have a useful export name");
+
+    mdviewer::BeginSelection(state, firstHit, false, 10, 10);
+    auto released = mdviewer::FinishPrimaryPointerInteraction(state, rightHalf);
+    Require(released.diagramToOpen.IsValid() && !released.activateLink && !state.HasSelection(),
+        "click release within the same diagram should request an external image preview");
+    mdviewer::FinalizeSelectionInteraction(state);
+    Require(!state.pendingDiagram.IsValid(), "pointer release should not retain a pending diagram");
+    mdviewer::BeginSelection(state, firstHit, false, 10, 10);
+    released = mdviewer::FinishPrimaryPointerInteraction(state, secondHit);
+    Require(!released.diagramToOpen.IsValid(), "a second identical diagram is a different click target");
+    mdviewer::BeginSelection(state, firstHit, false, 10, 10);
+    Require(mdviewer::CancelPendingLinkIfDragged(state, 30, 30, 4), "dragging should cancel diagram activation");
+    released = mdviewer::FinishPrimaryPointerInteraction(state, rightHalf);
+    Require(!released.diagramToOpen.IsValid() && released.shouldUpdateSelection,
+        "drag selection must not launch an external application");
+
+    const auto& line = layout.blocks[0].lines.front();
+    for (const auto point : {SkPoint::Make(line.x - 10, line.y + 1), SkPoint::Make(line.x, line.y + line.height + 1)}) {
+        const auto margin = mdviewer::HitTestDocument(layout, 0, 0, point.x(), point.y(), {});
+        Require(!margin.diagram.IsValid(), "document gaps should not acquire diagram actions from their nearest line");
+    }
+    const auto backgroundMenu = mdviewer::BuildDocumentContextMenu(state, {});
+    Require(!hasCommand(backgroundMenu, mdviewer::DocumentContextCommand::SaveDiagramSvg),
+        "blank document areas must not offer diagram exports");
+
+    const auto destination = temp.Path() / fs::path(u8"gespeichertes-Diagramm-größer.svg");
+    std::string lightSvg, darkSvg;
+    for (const auto theme : {mdviewer::ThemeMode::Light, mdviewer::ThemeMode::Dark, mdviewer::ThemeMode::Sepia}) {
+        Require(mdviewer::SaveDiagramSvg(firstHit.diagram, theme, destination, error), "SVG save should succeed: " + error);
+        const std::string exported = ReadText(destination);
+        Require(exported.find("<svg") != std::string::npos && exported.find("Original") != std::string::npos &&
+            exported.find("marker-end=") == std::string::npos,
+            "saved SVG should retain standalone vector content and expanded arrowheads");
+        mdviewer::DocumentImageCache images;
+        // The Unicode destination is verified above with filesystem-native I/O;
+        // use an ASCII fixture for the existing image-cache file loader.
+        WriteText(temp.Path() / "roundtrip.svg", exported);
+        const auto size = images.GetImageSize("roundtrip.svg", temp.Path());
+        Require(size.first > firstHit.diagram.width, "export should use intrinsic dimensions, not the narrow reader column");
+        const auto image = images.GetImage("roundtrip.svg", temp.Path(), size.first, size.second);
+        Require(image != nullptr, "exported SVG should round-trip through Skia");
+        SkPixmap pixels;
+        Require(image->peekPixels(&pixels), "export pixels should be readable");
+        RequireEqual(pixels.getColor(0, 0), mdviewer::GetThemePalette(theme).codeBlockBackground,
+            "standalone diagrams should retain the panel background for their selected theme");
+        if (theme == mdviewer::ThemeMode::Light) lightSvg = exported;
+        if (theme == mdviewer::ThemeMode::Dark) darkSvg = exported;
+    }
+    Require(lightSvg != darkSvg, "light and dark exports should retain their distinct colors");
+    Require(!mdviewer::SaveDiagramSvg(firstHit.diagram, mdviewer::ThemeMode::Dark, temp.Path(), error) && !error.empty(),
+        "write failures must be reported without losing the rendered diagram");
+    const auto preview = mdviewer::CreateDiagramPreview(firstHit.diagram, mdviewer::ThemeMode::Dark, error);
+    Require(preview && fs::exists(*preview) && ReadText(*preview) == darkSvg,
+        "external preview should be the same full-size SVG as a saved export");
+#ifndef _WIN32
+    const auto permissions = fs::status(preview->parent_path()).permissions();
+    Require((permissions & (fs::perms::group_all | fs::perms::others_all)) == fs::perms::none,
+        "temporary diagram directories must be private to the user");
+#endif
+    // Only the unique directory created by this test is removed.
+    fs::remove(*preview);
+    fs::remove(preview->parent_path());
+#endif
+}
+
 void ScrollAnchorPreservesReadingPosition() {
     std::ostringstream source;
     for (int index = 0; index < 30; ++index) {
@@ -4003,6 +4118,7 @@ int main() {
         {"LatexMathParsingLayoutAndFallback", LatexMathParsingLayoutAndFallback},
         {"MermaidSvgMarkerExpansion", MermaidSvgMarkerExpansion},
         {"MermaidRenderingAndSourceFallback", MermaidRenderingAndSourceFallback},
+        {"MermaidDiagramActionsAndExport", MermaidDiagramActionsAndExport},
         {"ScrollAnchorPreservesReadingPosition", ScrollAnchorPreservesReadingPosition},
     };
 

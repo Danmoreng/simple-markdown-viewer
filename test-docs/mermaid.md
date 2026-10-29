@@ -5,6 +5,12 @@ reader zoom, narrow windows, source copying, searching for `Decision`, and PDF
 export. Arrowheads must remain visible. The two final examples must show source
 and an explanation instead of disappearing.
 
+Click each rendered diagram to open its full-size SVG in the default external
+application. Right-click and choose **Save Diagram as SVG...** to save a copy.
+Check that the saved image keeps its original size in a narrow window, follows
+the selected theme, and includes arrows. Dragging should select source text
+without opening an external application; the copy button should copy source.
+
 ## Flowchart
 
 ```mermaid

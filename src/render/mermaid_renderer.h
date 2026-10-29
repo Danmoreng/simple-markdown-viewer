@@ -26,5 +26,7 @@ MermaidLayout LayoutMermaid(
     std::string_view source, std::string_view fontFamily,
     SkFontMgr* fontManager, float baseFontSize, float maximumWidth);
 void DrawMermaid(SkCanvas* canvas, const MermaidLayout& layout, float x, float y, bool dark);
+// The returned view remains valid while layout.renderData is retained.
+std::string_view GetMermaidSvg(const MermaidLayout& layout, bool dark);
 
 } // namespace mdviewer

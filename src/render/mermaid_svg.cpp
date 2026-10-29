@@ -162,7 +162,8 @@ bool NormalizeElements(XMLElement* element,
 
 } // namespace
 
-bool NormalizeMermaidSvg(std::string_view source, std::string& normalized, std::string& error) {
+bool NormalizeMermaidSvg(std::string_view source, std::string& normalized, std::string& error,
+    float intrinsicWidth, float intrinsicHeight) {
     tinyxml2::XMLDocument document;
     if (document.Parse(source.data(), source.size()) != tinyxml2::XML_SUCCESS || !document.RootElement()) {
         error = "The Mermaid renderer returned invalid SVG.";
@@ -171,6 +172,12 @@ bool NormalizeMermaidSvg(std::string_view source, std::string& normalized, std::
     std::map<std::string, const XMLElement*> markers;
     FindMarkers(document.RootElement(), markers);
     if (!NormalizeElements(document.RootElement(), markers, error)) return false;
+    if (std::isfinite(intrinsicWidth) && std::isfinite(intrinsicHeight) &&
+        intrinsicWidth > 0.0f && intrinsicHeight > 0.0f) {
+        // Standalone exports must not depend on a containing HTML viewport.
+        document.RootElement()->SetAttribute("width", intrinsicWidth);
+        document.RootElement()->SetAttribute("height", intrinsicHeight);
+    }
     tinyxml2::XMLPrinter printer(nullptr, true);
     document.Print(&printer);
     normalized.assign(printer.CStr(), printer.CStrSize() - 1);

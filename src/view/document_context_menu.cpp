@@ -1,6 +1,7 @@
 #include "view/document_context_menu.h"
 
 #include "app/link_resolver.h"
+#include "app/diagram_export.h"
 
 namespace mdviewer {
 namespace {
@@ -74,6 +75,15 @@ DocumentContextMenu BuildDocumentContextMenu(const AppState& appState, const Int
                 .enabled = true,
             });
         }
+    }
+
+    if (hit.valid && hit.kind == InlineKind::Diagram && hit.diagram.IsValid()) {
+        AddSeparator(menu);
+        menu.diagram = hit.diagram;
+        menu.diagramTheme = appState.theme;
+        menu.diagramExportPath = SuggestedDiagramExportPath(appState.currentFilePath);
+        menu.items.push_back({.command = DocumentContextCommand::OpenDiagram, .label = "Open Diagram"});
+        menu.items.push_back({.command = DocumentContextCommand::SaveDiagramSvg, .label = "Save Diagram as SVG..."});
     }
 
     if (hasLink) {

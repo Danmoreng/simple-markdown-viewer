@@ -140,4 +140,33 @@ std::optional<std::filesystem::path> ShowSavePdfDialog(const std::filesystem::pa
     return selectedPath;
 }
 
+std::optional<std::filesystem::path> ShowSaveSvgDialog(const std::filesystem::path& suggestedPath) {
+    if (!EnsureGtkInitialized()) return std::nullopt;
+    GtkWidget* dialog = gtk_file_chooser_dialog_new(
+        "Save Diagram as SVG", nullptr, GTK_FILE_CHOOSER_ACTION_SAVE,
+        "_Cancel", GTK_RESPONSE_CANCEL, "_Save", GTK_RESPONSE_ACCEPT, nullptr);
+    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
+    const std::string name = suggestedPath.filename().string();
+    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), name.c_str());
+    if (suggestedPath.has_parent_path()) {
+        const std::string folder = suggestedPath.parent_path().string();
+        gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), folder.c_str());
+    }
+    GtkFileFilter* filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "SVG images");
+    gtk_file_filter_add_pattern(filter, "*.svg");
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
+    std::optional<std::filesystem::path> selectedPath;
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        if (char* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog))) {
+            selectedPath = std::filesystem::path(filename);
+            if (selectedPath->extension().empty()) *selectedPath += ".svg";
+            g_free(filename);
+        }
+    }
+    gtk_widget_destroy(dialog);
+    DrainGtkEvents();
+    return selectedPath;
+}
+
 } // namespace mdviewer::linux_platform

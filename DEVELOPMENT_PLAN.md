@@ -266,6 +266,7 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
   - [x] Add a pinned Rust static library/C ABI bridge with CLI and PNG features disabled.
   - [x] Render fenced `mermaid` code blocks through shared Skia SVG, expanding unsupported arrow markers to native paths.
   - [x] Cache source/font results; preserve source copying/search, fitting, zoom, themes, print and PDF.
+  - [x] Open rendered diagrams in the default SVG application and save full-size themed SVGs through native dialogs on both hosts.
   - [x] Retain source plus an explanation on invalid, unsupported or oversized diagrams.
   - [x] Integrate native Windows/Linux Cargo builds and release license notices.
   - [ ] Validate the Linux build, fixture, font coverage, print and PDF behavior on Linux.

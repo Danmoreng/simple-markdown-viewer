@@ -5,9 +5,11 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include "app/diagram_export.h"
 
 #include "platform/win/win_clipboard.h"
 #include "platform/win/win_context_menu.h"
+#include "platform/win/win_file_dialog.h"
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_shell.h"
@@ -20,6 +22,17 @@
 namespace mdviewer::win {
 
 namespace {
+
+void OpenDiagram(HWND hwnd, const MermaidLayout& diagram, ThemeMode theme) {
+    std::string error;
+    const auto path = CreateDiagramPreview(diagram, theme, error);
+    if (!path) {
+        ShowErrorMessage(hwnd, "Open Diagram failed", error);
+    } else if (!OpenPath(*path)) {
+        ShowErrorMessage(hwnd, "Open Diagram failed",
+            "The diagram could not be opened in the default SVG viewer. You can save it using Save Diagram as SVG.");
+    }
+}
 
 void CancelOutlineResizeRelayout(HWND hwnd, ViewerInteractionContext& context) {
     KillTimer(hwnd, context.outlineResizeLayoutTimerId);
@@ -93,6 +106,8 @@ InteractionTextHit ToInteractionHit(const DocumentTextHit& hit) {
         .tableTsv = hit.tableTsv,
         .tableCsv = hit.tableCsv,
         .detailsToggleId = hit.detailsToggleId,
+        .diagram = hit.diagram,
+        .diagramTextStart = hit.diagramTextStart,
     };
 }
 
@@ -640,6 +655,7 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
 
     {
         auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
+        if (!hoverOutlineResize && hit.diagram.IsValid()) SetCursor(LoadCursorW(nullptr, IDC_HAND));
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         if (UpdateHoveredUrl(GetAppState(context.host), ToInteractionHit(hit))) {
             InvalidateRect(hwnd, nullptr, FALSE);
@@ -730,6 +746,8 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
     bool activateLink = false;
     bool forceExternal = false;
     std::string linkUrl;
+    MermaidLayout diagramToOpen;
+    ThemeMode diagramTheme = ThemeMode::Light;
 
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
@@ -738,6 +756,8 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
         activateLink = result.activateLink;
         forceExternal = result.forceExternal;
         linkUrl = result.linkUrl;
+        diagramToOpen = result.diagramToOpen;
+        diagramTheme = GetAppState(context.host).theme;
     }
 
     ReleaseCapture();
@@ -754,6 +774,7 @@ bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, 
     if (activateLink) {
         HandleLinkClick(hwnd, context.host, linkUrl, forceExternal);
     }
+    if (diagramToOpen.IsValid()) OpenDiagram(hwnd, diagramToOpen, diagramTheme);
 
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
@@ -796,6 +817,17 @@ bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX
             CopySelection(hwnd, context);
             break;
         }
+        case DocumentContextCommand::OpenDiagram:
+            OpenDiagram(hwnd, menu.diagram, menu.diagramTheme);
+            break;
+        case DocumentContextCommand::SaveDiagramSvg:
+            if (const auto path = ShowSaveSvgDialog(hwnd, menu.diagramExportPath)) {
+                std::string error;
+                if (!SaveDiagramSvg(menu.diagram, menu.diagramTheme, *path, error)) {
+                    ShowErrorMessage(hwnd, "Save Diagram failed", error);
+                }
+            }
+            break;
         case DocumentContextCommand::OpenImage:
             HandleLinkClick(hwnd, context.host, menu.imageSource, true);
             break;
