@@ -13,6 +13,7 @@
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_shell.h"
 #include "platform/win/win_surface.h"
+#include "platform/win/win_dpi.h"
 #include "render/pdf_exporter.h"
 #include "render/print_document.h"
 #include "view/document_interaction.h"
@@ -143,16 +144,20 @@ float GetDocumentLeftInset(const ViewerHostContext& context) {
 }
 
 float GetDocumentLayoutWidth(HWND hwnd, const ViewerHostContext& context) {
-    RECT rect = {};
-    GetClientRect(hwnd, &rect);
-    return std::max(static_cast<float>(rect.right - rect.left) - GetDocumentLeftInset(context), 1.0f);
+    return std::max(LogicalClientWidth(hwnd) - GetDocumentLeftInset(context), 1.0f);
+}
+
+float GetLogicalSurfaceWidth(const ViewerHostContext& context) {
+    return context.surface ? PixelsToLogical(static_cast<float>(context.surface->width()), context.dpiScale) : 0.0f;
+}
+
+float GetLogicalSurfaceHeight(const ViewerHostContext& context) {
+    return context.surface ? PixelsToLogical(static_cast<float>(context.surface->height()), context.dpiScale) : 0.0f;
 }
 
 float GetViewportHeight(HWND hwnd, const ViewerHostContext& context) {
     (void)context;
-    RECT rect = {};
-    GetClientRect(hwnd, &rect);
-    return std::max(static_cast<float>(rect.bottom - rect.top) - GetContentTopInset(), 0.0f);
+    return std::max(LogicalClientHeight(hwnd) - GetContentTopInset(), 0.0f);
 }
 
 float GetMaxScroll(HWND hwnd, const ViewerHostContext& context) {
@@ -177,7 +182,20 @@ void SyncMenuState(HWND hwnd, const ViewerHostContext& context) {
 }
 
 void UpdateSurface(HWND hwnd, ViewerHostContext& context) {
+    context.dpiScale = WindowDpiScale(hwnd);
     context.surface.EnsureSize(hwnd);
+}
+
+void ProcessWindowResize(HWND hwnd, ViewerHostContext& context) {
+    context.windowResizePending = false;
+    if (IsIconic(hwnd)) return;
+    UpdateSurface(hwnd, context);
+    if (LayoutWidthChanged(context.lastLayoutWidth, GetDocumentLayoutWidth(hwnd, context))) {
+        RelayoutCurrentDocument(hwnd, context);
+    } else {
+        ClampScrollOffset(hwnd, context);
+    }
+    InvalidateRect(hwnd, nullptr, FALSE);
 }
 
 std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd, const ViewerHostContext& context) {
@@ -193,8 +211,8 @@ std::optional<SkRect> GetScrollbarThumbRect(HWND hwnd, const ViewerHostContext& 
     const float maxScroll = GetMaxScroll(hwnd, context);
     const float thumbY = maxScroll > 0.0f ? (appState.scrollOffset / maxScroll) * maxThumbTravel : 0.0f;
     const float thumbX = appState.outlineSide == OutlineSide::Right
-        ? static_cast<float>(context.surface->width()) - GetDocumentLeftInset(context) - kScrollbarWidth - kScrollbarMargin
-        : static_cast<float>(context.surface->width()) - kScrollbarWidth - kScrollbarMargin;
+        ? GetLogicalSurfaceWidth(context) - GetDocumentLeftInset(context) - kScrollbarWidth - kScrollbarMargin
+        : GetLogicalSurfaceWidth(context) - kScrollbarWidth - kScrollbarMargin;
 
     return SkRect::MakeXYWH(
         thumbX,
@@ -208,7 +226,7 @@ void Render(HWND hwnd, ViewerHostContext& context) {
     bool interactiveResize = false;
     {
         std::lock_guard<std::mutex> lock(appState.mtx);
-        interactiveResize = appState.isResizingOutline;
+        interactiveResize = appState.isResizingOutline || context.liveWindowResize;
     }
 
     if (!context.surface.BeginFrame(hwnd, interactiveResize)) {
@@ -226,16 +244,20 @@ void Render(HWND hwnd, ViewerHostContext& context) {
     }
 
     SkCanvas* canvas = context.surface->getCanvas();
+    context.dpiScale = WindowDpiScale(hwnd);
+    SkAutoCanvasRestore canvasRestore(canvas, true);
+    canvas->scale(context.dpiScale, context.dpiScale);
     const ThemePalette palette = GetCurrentThemePalette(context);
     canvas->clear(palette.windowBackground);
 
     {
         std::lock_guard<std::mutex> lock(appState.mtx);
         appState.codeBlockButtons.clear();
+        appState.imageLoadButtons.clear();
         appState.horizontalScrollbars.clear();
         SyncOutlineScrollToDocument(
             appState,
-            static_cast<float>(context.surface->height()),
+            GetLogicalSurfaceHeight(context),
             GetContentTopInset());
         RenderDocumentScene(
             DocumentSceneParams{
@@ -246,8 +268,8 @@ void Render(HWND hwnd, ViewerHostContext& context) {
                 .baseFontSize = appState.baseFontSize,
                 .contentTopInset = GetContentTopInset(),
                 .viewportHeight = GetViewportHeight(hwnd, context),
-                .surfaceWidth = static_cast<float>(context.surface->width()),
-                .surfaceHeight = static_cast<float>(context.surface->height()),
+                .surfaceWidth = GetLogicalSurfaceWidth(context),
+                .surfaceHeight = GetLogicalSurfaceHeight(context),
                 .documentLeftInset = GetDocumentLeftInset(context),
                 .scrollbarWidth = kScrollbarWidth,
                 .scrollbarMargin = kScrollbarMargin,
@@ -260,8 +282,8 @@ void Render(HWND hwnd, ViewerHostContext& context) {
                     return context.imageCache.GetImage(
                         url,
                         appState.currentFilePath.parent_path(),
-                        displayWidth,
-                        displayHeight);
+                        displayWidth * context.dpiScale,
+                        displayHeight * context.dpiScale);
                 },
                 .addCodeBlockButton = [&](const SkRect& rect, size_t start, size_t end) {
                     appState.codeBlockButtons.push_back({rect, {start, end}});
@@ -269,13 +291,19 @@ void Render(HWND hwnd, ViewerHostContext& context) {
                 .addHorizontalScrollbar = [&](const HorizontalScrollbarRegion& region) {
                     appState.horizontalScrollbars.push_back(region);
                 },
+                .imageLoadInfoProvider = [&](const std::string& source) {
+                    return context.imageCache.GetSourceInfo(source, appState.currentFilePath.parent_path());
+                },
+                .addImageLoadButton = [&](const ImageLoadButtonRegion& region) {
+                    appState.imageLoadButtons.push_back(region);
+                },
             });
     }
 
     DrawTopMenuBar(
         canvas,
         hwnd,
-        context.surface->width(),
+        static_cast<int>(std::lround(GetLogicalSurfaceWidth(context))),
         GetMenuTypeface(context),
         palette,
         appState.CanGoBack(),
@@ -283,18 +311,19 @@ void Render(HWND hwnd, ViewerHostContext& context) {
         CanZoomOut(context),
         CanZoomIn(context));
 
+    canvasRestore.restore();
     context.surface.Present(hwnd, interactiveResize);
 }
 
 bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path& path, bool pushHistory) {
+    context.controller.CancelRelayout();
+    KillTimer(hwnd, kRelayoutPollTimerId);
     if (!EnsureFontSystem(context)) {
         MessageBoxW(hwnd, L"Font initialization failed. The document cannot be rendered.", L"Error", MB_ICONERROR);
         return false;
     }
 
-    RECT rect = {};
-    GetClientRect(hwnd, &rect);
-    const float width = std::max(static_cast<float>(rect.right - rect.left), 1.0f);
+    const float width = std::max(LogicalClientWidth(hwnd), 1.0f);
     const std::filesystem::path baseDir = path.parent_path();
 
     auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
@@ -310,7 +339,11 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
             context.imageCache.PreloadDocumentImages(docModel, preloadBaseDir);
         },
         imageSizeProvider,
-        pushHistory);
+        pushHistory,
+        true,
+        LayoutOptions{.imageLoadInfoProvider = [&](const std::string& source) {
+            return context.imageCache.GetSourceInfo(source, baseDir);
+        }});
 
     if (status == OpenDocumentStatus::BinaryFile) {
         MessageBoxW(hwnd, L"The file appears to be a binary file and cannot be opened internally.", L"Information", MB_ICONINFORMATION);
@@ -328,6 +361,7 @@ bool LoadFile(HWND hwnd, ViewerHostContext& context, const std::filesystem::path
     const std::wstring title = L"Markdown Viewer - " + path.filename().wstring();
     SetWindowTextW(hwnd, title.c_str());
     context.fileWatcher.SetWatchedFile(path);
+    context.lastLayoutWidth = width;
     context.controller.SaveConfig();
     SyncMenuState(hwnd, context);
 
@@ -605,37 +639,58 @@ void RelayoutCurrentDocument(HWND hwnd, ViewerHostContext& context) {
     }
 
     AppState& appState = State(context);
-    const float viewportHeight = GetViewportHeight(hwnd, context);
-    const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(appState, viewportHeight);
-
-    RECT rect = {};
-    GetClientRect(hwnd, &rect);
     const float width = GetDocumentLayoutWidth(hwnd, context);
     const std::filesystem::path baseDir = appState.currentFilePath.parent_path();
 
-    auto imageSizeProvider = [&](const std::string& url) -> std::pair<float, float> {
+    auto imageSizeProvider = [&context, baseDir](const std::string& url) -> std::pair<float, float> {
         return context.imageCache.GetImageSize(url, baseDir);
     };
 
+    context.controller.CancelRelayout();
+    KillTimer(hwnd, kRelayoutPollTimerId);
+    const auto anchor = GetRelayoutScrollAnchor(appState, GetViewportHeight(hwnd, context));
     if (!context.controller.Relayout(
             width,
             GetDocumentTypefaces(context),
             {},
-            imageSizeProvider)) {
-        return;
-    }
+            imageSizeProvider,
+            LayoutOptions{.imageLoadInfoProvider = [&context, baseDir](const std::string& source) {
+                return context.imageCache.GetSourceInfo(source, baseDir);
+            }})) return;
+    RestoreScrollAnchor(appState, anchor, GetViewportHeight(hwnd, context), GetMaxScroll(hwnd, context));
+    RememberRelayoutScrollAnchor(appState, anchor);
+    RebuildSearchMatches(appState);
+    context.lastLayoutWidth = width;
+}
 
-    RestoreScrollAnchor(appState, scrollAnchor, GetViewportHeight(hwnd, context), GetMaxScroll(hwnd, context));
-    RememberRelayoutScrollAnchor(appState, scrollAnchor);
+void PollDocumentRelayout(HWND hwnd, ViewerHostContext& context) {
+    // Input remains live while layout runs. Capture from the displayed layout
+    // immediately before replacing it, so a wheel/key scroll is not undone.
+    const ScrollAnchor currentAnchor = GetRelayoutScrollAnchor(State(context), GetViewportHeight(hwnd, context));
+    RememberRelayoutScrollAnchor(State(context), currentAnchor);
+    if (context.controller.PollRelayout()) {
+        AppState& appState = State(context);
+        RestoreScrollAnchor(appState, currentAnchor, GetViewportHeight(hwnd, context), GetMaxScroll(hwnd, context));
+        RememberRelayoutScrollAnchor(appState, currentAnchor);
+        RebuildSearchMatches(appState);
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    if (!context.controller.IsRelayoutPending()) {
+        KillTimer(hwnd, kRelayoutPollTimerId);
+        if (!context.controller.GetLastLayoutError().empty()) {
+            context.lastLayoutWidth = -1.0f;
+            ShowErrorMessage(hwnd, "Layout failed", context.controller.GetLastLayoutError());
+        }
+    }
 }
 
 bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrollOffset) {
+    context.controller.CancelRelayout();
+    KillTimer(hwnd, kRelayoutPollTimerId);
     if (!EnsureFontSystem(context)) {
         return false;
     }
 
-    RECT rect = {};
-    GetClientRect(hwnd, &rect);
     const float width = GetDocumentLayoutWidth(hwnd, context);
     const std::filesystem::path currentPath = State(context).currentFilePath;
     const std::filesystem::path baseDir = currentPath.parent_path();
@@ -651,7 +706,10 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
         },
         [&](const std::string& url) -> std::pair<float, float> {
             return context.imageCache.GetImageSize(url, baseDir);
-        });
+        },
+        LayoutOptions{.imageLoadInfoProvider = [&](const std::string& source) {
+            return context.imageCache.GetSourceInfo(source, baseDir);
+        }});
     if (status != OpenDocumentStatus::Success) {
         return false;
     }
@@ -664,6 +722,7 @@ bool ReloadCurrentFile(HWND hwnd, ViewerHostContext& context, bool preserveScrol
     }
 
     context.fileWatcher.SetWatchedFile(currentPath);
+    context.lastLayoutWidth = width;
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
 }

@@ -20,6 +20,14 @@ struct ShapedTextInputRun {
     float objectWidth = 0.0f;
     float objectHeight = 0.0f;
     MathLayout mathLayout;
+    bool imageLoadRequired = false;
+    ImageLoadInfo imageLoadInfo;
+    std::vector<std::string> imageSourceLines;
+    std::vector<std::string> imageErrorLines;
+    bool imageSourceControlsEscaped = false;
+    float imagePlaceholderLabelHeight = 0.0f;
+    float imageSourceLineHeight = 0.0f;
+    float imageLoadButtonHeight = 0.0f;
 };
 
 struct ShapingSpan {
@@ -40,6 +48,14 @@ struct ShapingSpan {
     float objectHeight = 0.0f;
     bool mathDisplay = false;
     MathLayout mathLayout;
+    bool imageLoadRequired = false;
+    ImageLoadInfo imageLoadInfo;
+    std::vector<std::string> imageSourceLines;
+    std::vector<std::string> imageErrorLines;
+    bool imageSourceControlsEscaped = false;
+    float imagePlaceholderLabelHeight = 0.0f;
+    float imageSourceLineHeight = 0.0f;
+    float imageLoadButtonHeight = 0.0f;
 
     bool IsAtomicObject() const noexcept;
 };
@@ -65,7 +81,8 @@ std::optional<ResolvedTextDirection> TryResolveFirstStrongDirection(std::string_
 
 ShapingParagraphSet BuildShapingParagraphs(
     const std::vector<ShapedTextInputRun>& runs,
-    size_t logicalStart = 0);
+    size_t logicalStart = 0,
+    std::stop_token stopToken = {});
 
 struct ShapedTextLayoutOptions {
     BlockType blockType = BlockType::Paragraph;
@@ -74,6 +91,7 @@ struct ShapedTextLayoutOptions {
     float wrapWidth = 1.0f;
     float startY = 0.0f;
     float fallbackLineHeight = 0.0f;
+    std::stop_token stopToken;
 };
 
 struct ShapedTextLayoutResult {

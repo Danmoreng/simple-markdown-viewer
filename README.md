@@ -60,6 +60,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
     direction-aware wrapping, selection, search highlighting, links, lists,
     tables, details, code, print/PDF output, and heading-outline labels
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, requested HTML dimensions, and no forced upscaling beyond intrinsic size; SVGs may derive their intrinsic size from `width`/`height` or `viewBox`, while SVG HTML `<foreignObject>` content is not supported
+  - **Native Mermaid diagrams** in fenced `mermaid` blocks through a pinned Rust library and Skia SVG, including arrowheads, light/dark colors, source copying/search, and print/PDF output. Click to open the full-size SVG in the default external application, or right-click to save it as SVG with the current theme. Invalid or unsupported diagrams remain visible as source with an explanation. This is an independent Mermaid implementation with bounded input and partial compatibility; see [Mermaid support](docs/MERMAID.md).
 - Navigation:
   - **Full browsing history** (back/forward) with per-document reading-position restoration
   - Generated nested heading outline that highlights the current section and can be collapsed, placed on either side, resized, scrolled independently, and navigated by keyboard
@@ -81,8 +82,9 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
   - browser-style middle-mouse auto-scroll on Windows and Linux
 - Responsive document margins and live relayout while resizing the window or outline; cached image dimensions avoid repeated image scaling during a resize
 - Safe UTF-8 boundary wrapping for very long unbroken strings and URLs
-- Remote images are not fetched inside the app; HTML badges and other remote images use labeled placeholders and can still be opened explicitly
+- HTTP/HTTPS and network-share images start as placeholders showing the complete source URL/path. Choose **Load image** to fetch that image into the document; other sources remain blocked. Long addresses wrap without truncation, and invisible control characters are shown explicitly. Loading runs in the background, with visible failures and a retry action. Redirects are blocked and their destinations shown. Permissions and downloaded data are cleared when opening or reloading a document.
 - Mouse text selection and `Ctrl+C` copy with explicit hard breaks and block/list boundaries preserved
+- Static `img.shields.io/badge/...` badges with ASCII labels/messages, standard badge colors or hex colors, and flat/flat-square styling render locally with Skia, without fetching the image. Unsupported options and dynamic badge endpoints retain the external-image consent flow.
 - Unicode-aware in-document search with `Ctrl+F`, match highlighting, and next/previous navigation
 - Search can also be opened from `View -> Find...`
 - Native right-click context menu for selection/link actions, reload, document-path copying, and opening files in the file manager
@@ -157,7 +159,7 @@ Useful variants:
 
 ### Build on Linux
 
-The Linux host uses GLFW for the window and event loop plus GTK3 for native dialogs, printing, and context menus. Build the PDF-enabled application and run the tests with:
+The Linux host uses GLFW for the window and event loop plus GTK3 for native dialogs, printing, and context menus. Install the libcurl development package for explicitly approved HTTP/HTTPS images (`libcurl4-openssl-dev` on Debian/Ubuntu); Windows uses the system WinHTTP library. Build the PDF-enabled application and run the tests with:
 
 ```bash
 ./build.sh
@@ -196,7 +198,7 @@ If no per-user configuration exists, the app can import a legacy `mdviewer.ini` 
 
 ## GitHub Builds and Releases
 
-GitHub Actions builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal and sanitizer test passes. A tag such as `v0.3.1` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
+GitHub Actions validates pull requests and builds Windows and Linux for version tags matching `v*` and for manual workflow runs. The Windows workflow consumes the pinned prebuilt Skia bundle documented in [`docs/WINDOWS_SKIA_BUNDLE.md`](docs/WINDOWS_SKIA_BUNDLE.md); Linux performs normal, sanitizer, and bounded fuzz test passes. Only version tags publish release archives; pull-request jobs have read-only repository permissions. A tag such as `v0.3.1` publishes `mdviewer-windows-x64.zip`, `mdviewer-linux-x64.tar.gz`, and the Linux SHA-256 checksum.
 
 The Windows renderer and complex-text stack require a Direct3D Ganesh-enabled
 Skia bundle containing SkShaper, SkUnicode, HarfBuzz, ICU, and `icudtl.dat`.
@@ -307,6 +309,7 @@ Windows system libraries linked by the app:
 - `d3d12`
 - `d3dcompiler`
 - `dxgi`
+- `winhttp`
 
 Linux system libraries linked by the app include:
 
@@ -316,6 +319,7 @@ Linux system libraries linked by the app include:
 - `dl`
 - `GL`
 - `X11`
+- `curl`
 
 ## Licensing
 

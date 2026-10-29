@@ -1,6 +1,7 @@
 #include "render/typography.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace mdviewer {
 
@@ -16,6 +17,7 @@ float ScaleFromBase(float value, float baseFontSize) {
 } // namespace
 
 float ClampBaseFontSize(float baseFontSize) {
+    if (!std::isfinite(baseFontSize)) return kDefaultBaseFontSize;
     return std::clamp(baseFontSize, kMinBaseFontSize, kMaxBaseFontSize);
 }
 

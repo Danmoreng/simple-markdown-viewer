@@ -13,6 +13,7 @@
 #include "app/app_config.h"
 #include "app/app_state.h"
 #include "app/document_loader.h"
+#include "app/diagram_export.h"
 #include "app/heading_anchor.h"
 #include "app/link_resolver.h"
 #include "app/viewer_controller.h"
@@ -21,6 +22,8 @@
 #include "render/image_cache.h"
 #include "render/document_renderer.h"
 #include "render/menu_renderer.h"
+#include "render/mermaid_renderer.h"
+#include "render/mermaid_svg.h"
 #include "render/pdf_exporter.h"
 #include "render/print_document.h"
 #include "render/syntax/tree_sitter_highlighter.h"
@@ -37,6 +40,16 @@
 
 #include "include/core/SkPixmap.h"
 #include "include/core/SkSurface.h"
+
+namespace mdviewer::tests {
+void RunParserSafetyTests();
+void RunIoPathTests();
+void RunAsyncLayoutTests();
+void RunLayoutPerformanceTests();
+void RunPlatformHelpersTests();
+void RunRenderInteractionTests();
+void RunImageCacheTests();
+}
 
 namespace {
 
@@ -553,10 +566,10 @@ void LinkResolution() {
     const mdviewer::InteractionTextHit missingLinkHit{0, true, "missing.md"};
     const auto missingContextMenu = mdviewer::BuildDocumentContextMenu(contextState, missingLinkHit);
     Require(
-        std::none_of(missingContextMenu.items.begin(), missingContextMenu.items.end(), [](const auto& item) {
+        std::any_of(missingContextMenu.items.begin(), missingContextMenu.items.end(), [](const auto& item) {
             return item.command == mdviewer::DocumentContextCommand::RevealLinkTarget;
         }),
-        "missing link context menu should not offer a reveal action");
+        "local link menus resolve paths without probing potentially network-backed targets");
 }
 
 void SvgImageRendering() {
@@ -3708,6 +3721,306 @@ void LatexMathParsingLayoutAndFallback() {
     Require(!oversized.valid, "oversized math input should use the safe source fallback");
 }
 
+void MermaidSvgMarkerExpansion() {
+    const std::string svg =
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"40\">"
+        "<defs><marker id=\"tip\" markerWidth=\"10\" markerHeight=\"10\" viewBox=\"0 0 10 10\" "
+        "refX=\"10\" refY=\"5\" markerUnits=\"userSpaceOnUse\" orient=\"auto\">"
+        "<path d=\"M 0 0 L 10 5 L 0 10 Z\" fill=\"#ff0000\"/></marker></defs>"
+        "<path d=\"M 10 20 L 90 20\" stroke=\"black\" marker-end=\"url(#tip)\"/></svg>";
+    std::string normalized, error;
+    Require(mdviewer::NormalizeMermaidSvg(svg, normalized, error), "arrow marker should normalize: " + error);
+    Require(normalized.find("marker-end=") == std::string::npos, "marker references should become explicit geometry");
+    TempDir temp;
+    WriteText(temp.Path() / "arrow.svg", normalized);
+    mdviewer::DocumentImageCache images;
+    const auto image = images.GetImage("arrow.svg", temp.Path(), 100.0f, 40.0f);
+    Require(image != nullptr, "normalized arrow should load in Skia");
+    SkPixmap pixels;
+    Require(image->peekPixels(&pixels), "normalized arrow pixels should be readable");
+    // This pixel lies inside the arrow triangle and away from the line. It would
+    // stay transparent if Skia silently dropped the original SVG marker.
+    Require(SkColorGetR(pixels.getColor(82, 17)) > 200 && SkColorGetA(pixels.getColor(82, 17)) > 200,
+        "expanded SVG marker must produce a visible red arrowhead");
+    std::string curvedSvg = svg;
+    curvedSvg.replace(curvedSvg.find("height=\"40\""), 11, "height=\"80\"");
+    const std::string straightPath = "M 10 20 L 90 20";
+    curvedSvg.replace(curvedSvg.find(straightPath), straightPath.size(), "M 10 20 Q 50 20 50 60");
+    Require(mdviewer::NormalizeMermaidSvg(curvedSvg, normalized, error), "curved edge should normalize");
+    WriteText(temp.Path() / "curved.svg", normalized);
+    const auto curved = images.GetImage("curved.svg", temp.Path(), 100, 80);
+    Require(curved && curved->peekPixels(&pixels), "curved arrow pixels should be readable");
+    Require(SkColorGetR(pixels.getColor(52, 52)) > 200 && SkColorGetA(pixels.getColor(52, 52)) > 200,
+        "arrowhead should follow the tangent at the end of a curved edge");
+    Require(!mdviewer::NormalizeMermaidSvg("<svg><foreignObject/></svg>", normalized, error),
+        "unsupported embedded HTML should produce an explicit source fallback");
+}
+
+void MermaidRenderingAndSourceFallback() {
+    const auto fonts = mdviewer::CreateFontManager();
+    const auto face = mdviewer::CreateDefaultTypeface(fonts);
+    const auto typefaces = MakeTestTypefaces(fonts.get(), face.get());
+    const std::string flow = "flowchart LR\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Done]\n  B -->|No| D[Retry]\n";
+    const std::string sequence = "sequenceDiagram\n  Alice->>Bob: Hello\n  Bob-->>Alice: Reply\n";
+    const std::string source = "# Native Mermaid\n\n```mermaid\n" + flow + "```\n\n```mermaid\n" +
+        sequence + "```\n\n```mermaid\nnot-a-diagram\n```\n\nAfter diagrams.\n";
+    const auto document = mdviewer::MarkdownParser::Parse(source);
+    auto layout = mdviewer::LayoutEngine::ComputeLayout(document, 760.0f, typefaces, 17.0f);
+    RequireEqual(layout.blocks.size(), size_t(5), "Mermaid fences should preserve document block structure");
+#if MDVIEWER_ENABLE_MERMAID
+    const auto& block = layout.blocks[1];
+    const auto& line = block.lines.front();
+    const auto& run = line.runs.front();
+    Require(run.kind == mdviewer::InlineKind::Diagram && run.mermaidLayout.IsValid(),
+        "flowchart should become one native diagram: " + block.diagramError);
+    Require(layout.blocks[2].lines.front().runs.front().mermaidLayout.IsValid(),
+        "sequence diagram should render: " + layout.blocks[2].diagramError);
+    RequireEqual(layout.plainText.substr(block.textStart, block.textLength), flow,
+        "copyable diagram text should preserve the original source including newlines");
+    Require(!layout.blocks[3].diagramError.empty(), "invalid Mermaid should retain an explanation");
+    Require(layout.blocks[3].lines.front().runs.front().kind != mdviewer::InlineKind::Diagram,
+        "invalid Mermaid should use readable source lines");
+    Require(layout.plainText.find("not-a-diagram") != std::string::npos &&
+        layout.plainText.find("After diagrams.") != std::string::npos,
+        "failed diagrams must not lose source or following document text");
+    const auto narrow = mdviewer::LayoutEngine::ComputeLayout(document, 260.0f, typefaces, 17.0f);
+    const auto& narrowRun = narrow.blocks[1].lines.front().runs.front();
+    Require(narrowRun.mermaidLayout.renderData == run.mermaidLayout.renderData,
+        "resize should reuse parsed diagrams instead of invoking Rust again");
+    Require(narrowRun.visualWidth <= narrow.blocks[1].bounds.width(), "diagram should fit narrow columns");
+    RequireNear(narrowRun.mermaidLayout.width / narrowRun.mermaidLayout.height,
+        run.mermaidLayout.width / run.mermaidLayout.height, 0.001f, "fitting should preserve aspect ratio");
+    const auto zoomed = mdviewer::LayoutEngine::ComputeLayout(document, 1600.0f, typefaces, 25.5f);
+    RequireNear(zoomed.blocks[1].lines.front().width, line.width * 1.5f, 0.1f,
+        "reader zoom should scale native diagram geometry");
+    const auto hit = mdviewer::HitTestDocument(layout, 0.0f, 0.0f,
+        line.x + line.width * 0.75f, line.y + line.height * 0.5f, {});
+    Require(hit.valid && hit.position == block.textStart + block.textLength,
+        "diagram hit testing should select the source atomically");
+    const auto rects = mdviewer::GetTextRangeRects(line, block.textStart + 1, block.textStart + 5,
+        line.y, line.y + line.height);
+    Require(rects.size() == 1 && rects.front().width() >= line.width - 0.1f,
+        "search/selection inside source should highlight the complete diagram");
+
+    mdviewer::AppState state;
+    state.sourceText = source;
+    state.docModel = document;
+    state.docLayout = layout;
+    state.outlineCollapsed = true;
+    mdviewer::OpenSearch(state);
+    mdviewer::InsertSearchText(state, "Decision");
+    RequireEqual(state.searchMatches.size(), size_t(1), "diagram source should participate in normal search");
+    mdviewer::CloseSearch(state);
+    std::string artifactDirectory;
+#ifdef _MSC_VER
+    char* environmentValue = nullptr;
+    size_t environmentLength = 0;
+    if (_dupenv_s(&environmentValue, &environmentLength, "MDVIEWER_TEST_ARTIFACT_DIR") == 0 && environmentValue) {
+        artifactDirectory = environmentValue;
+        std::free(environmentValue);
+    }
+#else
+    if (const char* value = std::getenv("MDVIEWER_TEST_ARTIFACT_DIR")) artifactDirectory = value;
+#endif
+    for (const auto theme : {mdviewer::ThemeMode::Light, mdviewer::ThemeMode::Dark}) {
+        state.theme = theme;
+        const auto palette = mdviewer::GetThemePalette(theme);
+        const int height = static_cast<int>(std::ceil(layout.totalHeight + 16.0f));
+        const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(760, height));
+        Require(surface != nullptr, "diagram preview should allocate a raster surface");
+        surface->getCanvas()->clear(palette.windowBackground);
+        std::vector<std::pair<size_t, size_t>> copyRanges;
+        mdviewer::RenderDocumentScene(mdviewer::DocumentSceneParams{
+            .canvas = surface->getCanvas(), .appState = &state, .palette = palette,
+            .typefaces = typefaces, .baseFontSize = 17.0f,
+            .viewportHeight = float(height), .surfaceWidth = 760.0f, .surfaceHeight = float(height),
+            .visibleDocumentBottom = layout.totalHeight,
+            .addCodeBlockButton = [&](const SkRect&, size_t start, size_t end) { copyRanges.emplace_back(start, end); },
+        });
+        Require(copyRanges.size() == 3 && copyRanges.front() == std::make_pair(block.textStart, block.textStart + block.textLength),
+            "diagram copy controls should copy precisely the original source");
+        SkPixmap pixels;
+        Require(surface->peekPixels(&pixels), "diagram pixels should be readable");
+        size_t diagramInk = 0;
+        for (int y = int(line.y); y < int(line.y + line.height); ++y) {
+            for (int x = int(line.x); x < int(line.x + line.width); ++x) {
+                if (pixels.getColor(x, y) != palette.codeBlockBackground) ++diagramInk;
+            }
+        }
+        Require(diagramInk > 1000, "native diagram should draw substantial visible geometry in both themes");
+        if (!artifactDirectory.empty()) {
+            fs::create_directories(artifactDirectory);
+            std::ofstream output(fs::path(artifactDirectory) / (theme == mdviewer::ThemeMode::Dark ? "mermaid-dark.ppm" : "mermaid-light.ppm"), std::ios::binary);
+            output << "P6\n760 " << height << "\n255\n";
+            for (int y = 0; y < height; ++y) for (int x = 0; x < 760; ++x) {
+                const SkColor color = pixels.getColor(x, y);
+                const char rgb[] = {char(SkColorGetR(color)), char(SkColorGetG(color)), char(SkColorGetB(color))};
+                output.write(rgb, 3);
+            }
+        }
+    }
+    Require(!mdviewer::LayoutMermaid(std::string(16385, 'x'), "sans-serif", fonts.get(), 17, 600).IsValid(),
+        "oversized source should be bounded before entering Rust");
+    Require(!mdviewer::LayoutMermaid("%%{init: {}}%%\nflowchart LR; A-->B", "sans-serif", fonts.get(), 17, 600).IsValid(),
+        "document-controlled renderer configuration should fall back visibly");
+    std::ostringstream oversizedGraph;
+    oversizedGraph << "flowchart LR\n";
+    for (int index = 0; index < 129; ++index) oversizedGraph << "N" << index << "[Node]\n";
+    Require(!mdviewer::LayoutMermaid(oversizedGraph.str(), "sans-serif", fonts.get(), 17, 600).IsValid(),
+        "graph limits should apply before expensive layout");
+    std::string manyDiagrams;
+    for (int index = 0; index < 65; ++index) manyDiagrams += "```mermaid\nflowchart LR; A-->B\n```\n\n";
+    const auto many = mdviewer::LayoutEngine::ComputeLayout(mdviewer::MarkdownParser::Parse(manyDiagrams), 760, typefaces, 17);
+    Require(!many.blocks.back().diagramError.empty(), "documents should bound the number of Mermaid render requests");
+    const auto fixture = mdviewer::LayoutEngine::ComputeLayout(
+        mdviewer::MarkdownParser::Parse(ReadText(SourceRoot() / "test-docs" / "mermaid.md")), 760, typefaces, 17);
+    size_t renderedDiagrams = 0, fallbackDiagrams = 0;
+    const auto countDiagrams = [&](const auto& self, const std::vector<mdviewer::BlockLayout>& blocks) -> void {
+        for (const auto& item : blocks) {
+            if (item.type == mdviewer::BlockType::CodeBlock && item.codeLanguage == "mermaid") {
+                if (!item.diagramError.empty()) ++fallbackDiagrams;
+                else if (!item.lines.empty() && item.lines.front().runs.front().mermaidLayout.IsValid()) ++renderedDiagrams;
+            }
+            self(self, item.children);
+        }
+    };
+    countDiagrams(countDiagrams, fixture.blocks);
+    Require(renderedDiagrams == 8 && fallbackDiagrams == 2,
+        "manual fixture should render all eight supported examples, including nested diagrams, and only the two intentional fallbacks");
+    TempDir temp;
+    mdviewer::PdfExportRequest pdf;
+    pdf.outputPath = temp.Path() / "mermaid.pdf";
+    pdf.sourceText = source;
+    pdf.document = document;
+    pdf.typefaces = typefaces;
+    const auto pdfStatus = mdviewer::ExportMarkdownToPdf(pdf);
+#if MDVIEWER_ENABLE_PDF
+    Require(pdfStatus == mdviewer::PdfExportStatus::Success && fs::file_size(pdf.outputPath) > 1000,
+        "Mermaid diagrams should export through the shared vector PDF path");
+#else
+    Require(pdfStatus == mdviewer::PdfExportStatus::PdfBackendUnavailable, "PDF-disabled builds should remain supported");
+#endif
+#else
+    Require(!layout.blocks[1].diagramError.empty() &&
+        layout.blocks[1].lines.front().runs.front().kind != mdviewer::InlineKind::Diagram,
+        "builds without Rust should preserve diagram source with an explanation");
+#endif
+}
+
+void MermaidDiagramActionsAndExport() {
+    TempDir temp;
+    std::string error;
+    const fs::path invalidPath = temp.Path() / "invalid.svg";
+    Require(!mdviewer::SaveDiagramSvg({}, mdviewer::ThemeMode::Light, invalidPath, error) &&
+        !error.empty() && !fs::exists(invalidPath), "a source fallback must not export an empty image");
+    Require(!mdviewer::CreateDiagramPreview({}, mdviewer::ThemeMode::Light, error),
+        "a source fallback must not create a temporary preview");
+#if MDVIEWER_ENABLE_MERMAID
+    const auto fonts = mdviewer::CreateFontManager();
+    const auto face = mdviewer::CreateDefaultTypeface(fonts);
+    const auto typefaces = MakeTestTypefaces(fonts.get(), face.get());
+    const std::string fence = "```mermaid\nflowchart LR; A[Original] --> B[Diagram]\n```\n\n";
+    auto layout = mdviewer::LayoutEngine::ComputeLayout(mdviewer::MarkdownParser::Parse(fence + fence), 260, typefaces, 17);
+    const auto hitFor = [&](size_t index, float xFraction) {
+        const auto& line = layout.blocks[index].lines.front();
+        const auto hit = mdviewer::HitTestDocument(layout, 0, 0,
+            line.x + line.width * xFraction, line.y + line.height * 0.5f, {});
+        return mdviewer::InteractionTextHit{
+            .position = hit.position, .valid = hit.valid, .kind = hit.kind,
+            .diagram = hit.diagram, .diagramTextStart = hit.diagramTextStart,
+        };
+    };
+    const auto firstHit = hitFor(0, 0.25f);
+    const auto rightHalf = hitFor(0, 0.75f);
+    const auto secondHit = hitFor(1, 0.25f);
+    Require(firstHit.diagram.IsValid() && firstHit.diagram.renderData == secondHit.diagram.renderData,
+        "hit testing should retain the cached rendered diagram");
+    mdviewer::AppState state;
+    state.theme = mdviewer::ThemeMode::Dark;
+    state.currentFilePath = temp.Path() / fs::path(u8"Grüße.md");
+    const auto menu = mdviewer::BuildDocumentContextMenu(state, firstHit);
+    const auto hasCommand = [](const auto& candidate, mdviewer::DocumentContextCommand command) {
+        return std::any_of(candidate.items.begin(), candidate.items.end(), [&](const auto& item) {
+            return item.command == command && item.enabled;
+        });
+    };
+    Require(hasCommand(menu, mdviewer::DocumentContextCommand::OpenDiagram) &&
+        hasCommand(menu, mdviewer::DocumentContextCommand::SaveDiagramSvg),
+        "valid diagrams should offer Open and Save as SVG actions");
+    Require(!hasCommand(menu, mdviewer::DocumentContextCommand::OpenLink) &&
+        !hasCommand(menu, mdviewer::DocumentContextCommand::OpenImage),
+        "diagram actions must not be mistaken for document links or raster images");
+    Require(menu.diagramTheme == mdviewer::ThemeMode::Dark && menu.diagram.IsValid(),
+        "the popup should retain the diagram and its displayed theme");
+    RequireEqual(menu.diagramExportPath.filename(), fs::path(u8"Grüße-diagram.svg"),
+        "save suggestions should retain Unicode document names");
+    RequireEqual(mdviewer::SuggestedDiagramExportPath({}), fs::path("diagram.svg"),
+        "documents without paths should still have a useful export name");
+
+    mdviewer::BeginSelection(state, firstHit, false, 10, 10);
+    auto released = mdviewer::FinishPrimaryPointerInteraction(state, rightHalf);
+    Require(released.diagramToOpen.IsValid() && !released.activateLink && !state.HasSelection(),
+        "click release within the same diagram should request an external image preview");
+    mdviewer::FinalizeSelectionInteraction(state);
+    Require(!state.pendingDiagram.IsValid(), "pointer release should not retain a pending diagram");
+    mdviewer::BeginSelection(state, firstHit, false, 10, 10);
+    released = mdviewer::FinishPrimaryPointerInteraction(state, secondHit);
+    Require(!released.diagramToOpen.IsValid(), "a second identical diagram is a different click target");
+    mdviewer::BeginSelection(state, firstHit, false, 10, 10);
+    Require(mdviewer::CancelPendingLinkIfDragged(state, 30, 30, 4), "dragging should cancel diagram activation");
+    released = mdviewer::FinishPrimaryPointerInteraction(state, rightHalf);
+    Require(!released.diagramToOpen.IsValid() && released.shouldUpdateSelection,
+        "drag selection must not launch an external application");
+
+    const auto& line = layout.blocks[0].lines.front();
+    for (const auto point : {SkPoint::Make(line.x - 10, line.y + 1), SkPoint::Make(line.x, line.y + line.height + 1)}) {
+        const auto margin = mdviewer::HitTestDocument(layout, 0, 0, point.x(), point.y(), {});
+        Require(!margin.diagram.IsValid(), "document gaps should not acquire diagram actions from their nearest line");
+    }
+    const auto backgroundMenu = mdviewer::BuildDocumentContextMenu(state, {});
+    Require(!hasCommand(backgroundMenu, mdviewer::DocumentContextCommand::SaveDiagramSvg),
+        "blank document areas must not offer diagram exports");
+
+    const auto destination = temp.Path() / fs::path(u8"gespeichertes-Diagramm-größer.svg");
+    std::string lightSvg, darkSvg;
+    for (const auto theme : {mdviewer::ThemeMode::Light, mdviewer::ThemeMode::Dark, mdviewer::ThemeMode::Sepia}) {
+        Require(mdviewer::SaveDiagramSvg(firstHit.diagram, theme, destination, error), "SVG save should succeed: " + error);
+        const std::string exported = ReadText(destination);
+        Require(exported.find("<svg") != std::string::npos && exported.find("Original") != std::string::npos &&
+            exported.find("marker-end=") == std::string::npos,
+            "saved SVG should retain standalone vector content and expanded arrowheads");
+        mdviewer::DocumentImageCache images;
+        // The Unicode destination is verified above with filesystem-native I/O;
+        // use an ASCII fixture for the existing image-cache file loader.
+        WriteText(temp.Path() / "roundtrip.svg", exported);
+        const auto size = images.GetImageSize("roundtrip.svg", temp.Path());
+        Require(size.first > firstHit.diagram.width, "export should use intrinsic dimensions, not the narrow reader column");
+        const auto image = images.GetImage("roundtrip.svg", temp.Path(), size.first, size.second);
+        Require(image != nullptr, "exported SVG should round-trip through Skia");
+        SkPixmap pixels;
+        Require(image->peekPixels(&pixels), "export pixels should be readable");
+        RequireEqual(pixels.getColor(0, 0), mdviewer::GetThemePalette(theme).codeBlockBackground,
+            "standalone diagrams should retain the panel background for their selected theme");
+        if (theme == mdviewer::ThemeMode::Light) lightSvg = exported;
+        if (theme == mdviewer::ThemeMode::Dark) darkSvg = exported;
+    }
+    Require(lightSvg != darkSvg, "light and dark exports should retain their distinct colors");
+    Require(!mdviewer::SaveDiagramSvg(firstHit.diagram, mdviewer::ThemeMode::Dark, temp.Path(), error) && !error.empty(),
+        "write failures must be reported without losing the rendered diagram");
+    const auto preview = mdviewer::CreateDiagramPreview(firstHit.diagram, mdviewer::ThemeMode::Dark, error);
+    Require(preview && fs::exists(*preview) && ReadText(*preview) == darkSvg,
+        "external preview should be the same full-size SVG as a saved export");
+#ifndef _WIN32
+    const auto permissions = fs::status(preview->parent_path()).permissions();
+    Require((permissions & (fs::perms::group_all | fs::perms::others_all)) == fs::perms::none,
+        "temporary diagram directories must be private to the user");
+#endif
+    // Only the unique directory created by this test is removed.
+    fs::remove(*preview);
+    fs::remove(preview->parent_path());
+#endif
+}
+
 void ScrollAnchorPreservesReadingPosition() {
     std::ostringstream source;
     for (int index = 0; index < 30; ++index) {
@@ -3780,6 +4093,13 @@ void ScrollAnchorPreservesReadingPosition() {
 
 int main() {
     const std::vector<std::pair<const char*, void (*)()>> tests = {
+        {"ParserSafetyRegressions", mdviewer::tests::RunParserSafetyTests},
+        {"IoAndPathRegressions", mdviewer::tests::RunIoPathTests},
+        {"AsyncLayoutRegressions", mdviewer::tests::RunAsyncLayoutTests},
+        {"LayoutPerformanceRegressions", mdviewer::tests::RunLayoutPerformanceTests},
+        {"PlatformHelperRegressions", mdviewer::tests::RunPlatformHelpersTests},
+        {"RenderInteractionRegressions", mdviewer::tests::RunRenderInteractionTests},
+        {"ImageCacheRegressions", mdviewer::tests::RunImageCacheTests},
         {"ConfigParsingAndSaving", ConfigParsingAndSaving},
         {"RecentFilesAndHistory", RecentFilesAndHistory},
         {"ConfigPathMigration", ConfigPathMigration},
@@ -3813,6 +4133,9 @@ int main() {
         {"MenuLayoutHitTesting", MenuLayoutHitTesting},
         {"SyntaxHighlightingCacheAndFallback", SyntaxHighlightingCacheAndFallback},
         {"LatexMathParsingLayoutAndFallback", LatexMathParsingLayoutAndFallback},
+        {"MermaidSvgMarkerExpansion", MermaidSvgMarkerExpansion},
+        {"MermaidRenderingAndSourceFallback", MermaidRenderingAndSourceFallback},
+        {"MermaidDiagramActionsAndExport", MermaidDiagramActionsAndExport},
         {"ScrollAnchorPreservesReadingPosition", ScrollAnchorPreservesReadingPosition},
     };
 

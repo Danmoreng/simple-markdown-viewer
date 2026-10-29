@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 #include "layout/layout_engine.h"
@@ -8,6 +9,10 @@
 namespace mdviewer {
 
 size_t HitTestTextRun(const RunLayout& run, float xInLine);
+
+std::optional<SkRect> GetTextRunRangeRect(
+    const RunLayout& run, float lineX, size_t logicalStart, size_t logicalEnd,
+    float top, float bottom, float horizontalPadding = 0.0f);
 
 std::vector<SkRect> GetTextRangeRects(
     const LineLayout& line,

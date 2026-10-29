@@ -59,7 +59,10 @@ soft-break word wrapping.
 - [ ] Start with a path argument containing spaces.
 - [ ] Drop a Markdown file onto the window.
 - [ ] Scroll from start to end with the wheel; verify smooth rendering.
-- [ ] Verify aligned HTML paragraphs/headings, requested local image sizes, and labeled placeholders for remote images.
+- [ ] Verify aligned HTML paragraphs/headings, requested local image sizes, and complete source-address placeholders in `test-docs/network-images.md`.
+- [ ] On a controlled HTTP/HTTPS server, verify zero requests until Load image is pressed and released over the same visible button; verify successful display, loading/failure states and retry. Redirects must display an error/destination without contacting that destination. Test while the search overlay is visible and with horizontally scrolled tables.
+- [ ] Verify network-mounted paths require consent and symlink image paths fail without silently following the target. Reopening/reloading a document must clear network-image approvals.
+- [ ] Resize and zoom a large document while continuing to scroll/search; only the latest layout should be published, preserving the current reading position.
 - [ ] Verify `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` render with distinct accents, titles, and icons.
 - [ ] Shrink the window and verify long unbroken tokens remain inside the document viewport.
 - [ ] Scroll a wide table horizontally using its thumb, Shift+wheel, and touchpad input where available; verify links and selection remain aligned after scrolling.

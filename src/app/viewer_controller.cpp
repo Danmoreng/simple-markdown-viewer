@@ -3,11 +3,18 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <mutex>
+#include <stop_token>
+#include <thread>
+#include <unordered_map>
 #include <utility>
 
 #include "app/document_loader.h"
 #include "render/typography.h"
+#include "util/path_utils.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkTypeface.h"
 
 namespace mdviewer {
 
@@ -16,6 +23,170 @@ namespace {
 constexpr size_t kMaxRecentFiles = 8;
 
 } // namespace
+
+struct ViewerController::LayoutWorker {
+    struct Job {
+        uint64_t generation = 0;
+        std::shared_ptr<const DocumentModel> model;
+        sk_sp<SkFontMgr> fontManager;
+        sk_sp<SkTypeface> regular, bold, heading, code;
+        float width = 0;
+        float baseFontSize = kDefaultBaseFontSize;
+        LayoutEngine::ImageSizeProvider imageSizes;
+        LayoutOptions options;
+    };
+    struct Result {
+        DocumentLayout layout;
+        std::string error;
+    };
+    mutable std::mutex mutex;
+    std::condition_variable wake;
+    std::optional<Job> next;
+    std::optional<Result> completed;
+    std::stop_source cancellation;
+    uint64_t generation = 0;
+    bool pending = false;
+    bool shutdown = false;
+    std::thread thread;
+
+    LayoutWorker() : thread([this] { Run(); }) {}
+    ~LayoutWorker() {
+        {
+            std::lock_guard lock(mutex);
+            shutdown = true;
+            cancellation.request_stop();
+            next.reset();
+        }
+        wake.notify_one();
+        thread.join();
+    }
+    void Run() {
+        for (;;) {
+            Job job;
+            {
+                std::unique_lock lock(mutex);
+                wake.wait(lock, [this] { return shutdown || next.has_value(); });
+                if (shutdown) return;
+                job = std::move(*next);
+                next.reset();
+            }
+            Result result;
+            try {
+                const DocumentTypefaceSet fonts{job.fontManager.get(), job.regular.get(),
+                    job.bold.get(), job.heading.get(), job.code.get()};
+                result.layout = LayoutEngine::ComputeLayout(*job.model, job.width, fonts,
+                    job.baseFontSize, job.imageSizes, job.options);
+            } catch (const LayoutCancelled&) {
+                continue;
+            } catch (const std::exception& error) {
+                result.error = error.what();
+            } catch (...) {
+                result.error = "Document layout failed.";
+            }
+            std::lock_guard lock(mutex);
+            if (!shutdown && job.generation == generation && !job.options.stopToken.stop_requested())
+                completed = std::move(result);
+        }
+    }
+};
+
+ViewerController::ViewerController() = default;
+ViewerController::~ViewerController() = default;
+
+void ViewerController::CancelRelayout() {
+    if (!layoutWorker_) return;
+    std::lock_guard lock(layoutWorker_->mutex);
+    layoutWorker_->cancellation.request_stop();
+    ++layoutWorker_->generation;
+    layoutWorker_->next.reset();
+    layoutWorker_->completed.reset();
+    layoutWorker_->pending = false;
+}
+
+void ViewerController::InvalidateLayoutModel() {
+    CancelRelayout();
+    layoutModelSnapshot_.reset();
+}
+
+void ViewerController::QueueRelayout(float width, const DocumentTypefaceSet& typefaces,
+    LayoutEngine::ImageSizeProvider imageSizeProvider, LayoutOptions options) {
+    if (appState_.currentFilePath.empty()) return;
+    if (!layoutModelSnapshot_) layoutModelSnapshot_ = std::make_shared<DocumentModel>(appState_.docModel);
+    std::unordered_map<std::string, std::pair<float, float>> sizes;
+    std::unordered_map<std::string, ImageLoadInfo> imageInfo;
+    std::vector<const Block*> blocks;
+    for (const auto& block : layoutModelSnapshot_->blocks) blocks.push_back(&block);
+    while (!blocks.empty()) {
+        const Block& block = *blocks.back();
+        blocks.pop_back();
+        for (const auto& run : block.inlineRuns) {
+            if (run.kind != InlineKind::Image || sizes.contains(run.imageSource)) continue;
+            sizes[run.imageSource] = imageSizeProvider ? imageSizeProvider(run.imageSource) : std::pair{0.0f, 0.0f};
+            if (options.imageLoadInfoProvider) imageInfo[run.imageSource] = options.imageLoadInfoProvider(run.imageSource);
+        }
+        for (const auto& child : block.children) blocks.push_back(&child);
+    }
+    if (options.imageLoadInfoProvider) {
+        options.imageLoadInfoProvider = [info = std::move(imageInfo)](const std::string& source) {
+            const auto found = info.find(source);
+            return found == info.end() ? ImageLoadInfo{} : found->second;
+        };
+    }
+    LayoutWorker::Job job;
+    job.model = layoutModelSnapshot_;
+    job.fontManager = sk_ref_sp(typefaces.fontMgr);
+    job.regular = sk_ref_sp(typefaces.regular);
+    job.bold = sk_ref_sp(typefaces.bold);
+    job.heading = sk_ref_sp(typefaces.heading);
+    job.code = sk_ref_sp(typefaces.code);
+    job.width = width;
+    job.baseFontSize = ClampBaseFontSize(appState_.baseFontSize);
+    job.imageSizes = [sizes = std::move(sizes)](const std::string& source) {
+        const auto found = sizes.find(source);
+        return found == sizes.end() ? std::pair{0.0f, 0.0f} : found->second;
+    };
+    job.options = std::move(options);
+    if (!layoutWorker_) layoutWorker_ = std::make_unique<LayoutWorker>();
+    {
+        std::lock_guard lock(layoutWorker_->mutex);
+        layoutWorker_->cancellation.request_stop();
+        layoutWorker_->cancellation = std::stop_source{};
+        job.options.stopToken = layoutWorker_->cancellation.get_token();
+        job.generation = ++layoutWorker_->generation;
+        layoutWorker_->next = std::move(job);
+        layoutWorker_->completed.reset();
+        layoutWorker_->pending = true;
+    }
+    lastLayoutError_.clear();
+    layoutWorker_->wake.notify_one();
+}
+
+bool ViewerController::PollRelayout() {
+    if (!layoutWorker_) return false;
+    std::optional<LayoutWorker::Result> result;
+    {
+        std::lock_guard lock(layoutWorker_->mutex);
+        if (!layoutWorker_->completed) return false;
+        result = std::move(layoutWorker_->completed);
+        layoutWorker_->completed.reset();
+        layoutWorker_->pending = false;
+    }
+    lastLayoutError_ = std::move(result->error);
+    if (!lastLayoutError_.empty()) return false;
+    std::lock_guard lock(appState_.mtx);
+    appState_.ReplaceDocumentLayout(std::move(result->layout));
+    appState_.codeBlockButtons.clear();
+    appState_.imageLoadButtons.clear();
+    appState_.horizontalScrollbars.clear();
+    appState_.needsRepaint = true;
+    return true;
+}
+
+bool ViewerController::IsRelayoutPending() const {
+    if (!layoutWorker_) return false;
+    std::lock_guard lock(layoutWorker_->mutex);
+    return layoutWorker_->pending;
+}
 
 void ViewerController::SetConfigPath(std::filesystem::path path) {
     configPath_ = std::move(path);
@@ -213,8 +384,11 @@ OpenDocumentStatus ViewerController::OpenFile(
     const DocumentPreloadCallback& preloadDocument,
     LayoutEngine::ImageSizeProvider imageSizeProvider,
     bool pushHistory,
-    bool updateRecentFiles) {
-    auto result = LoadDocumentFromPath(path);
+    bool updateRecentFiles,
+    LayoutOptions options) {
+    InvalidateLayoutModel();
+    const auto documentPath = NormalizeDocumentPath(path);
+    auto result = LoadDocumentFromPath(documentPath);
     if (result.status == DocumentLoadStatus::BinaryFile) {
         return OpenDocumentStatus::BinaryFile;
     }
@@ -226,7 +400,7 @@ OpenDocumentStatus ViewerController::OpenFile(
     }
 
     if (preloadDocument) {
-        preloadDocument(result.docModel, path.parent_path());
+        preloadDocument(result.docModel, documentPath.parent_path());
     }
 
     auto layout = LayoutEngine::ComputeLayout(
@@ -234,15 +408,15 @@ OpenDocumentStatus ViewerController::OpenFile(
         width,
         typefaces,
         ClampBaseFontSize(appState_.baseFontSize),
-        imageSizeProvider);
+        imageSizeProvider, options);
 
     RememberCurrentScrollPosition();
-    const float rememberedScrollOffset = GetRememberedScrollOffset(path);
-    appState_.SetFile(path, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
+    const float rememberedScrollOffset = GetRememberedScrollOffset(documentPath);
+    appState_.SetFile(documentPath, std::move(result.sourceText), std::move(result.docModel), std::move(layout), pushHistory);
     appState_.scrollOffset = rememberedScrollOffset;
-    appState_.currentFileLastWriteTime = TryGetFileWriteTime(path);
+    appState_.currentFileLastWriteTime = TryGetFileWriteTime(documentPath);
     if (updateRecentFiles) {
-        AddRecentFile(path, GetCurrentUnixSeconds());
+        AddRecentFile(documentPath, GetCurrentUnixSeconds());
     }
     return OpenDocumentStatus::Success;
 }
@@ -251,30 +425,26 @@ OpenDocumentStatus ViewerController::ReloadCurrentFile(
     float width,
     const DocumentTypefaceSet& typefaces,
     const DocumentPreloadCallback& preloadDocument,
-    LayoutEngine::ImageSizeProvider imageSizeProvider) {
+    LayoutEngine::ImageSizeProvider imageSizeProvider,
+    LayoutOptions options) {
     const std::filesystem::path currentPath = appState_.currentFilePath;
     if (currentPath.empty()) {
         return OpenDocumentStatus::FileReadError;
     }
 
-    return OpenFile(currentPath, width, typefaces, preloadDocument, imageSizeProvider, false, false);
+    return OpenFile(currentPath, width, typefaces, preloadDocument, imageSizeProvider, false, false, options);
 }
 
 bool ViewerController::Relayout(
     float width,
     const DocumentTypefaceSet& typefaces,
     const DocumentPreloadCallback& preloadDocument,
-    LayoutEngine::ImageSizeProvider imageSizeProvider) {
-    DocumentModel docModel;
-    std::filesystem::path currentPath;
-    {
-        std::lock_guard<std::mutex> lock(appState_.mtx);
-        if (appState_.sourceText.empty()) {
-            return false;
-        }
-        docModel = appState_.docModel;
-        currentPath = appState_.currentFilePath;
-    }
+    LayoutEngine::ImageSizeProvider imageSizeProvider,
+    LayoutOptions options) {
+    CancelRelayout();
+    if (appState_.sourceText.empty()) return false;
+    const auto& docModel = appState_.docModel;
+    const auto& currentPath = appState_.currentFilePath;
 
     if (preloadDocument) {
         preloadDocument(docModel, currentPath.parent_path());
@@ -285,11 +455,11 @@ bool ViewerController::Relayout(
         width,
         typefaces,
         ClampBaseFontSize(appState_.baseFontSize),
-        imageSizeProvider);
+        imageSizeProvider, options);
 
     {
         std::lock_guard<std::mutex> lock(appState_.mtx);
-        appState_.docLayout = std::move(layout);
+        appState_.ReplaceDocumentLayout(std::move(layout));
         appState_.needsRepaint = true;
     }
     return true;
@@ -349,7 +519,7 @@ bool ViewerController::CommitHistoryNavigation(size_t historyIndex) {
 }
 
 LinkTarget ViewerController::ResolveLinkTarget(const std::string& url, bool forceExternal) const {
-    return mdviewer::ResolveLinkTarget(appState_.currentFilePath, url, forceExternal);
+    return mdviewer::ResolveLinkTarget(appState_.currentFilePath, url, forceExternal, true);
 }
 
 std::filesystem::path ViewerController::NormalizeRecentFilePath(const std::filesystem::path& path) {

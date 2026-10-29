@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <optional>
@@ -23,11 +24,28 @@ struct HorizontalScrollbarRegion {
     float maxScroll = 0.0f;
 };
 
+struct ImageLoadButtonRegion {
+    SkRect rect = SkRect::MakeEmpty();
+    std::string source;
+};
+
+struct SearchTextCache {
+    std::string sourceText;
+    std::string foldedText;
+    // Empty for ASCII: folded and original byte positions are identical.
+    std::vector<std::uint32_t> originalOffsets;
+    std::uint64_t revision = 0;
+    std::uint64_t buildCount = 0;
+    bool valid = false;
+};
+
 struct AppState {
     std::filesystem::path currentFilePath;
     std::string sourceText;
     DocumentModel docModel;
     DocumentLayout docLayout;
+    std::uint64_t documentTextRevision = 0;
+    SearchTextCache searchTextCache;
     ThemeMode theme = ThemeMode::Light;
     OutlineSide outlineSide = OutlineSide::Left;
     float outlineWidth = kDefaultOutlineWidth;
@@ -64,17 +82,21 @@ struct AppState {
     std::vector<std::pair<size_t, size_t>> searchMatches;
     size_t currentSearchMatch = 0;
     SkRect searchCloseButtonRect = SkRect::MakeEmpty();
+    SkRect searchOverlayRect = SkRect::MakeEmpty();
     std::optional<std::filesystem::file_time_type> currentFileLastWriteTime;
     bool pendingLinkClick = false;
     bool pendingLinkForceExternal = false;
     int pendingLinkPressX = 0;
     int pendingLinkPressY = 0;
     std::string pendingLinkUrl;
+    MermaidLayout pendingDiagram;
+    size_t pendingDiagramTextStart = 0;
     
     MenuBarState menuBarState;
     
     // Maps code block button regions to the range of text in that code block
     std::vector<std::pair<SkRect, std::pair<size_t, size_t>>> codeBlockButtons;
+    std::vector<ImageLoadButtonRegion> imageLoadButtons;
     std::unordered_map<size_t, float> horizontalScrollOffsets;
     std::vector<HorizontalScrollbarRegion> horizontalScrollbars;
     bool isDraggingHorizontalScrollbar = false;
@@ -117,7 +139,8 @@ struct AppState {
         }
         sourceText = std::move(text);
         docModel = std::move(doc);
-        docLayout = std::move(layout);
+        ReplaceDocumentLayout(std::move(layout));
+        searchTextCache = {};
         scrollOffset = 0.0f;
         outlineScrollOffset = 0.0f;
         outlineLastDocumentScrollOffset = -1.0f;
@@ -149,18 +172,30 @@ struct AppState {
         searchMatches.clear();
         currentSearchMatch = 0;
         searchCloseButtonRect = SkRect::MakeEmpty();
+        searchOverlayRect = SkRect::MakeEmpty();
         currentFileLastWriteTime.reset();
         pendingLinkClick = false;
         pendingLinkForceExternal = false;
         pendingLinkPressX = 0;
         pendingLinkPressY = 0;
         pendingLinkUrl.clear();
+        pendingDiagram = {};
+        pendingDiagramTextStart = 0;
         codeBlockButtons.clear();
+        imageLoadButtons.clear();
         horizontalScrollOffsets.clear();
         horizontalScrollbars.clear();
         isDraggingHorizontalScrollbar = false;
         draggingHorizontalBlockTextStart = 0;
         horizontalScrollbarDragOffset = 0.0f;
+    }
+
+    // Caller holds mtx when replacing a live document layout.
+    void ReplaceDocumentLayout(DocumentLayout layout) {
+        if (docLayout.plainText != layout.plainText) {
+            ++documentTextRevision;
+        }
+        docLayout = std::move(layout);
     }
 };
 

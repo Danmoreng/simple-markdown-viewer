@@ -1,0 +1,13 @@
+# Heading
+
+Text with **bold**, [link](../readme.md#heading), &amp; and $x^2$.
+
+<details><summary>Details</summary>
+
+> - [x] nested item
+
+| left | right |
+| --- | --- |
+| text | more |
+
+</details>

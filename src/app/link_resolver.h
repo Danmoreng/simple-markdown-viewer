@@ -28,6 +28,7 @@ struct LinkTarget {
 LinkTarget ResolveLinkTarget(
     const std::filesystem::path& currentFilePath,
     const std::string& url,
-    bool forceExternal);
+    bool forceExternal,
+    bool inspectFileSystem = true);
 
 } // namespace mdviewer

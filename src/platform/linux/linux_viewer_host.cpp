@@ -12,6 +12,7 @@
 #include "platform/linux/linux_shell.h"
 #include "render/pdf_exporter.h"
 #include "util/skia_font_utils.h"
+#include "util/path_utils.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -35,9 +36,12 @@ bool SamePath(const std::filesystem::path& left, const std::filesystem::path& ri
     return NormalizePathForCompare(left) == NormalizePathForCompare(right);
 }
 
-std::string PathToUtf8(const std::filesystem::path& path) {
-    const auto utf8 = path.u8string();
-    return std::string(utf8.begin(), utf8.end());
+LayoutOptions ImageLayoutOptions(LinuxHostContext context, const std::filesystem::path& path) {
+    LayoutOptions options;
+    options.imageLoadInfoProvider = [context, base = path.parent_path()](const std::string& source) {
+        return context.imageCache.GetSourceInfo(source, base);
+    };
+    return options;
 }
 
 void ShowMissingLocalPath(const std::filesystem::path& path) {
@@ -190,11 +194,18 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
     params.addCodeBlockButton = [&appState](const SkRect& rect, size_t start, size_t end) {
         appState.codeBlockButtons.push_back({rect, {start, end}});
     };
+    params.imageLoadInfoProvider = [context, base = appState.currentFilePath.parent_path()](const std::string& source) {
+        return context.imageCache.GetSourceInfo(source, base);
+    };
+    params.addImageLoadButton = [&appState](const ImageLoadButtonRegion& region) {
+        appState.imageLoadButtons.push_back(region);
+    };
     params.addHorizontalScrollbar = [&appState](const HorizontalScrollbarRegion& region) {
         appState.horizontalScrollbars.push_back(region);
     };
 
     appState.codeBlockButtons.clear();
+    appState.imageLoadButtons.clear();
     appState.horizontalScrollbars.clear();
     SyncOutlineScrollToDocument(appState, static_cast<float>(height), GetContentTopInset());
     RenderDocumentScene(params);
@@ -255,6 +266,7 @@ void Render(GLFWwindow* window, LinuxHostContext context) {
 }
 
 bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesystem::path& path, bool pushHistory) {
+    const auto documentPath = NormalizeDocumentPath(path);
     std::error_code existsError;
     if (!std::filesystem::exists(path, existsError) || existsError) {
         return false;
@@ -271,16 +283,16 @@ bool LoadFile(GLFWwindow* window, LinuxHostContext context, const std::filesyste
 
     context.imageCache.Clear();
     auto status = context.controller.OpenFile(
-        path,
+        documentPath,
         contentWidth,
         typefaces,
         [&context](const DocumentModel& doc, const std::filesystem::path& base) {
             context.imageCache.PreloadDocumentImages(doc, base);
         },
-        [&context, path](const std::string& url) {
-            return context.imageCache.GetImageSize(url, path.parent_path());
+        [&context, documentPath](const std::string& url) {
+            return context.imageCache.GetImageSize(url, documentPath.parent_path());
         },
-        pushHistory);
+        pushHistory, true, ImageLayoutOptions(context, documentPath));
 
     if (status == OpenDocumentStatus::Success) {
         auto& appState = GetAppState(context);
@@ -400,16 +412,32 @@ void RelayoutCurrentDocument(GLFWwindow* window, LinuxHostContext context) {
     const auto currentPath = appState.currentFilePath;
     const ScrollAnchor scrollAnchor = GetRelayoutScrollAnchor(appState, GetViewportHeight(window, context));
 
-    context.controller.Relayout(
+    context.controller.QueueRelayout(
         contentWidth,
         context.typefaces.GetTypefaceSet(),
-        {},
         [&context, currentPath](const std::string& url) {
             return context.imageCache.GetImageSize(url, currentPath.parent_path());
-        });
+        }, ImageLayoutOptions(context, currentPath));
     
-    RestoreScrollAnchor(appState, scrollAnchor, GetViewportHeight(window, context), GetMaxScroll(window, context));
     RememberRelayoutScrollAnchor(appState, scrollAnchor);
+}
+
+void PollBackgroundWork(GLFWwindow* window, LinuxHostContext context) {
+    if (context.imageCache.PollLoads()) RelayoutCurrentDocument(window, context);
+    const bool wasPending = context.controller.IsRelayoutPending();
+    if (!wasPending) return;
+    auto& state = GetAppState(context);
+    const auto anchor = GetRelayoutScrollAnchor(state, GetViewportHeight(window, context));
+    RememberRelayoutScrollAnchor(state, anchor);
+    if (context.controller.PollRelayout()) {
+        RestoreScrollAnchor(state, anchor, GetViewportHeight(window, context), GetMaxScroll(window, context));
+        RememberRelayoutScrollAnchor(state, anchor);
+        if (state.searchActive) RebuildSearchMatches(state);
+        ClampScrollOffset(window, context);
+    } else if (wasPending && !context.controller.IsRelayoutPending() &&
+               !context.controller.GetLastLayoutError().empty()) {
+        ShowErrorMessage("Layout failed", context.controller.GetLastLayoutError());
+    }
 }
 
 bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preserveScrollOffset) {
@@ -434,7 +462,7 @@ bool ReloadCurrentFile(GLFWwindow* window, LinuxHostContext context, bool preser
         },
         [&context, currentPath](const std::string& url) {
             return context.imageCache.GetImageSize(url, currentPath.parent_path());
-        });
+        }, ImageLayoutOptions(context, currentPath));
     if (status != OpenDocumentStatus::Success) {
         return false;
     }

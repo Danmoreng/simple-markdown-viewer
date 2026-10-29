@@ -22,7 +22,9 @@ enum class DocumentContextCommand {
     CopyTableCsv,
     ReloadDocument,
     CopyDocumentPath,
-    RevealDocument
+    RevealDocument,
+    OpenDiagram,
+    SaveDiagramSvg
 };
 
 struct DocumentContextMenuItem {
@@ -42,6 +44,9 @@ struct DocumentContextMenu {
     std::string tableTsv;
     std::string tableCsv;
     std::filesystem::path documentPath;
+    MermaidLayout diagram;
+    ThemeMode diagramTheme = ThemeMode::Light;
+    std::filesystem::path diagramExportPath;
 };
 
 DocumentContextMenu BuildDocumentContextMenu(const AppState& appState, const InteractionTextHit& hit);

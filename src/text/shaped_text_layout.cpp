@@ -28,14 +28,16 @@ namespace {
 constexpr char kObjectPlaceholder[] = "\xE2\x80\x83";
 constexpr size_t kObjectPlaceholderBytes = sizeof(kObjectPlaceholder) - 1;
 
-std::vector<size_t> GraphemeBoundaries(std::string_view text) {
+std::vector<size_t> GraphemeBoundaries(std::string_view text, std::stop_token stopToken) {
     std::vector<size_t> boundaries{0};
     size_t offset = 0;
     utf8proc_int32_t previous = 0;
     utf8proc_int32_t state = 0;
     bool hasPrevious = false;
+    size_t codepointCount = 0;
 
     while (offset < text.size()) {
+        if ((codepointCount++ & 1023U) == 0 && stopToken.stop_requested()) return {};
         utf8proc_int32_t current = 0;
         const utf8proc_ssize_t bytes = utf8proc_iterate(
             reinterpret_cast<const utf8proc_uint8_t*>(text.data() + offset),
@@ -210,6 +212,7 @@ public:
         : paragraph_(paragraph), options_(options), result_(result), currentY_(options.startY) {}
 
     void beginLine() override {
+        if (options_.stopToken.stop_requested()) return;
         currentLine_ = {};
         currentLine_.y = currentY_;
         currentLine_.direction = paragraph_.direction;
@@ -221,6 +224,7 @@ public:
     }
 
     void runInfo(const RunInfo& info) override {
+        if (options_.stopToken.stop_requested()) return;
         SkFontMetrics metrics;
         info.fFont.getMetrics(&metrics);
         const ShapingSpan* span = FindSpan(paragraph_, info.utf8Range.begin());
@@ -234,6 +238,7 @@ public:
     }
 
     void commitRunInfo() override {
+        if (options_.stopToken.stop_requested()) return;
         const float fontHeight = lineAscent_ + lineDescent_ + lineLeading_;
         lineHeight_ = std::max({fontHeight, minimumObjectHeight_, options_.fallbackLineHeight, 1.0f});
         baseline_ = ((lineHeight_ - fontHeight) * 0.5f) + lineAscent_;
@@ -260,6 +265,7 @@ public:
     }
 
     void commitRunBuffer(const RunInfo& info) override {
+        if (options_.stopToken.stop_requested()) return;
         const ShapingSpan* span = FindSpan(paragraph_, info.utf8Range.begin());
         if (span == nullptr || info.utf8Range.end() > span->shapingStart + span->shapingLength) {
             result_.diagnostic = "complex text shaping emitted a run outside its semantic span";
@@ -277,6 +283,14 @@ public:
         run.visualWidth = span->IsAtomicObject() ? span->objectWidth : info.fAdvance.x();
         run.imageWidth = span->kind == InlineKind::Image ? span->objectWidth : 0.0f;
         run.imageHeight = span->kind == InlineKind::Image ? span->objectHeight : 0.0f;
+        run.imageLoadRequired = span->imageLoadRequired;
+        run.imageLoadInfo = span->imageLoadInfo;
+        run.imageSourceLines = span->imageSourceLines;
+        run.imageErrorLines = span->imageErrorLines;
+        run.imageSourceControlsEscaped = span->imageSourceControlsEscaped;
+        run.imagePlaceholderLabelHeight = span->imagePlaceholderLabelHeight;
+        run.imageSourceLineHeight = span->imageSourceLineHeight;
+        run.imageLoadButtonHeight = span->imageLoadButtonHeight;
         run.bidiLevel = info.fBidiLevel;
         run.semanticSpanId = span->semanticSpanId;
         run.mathDisplay = span->mathDisplay;
@@ -300,6 +314,7 @@ public:
                     : std::vector<CaretStop>{{span->logicalStart, run.visualX},
                                              {span->logicalStart + span->logicalLength,
                                               run.visualX + run.visualWidth}};
+                UpdateCaretStopsLogicalOrder(run);
             }
         } else {
             const size_t spanRelativeStart = info.utf8Range.begin() - span->shapingStart;
@@ -310,10 +325,12 @@ public:
             run.glyphs = pending_.glyphs;
             run.glyphPositions.reserve(pending_.positions.size());
             for (size_t index = 0; index < pending_.positions.size(); ++index) {
+                if ((index & 1023U) == 0) if (options_.stopToken.stop_requested()) return;
                 run.glyphPositions.push_back(pending_.positions[index] + pending_.offsets[index]);
             }
             run.glyphClusters.reserve(pending_.clusters.size());
             for (uint32_t cluster : pending_.clusters) {
+                if ((run.glyphClusters.size() & 1023U) == 0) if (options_.stopToken.stop_requested()) return;
                 const size_t normalized = cluster >= info.utf8Range.begin()
                     ? static_cast<size_t>(cluster) - info.utf8Range.begin()
                     : 0;
@@ -330,6 +347,7 @@ public:
     }
 
     void commitLine() override {
+        if (options_.stopToken.stop_requested()) return;
         currentLine_.x = 0.0f;
         currentLine_.width = visualX_;
 
@@ -356,13 +374,15 @@ public:
 
 private:
     void BuildCaretStops(RunLayout& run, const RunInfo& info) {
-        const std::vector<size_t> graphemeBoundaries = GraphemeBoundaries(run.text);
+        const std::vector<size_t> graphemeBoundaries = GraphemeBoundaries(run.text, options_.stopToken);
+        if (options_.stopToken.stop_requested()) return;
         const std::unordered_set<size_t> safeBoundaries(
             graphemeBoundaries.begin(), graphemeBoundaries.end());
         const bool isRtl = (info.fBidiLevel & 1U) != 0;
 
         size_t glyphIndex = 0;
         while (glyphIndex < pending_.clusters.size()) {
+            if ((glyphIndex & 1023U) == 0) if (options_.stopToken.stop_requested()) return;
             const uint32_t cluster = pending_.clusters[glyphIndex];
             size_t clusterEndIndex = glyphIndex + 1;
             while (clusterEndIndex < pending_.clusters.size() &&
@@ -408,6 +428,7 @@ private:
                     return left.textPosition == right.textPosition && left.x == right.x;
                 }),
             run.caretStops.end());
+        UpdateCaretStopsLogicalOrder(run);
     }
 
     const ShapingParagraph& paragraph_;
@@ -451,6 +472,14 @@ void AppendSpan(
     span.objectHeight = input.objectHeight;
     span.mathDisplay = input.run.mathDisplay;
     span.mathLayout = input.mathLayout;
+    span.imageLoadRequired = input.imageLoadRequired;
+    span.imageLoadInfo = input.imageLoadInfo;
+    span.imageSourceLines = input.imageSourceLines;
+    span.imageErrorLines = input.imageErrorLines;
+    span.imageSourceControlsEscaped = input.imageSourceControlsEscaped;
+    span.imagePlaceholderLabelHeight = input.imagePlaceholderLabelHeight;
+    span.imageSourceLineHeight = input.imageSourceLineHeight;
+    span.imageLoadButtonHeight = input.imageLoadButtonHeight;
     paragraph.utf8.append(shapingText);
     paragraph.spans.push_back(std::move(span));
 }
@@ -492,7 +521,9 @@ ResolvedTextDirection ResolveFirstStrongDirection(std::string_view utf8) {
 
 ShapingParagraphSet BuildShapingParagraphs(
     const std::vector<ShapedTextInputRun>& runs,
-    size_t logicalStart) {
+    size_t logicalStart,
+    std::stop_token stopToken) {
+    ThrowIfLayoutCancelled(stopToken);
     ShapingParagraphSet result;
     size_t logicalPosition = logicalStart;
     size_t nextSemanticSpanId = 1;
@@ -512,6 +543,7 @@ ShapingParagraphSet BuildShapingParagraphs(
     };
 
     for (const ShapedTextInputRun& input : runs) {
+        ThrowIfLayoutCancelled(stopToken);
         const size_t semanticSpanId = input.semanticSpanId != 0
             ? input.semanticSpanId
             : nextSemanticSpanId++;
@@ -557,15 +589,16 @@ ShapingParagraphSet BuildShapingParagraphs(
             continue;
         }
 
-        const std::string normalized = input.run.kind == InlineKind::SoftBreak
-            ? std::string(" ")
-            : input.run.text;
+        const std::string_view normalized = input.run.kind == InlineKind::SoftBreak
+            ? std::string_view(" ")
+            : std::string_view(input.run.text);
         size_t fragmentStart = 0;
         while (fragmentStart <= normalized.size()) {
+            ThrowIfLayoutCancelled(stopToken);
             const size_t newline = normalized.find('\n', fragmentStart);
             const size_t fragmentEnd = newline == std::string::npos ? normalized.size() : newline;
             if (fragmentEnd > fragmentStart) {
-                const std::string fragment = normalized.substr(fragmentStart, fragmentEnd - fragmentStart);
+                const std::string fragment(normalized.substr(fragmentStart, fragmentEnd - fragmentStart));
                 const size_t runLogicalStart = logicalPosition;
                 result.logicalText += fragment;
                 logicalPosition += fragment.size();
@@ -601,6 +634,7 @@ ShapedTextLayoutResult ShapeTextParagraph(
     const ComplexTextRuntime& runtime,
     const DocumentTypefaceSet& typefaces,
     const ShapedTextLayoutOptions& options) {
+    ThrowIfLayoutCancelled(options.stopToken);
     ShapedTextLayoutResult result;
     result.direction = paragraph.direction;
     if (!runtime.IsAvailable() || runtime.Unicode() == nullptr || runtime.Shaper() == nullptr) {
@@ -652,6 +686,7 @@ ShapedTextLayoutResult ShapeTextParagraph(
 
     size_t coveredBytes = 0;
     for (const ShapingSpan& span : paragraph.spans) {
+        ThrowIfLayoutCancelled(options.stopToken);
         if (span.shapingStart != coveredBytes || span.shapingLength == 0 ||
             span.shapingLength > paragraph.utf8.size() - coveredBytes) {
             result.diagnostic = "complex text shaping paragraph has invalid semantic span ranges";
@@ -694,6 +729,8 @@ ShapedTextLayoutResult ShapeTextParagraph(
         return result;
     }
 
+    // Skia may be built without C++ exception cleanup. Its callbacks observe
+    // cancellation by abandoning output; only throw after returning from Skia.
     ShapedLayoutRunHandler handler(paragraph, options, result);
     runtime.Shaper()->shape(
         paragraph.utf8.data(),
@@ -706,6 +743,7 @@ ShapedTextLayoutResult ShapeTextParagraph(
         0,
         options.wrapWidth,
         &handler);
+    ThrowIfLayoutCancelled(options.stopToken);
     if (!result.diagnostic.empty()) {
         result.lines.clear();
         return result;

@@ -38,7 +38,15 @@ struct ViewerHostContext {
     DocumentTypefaceCache& typefaces;
     DocumentImageCache& imageCache;
     WinFileWatcher& fileWatcher;
+    float dpiScale = 1.0f;
+    float lastLayoutWidth = -1.0f;
+    bool liveWindowResize = false;
+    bool windowResizePending = false;
 };
+
+inline constexpr UINT_PTR kWindowResizeTimerId = 2005;
+inline constexpr UINT_PTR kImageLoadTimerId = 2006;
+inline constexpr UINT_PTR kRelayoutPollTimerId = 2007;
 
 AppState& GetAppState(const ViewerHostContext& context);
 
@@ -52,6 +60,10 @@ SkTypeface* GetMenuTypeface(ViewerHostContext& context);
 
 float GetContentTopInset();
 float GetDocumentLeftInset(const ViewerHostContext& context);
+float GetLogicalSurfaceWidth(const ViewerHostContext& context);
+float GetLogicalSurfaceHeight(const ViewerHostContext& context);
+void ProcessWindowResize(HWND hwnd, ViewerHostContext& context);
+void PollDocumentRelayout(HWND hwnd, ViewerHostContext& context);
 float GetViewportHeight(HWND hwnd, const ViewerHostContext& context);
 float GetMaxScroll(HWND hwnd, const ViewerHostContext& context);
 void ClampScrollOffset(HWND hwnd, const ViewerHostContext& context);

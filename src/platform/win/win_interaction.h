@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "platform/win/win_viewer_host.h"
+#include "platform/win/win_coordinate_helpers.h"
 
 namespace mdviewer::win {
 
@@ -25,6 +26,10 @@ struct ViewerInteractionContext {
     int linkClickSlop = 0;
     std::uint64_t nextOutlineResizeLayoutTimeMs = 0;
     bool outlineResizeLayoutPending = false;
+    Utf16InputDecoder textInput;
+    std::string pendingImageLoadSource;
+    std::filesystem::path pendingImageDocumentPath;
+    std::string pendingImageTarget;
 };
 
 bool HandleDropFiles(HWND hwnd, ViewerInteractionContext& context, HDROP drop);

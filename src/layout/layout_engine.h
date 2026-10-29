@@ -2,10 +2,14 @@
 #include <functional>
 #include <cstdint>
 #include <string>
+#include <stdexcept>
+#include <stop_token>
 #include <unordered_map>
 #include <vector>
+#include "app/image_source.h"
 #include "layout/document_model.h"
 #include "render/math_renderer.h"
+#include "render/mermaid_renderer.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "text/document_fonts.h"
 #include "text/text_direction.h"
@@ -46,13 +50,33 @@ struct RunLayout {
     float baselineShift = 0.0f;
     bool mathDisplay = false;
     MathLayout mathLayout;
+    MermaidLayout mermaidLayout;
     std::string linkTarget;
     SkFont shapedFont;
     std::vector<SkGlyphID> glyphs;
     std::vector<SkPoint> glyphPositions;
     std::vector<uint32_t> glyphClusters;
     std::vector<CaretStop> caretStops;
+    int8_t caretStopsLogicalOrder = 0;
+    bool imageLoadRequired = false;
+    ImageLoadInfo imageLoadInfo;
+    std::vector<std::string> imageSourceLines;
+    std::vector<std::string> imageErrorLines;
+    bool imageSourceControlsEscaped = false;
+    float imagePlaceholderLabelHeight = 0.0f;
+    float imageSourceLineHeight = 0.0f;
+    float imageLoadButtonHeight = 0.0f;
 };
+
+inline void UpdateCaretStopsLogicalOrder(RunLayout& run) {
+    bool increasing = true;
+    bool decreasing = true;
+    for (size_t index = 1; index < run.caretStops.size(); ++index) {
+        increasing = increasing && run.caretStops[index - 1].textPosition <= run.caretStops[index].textPosition;
+        decreasing = decreasing && run.caretStops[index - 1].textPosition >= run.caretStops[index].textPosition;
+    }
+    run.caretStopsLogicalOrder = increasing ? 1 : decreasing ? -1 : 0;
+}
 
 struct LineLayout {
     float x = 0.0f;
@@ -74,6 +98,7 @@ struct BlockLayout {
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;
+    std::string diagramError;
     std::string metadataFormat;
     size_t detailsId = 0;
     bool detailsOpen = false;
@@ -107,7 +132,7 @@ inline constexpr float kOutlineLabelFontSize = 15.0f;
 
 struct DocumentLayout {
     std::vector<BlockLayout> blocks;
-    float totalHeight;
+    float totalHeight = 0.0f;
     std::string plainText;
     std::unordered_map<std::string, float> anchors;
     std::vector<HeadingOutlineItem> outline;
@@ -120,11 +145,30 @@ struct DocumentHorizontalInsets {
 
 DocumentHorizontalInsets GetDocumentHorizontalInsets(float viewportWidth);
 
+class LayoutCancelled : public std::runtime_error {
+public:
+    LayoutCancelled() : std::runtime_error("Document layout cancelled") {}
+};
+
+inline void ThrowIfLayoutCancelled(const std::stop_token& token) {
+    if (token.stop_requested()) {
+        throw LayoutCancelled();
+    }
+}
+
+inline constexpr float kImagePlaceholderPadding = 8.0f;
+inline constexpr float kImagePlaceholderSourceFontSize = 11.0f;
+inline constexpr float kImagePlaceholderLabelHeight = 20.0f;
+inline constexpr float kImagePlaceholderSourceLineHeight = 15.0f;
+inline constexpr float kImagePlaceholderButtonHeight = 28.0f;
+
 struct LayoutOptions {
     bool fitHorizontalOverflow = false;
     bool reserveHorizontalScrollbarSpace = true;
     float minimumHorizontalFitScale = 0.72f;
     syntax::HighlightOptions syntaxHighlight = {};
+    std::stop_token stopToken;
+    std::function<ImageLoadInfo(const std::string&)> imageLoadInfoProvider;
 };
 
 class LayoutEngine {

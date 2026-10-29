@@ -1,0 +1,17 @@
+[package]
+name = "mdviewer-mermaid"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "mdviewer_mermaid"
+crate-type = ["staticlib"]
+
+[dependencies]
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

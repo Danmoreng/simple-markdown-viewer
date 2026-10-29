@@ -162,6 +162,7 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
     while (!glfwWindowShouldClose(window)) {
         try {
             auto& appState = GetAppState(app.GetHostContext());
+            PollBackgroundWork(window, app.GetHostContext());
             const uint64_t nowMs = GetCurrentTickCountMs();
             if (appState.copiedFeedbackTimeout > 0 && appState.copiedFeedbackTimeout <= nowMs) {
                 appState.copiedFeedbackTimeout = 0;
@@ -222,6 +223,8 @@ int RunLinuxAppImpl(int argc, char* argv[]) {
 
             const uint64_t waitNowMs = GetCurrentTickCountMs();
             const uint64_t nextFeedbackTimeout = std::min({
+                app.GetHostContext().imageCache.HasPendingLoads() || app.Controller().IsRelayoutPending()
+                    ? waitNowMs + 16 : UINT64_MAX,
                 appState.copiedFeedbackTimeout > waitNowMs ? appState.copiedFeedbackTimeout : UINT64_MAX,
                 appState.zoomFeedbackTimeout > waitNowMs ? appState.zoomFeedbackTimeout : UINT64_MAX,
                 surfaceContext.liveResizeEndTimeMs > waitNowMs

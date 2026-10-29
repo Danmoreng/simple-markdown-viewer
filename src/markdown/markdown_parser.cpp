@@ -15,6 +15,7 @@ namespace mdviewer {
 
 namespace {
 constexpr size_t kMaxMarkdownNestingDepth = 256;
+constexpr size_t kMaxHtmlDetailsDepth = 32;
 
 struct FrontMatter {
     std::string format;
@@ -457,6 +458,8 @@ struct ParserContext {
     struct ImageContext {
         bool active = false;
         std::string source;
+        Block* block = nullptr;
+        size_t runIndex = 0;
     };
     std::vector<ImageContext> imageStack;
     struct MathContext {
@@ -732,15 +735,26 @@ static int EnterSpanImpl(MD_SPANTYPE type, void* detail, void* userdata) {
     ctx->linkTargetStack.push_back(std::move(linkTarget));
 
     ParserContext::ImageContext image = ctx->imageStack.back();
-    if (type == MD_SPAN_IMG) {
+    if (type == MD_SPAN_IMG && !image.active) {
         auto* img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         image.active = true;
         image.source = AttributeToString(img->src);
+        image.block = ctx->CurrentBlock();
+        if (image.block != nullptr) {
+            image.runIndex = image.block->inlineRuns.size();
+            image.block->inlineRuns.push_back(InlineRun{
+                .formatting = ctx->formattingStack.back() | ctx->inlineHtmlStack.back().formatting,
+                .kind = InlineKind::Image,
+                .imageSource = image.source,
+                .linkTarget = ctx->linkTargetStack.back(),
+            });
+        }
     }
     ctx->imageStack.push_back(std::move(image));
 
     ParserContext::MathContext math = ctx->mathStack.back();
-    if (type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY) {
+    if (!ctx->imageStack.back().active &&
+        (type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY)) {
         math.active = true;
         math.display = type == MD_SPAN_LATEXMATH_DISPLAY;
         math.block = ctx->CurrentBlock();
@@ -1042,6 +1056,7 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
             } else {
                 const auto href = tag->attributes.find("href");
                 if (href == tag->attributes.end() || !IsSafeHtmlReference(href->second, false)) return std::nullopt;
+                if (linkStack.size() >= kMaxMarkdownNestingDepth) return std::nullopt;
                 linkStack.push_back(href->second);
             }
             continue;
@@ -1052,6 +1067,7 @@ static std::optional<Block> ParseSafeHtmlBlock(std::string_view html) {
                 if (formattingStack.size() <= 1 || formattingStack.back().first != tag->name) return std::nullopt;
                 formattingStack.pop_back();
             } else {
+                if (formattingStack.size() >= kMaxMarkdownNestingDepth) return std::nullopt;
                 formattingStack.push_back({tag->name, formattingStack.back().second | addedFormatting});
             }
             continue;
@@ -1165,45 +1181,55 @@ static bool IsDetailsClosing(std::string_view html) {
     return position == html.size();
 }
 
-static void ExpandSafeHtmlBlocks(std::vector<Block>& blocks, size_t& nextDetailsId) {
-    for (size_t index = 0; index < blocks.size();) {
+static void ExpandSafeHtmlBlocks(std::vector<Block>& blocks, size_t& nextDetailsId, size_t detailsDepth = 0) {
+    // Classify and match each tag once. Repeated forward scans and vector erases
+    // made unmatched or deeply nested <details> input quadratic.
+    std::vector<std::optional<DetailsOpening>> openings(blocks.size());
+    std::vector<size_t> closingIndices(blocks.size(), blocks.size());
+    std::vector<size_t> unmatched;
+    for (size_t index = 0; index < blocks.size(); ++index) {
         if (blocks[index].type == BlockType::RawHtml) {
-            if (auto opening = ParseDetailsOpening(blocks[index].rawHtml)) {
-                size_t depth = 1;
-                size_t closingIndex = index + 1;
-                for (; closingIndex < blocks.size(); ++closingIndex) {
-                    if (blocks[closingIndex].type != BlockType::RawHtml) {
-                        continue;
-                    }
-                    if (ParseDetailsOpening(blocks[closingIndex].rawHtml)) {
-                        ++depth;
-                    } else if (IsDetailsClosing(blocks[closingIndex].rawHtml) && --depth == 0) {
-                        break;
-                    }
-                }
-                if (closingIndex < blocks.size()) {
-                    Block details;
-                    details.type = BlockType::Details;
-                    details.inlineRuns = std::move(opening->summaryRuns);
-                    details.detailsId = nextDetailsId++;
-                    details.detailsOpen = opening->open;
-                    details.children.reserve(closingIndex - index - 1);
-                    for (size_t childIndex = index + 1; childIndex < closingIndex; ++childIndex) {
-                        details.children.push_back(std::move(blocks[childIndex]));
-                    }
-                    ExpandSafeHtmlBlocks(details.children, nextDetailsId);
-                    blocks.erase(blocks.begin() + static_cast<std::ptrdiff_t>(index),
-                                 blocks.begin() + static_cast<std::ptrdiff_t>(closingIndex + 1));
-                    blocks.insert(blocks.begin() + static_cast<std::ptrdiff_t>(index), std::move(details));
-                    ++index;
-                    continue;
-                }
+            openings[index] = ParseDetailsOpening(blocks[index].rawHtml);
+            if (openings[index]) {
+                unmatched.push_back(index);
+            } else if (!unmatched.empty() && IsDetailsClosing(blocks[index].rawHtml)) {
+                closingIndices[unmatched.back()] = index;
+                unmatched.pop_back();
             }
         }
+    }
 
+    struct DetailsFrame {
+        Block block;
+        size_t closingIndex = 0;
+    };
+    std::vector<DetailsFrame> frames;
+    std::vector<Block> expanded;
+    expanded.reserve(blocks.size());
+    auto append = [&](Block block) {
+        auto& destination = frames.empty() ? expanded : frames.back().block.children;
+        destination.push_back(std::move(block));
+    };
+    for (size_t index = 0; index < blocks.size(); ++index) {
+        if (!frames.empty() && index == frames.back().closingIndex) {
+            Block completed = std::move(frames.back().block);
+            frames.pop_back();
+            append(std::move(completed));
+            continue;
+        }
+        if (openings[index] && closingIndices[index] < blocks.size() &&
+            detailsDepth + frames.size() < kMaxHtmlDetailsDepth) {
+            Block details;
+            details.type = BlockType::Details;
+            details.inlineRuns = std::move(openings[index]->summaryRuns);
+            details.detailsId = nextDetailsId++;
+            details.detailsOpen = openings[index]->open;
+            frames.push_back({std::move(details), closingIndices[index]});
+            continue;
+        }
         Block& block = blocks[index];
         if (!block.children.empty()) {
-            ExpandSafeHtmlBlocks(block.children, nextDetailsId);
+            ExpandSafeHtmlBlocks(block.children, nextDetailsId, detailsDepth + frames.size());
         }
         if (block.type == BlockType::RawHtml) {
             if (auto parsed = ParseSafeHtmlBlock(block.rawHtml)) {
@@ -1212,8 +1238,9 @@ static void ExpandSafeHtmlBlocks(std::vector<Block>& blocks, size_t& nextDetails
                 block.inlineRuns = {InlineRun{.text = block.rawHtml}};
             }
         }
-        ++index;
+        append(std::move(block));
     }
+    blocks = std::move(expanded);
 }
 
 static AlertKind AlertKindFromMarker(std::string_view marker) {
@@ -1310,6 +1337,20 @@ static int TextImpl(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* u
 
     if (currentBlock->type == BlockType::RawHtml) {
         currentBlock->rawHtml.append(text, size);
+        return 0;
+    }
+
+    // Image spans exist independently of their alt text. In particular ![](...)
+    // emits no text callbacks. All alt-text fragments (including nested emphasis
+    // or images) belong to the one run created by EnterSpanImpl.
+    const ParserContext::ImageContext& activeImage = ctx->imageStack.back();
+    if (activeImage.active && activeImage.block != nullptr &&
+        activeImage.runIndex < activeImage.block->inlineRuns.size()) {
+        std::string& alt = activeImage.block->inlineRuns[activeImage.runIndex].text;
+        if (type == MD_TEXT_ENTITY) alt += DecodeEntity(std::string_view(text, size));
+        else if (type == MD_TEXT_NULLCHAR) alt += "\xEF\xBF\xBD";
+        else if (type == MD_TEXT_BR || type == MD_TEXT_SOFTBR) alt += ' ';
+        else alt.append(text, size);
         return 0;
     }
 

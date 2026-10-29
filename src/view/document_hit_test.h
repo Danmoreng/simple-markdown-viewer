@@ -18,10 +18,14 @@ struct DocumentTextHit {
     std::string tableTsv;
     std::string tableCsv;
     size_t detailsToggleId = 0;
+    MermaidLayout diagram;
+    size_t diagramTextStart = 0;
 };
 
 struct HitTestCallbacks {
     std::function<float(const BlockLayout& block)> get_block_horizontal_scroll;
+    // Clipboard representations are only needed when opening a context menu.
+    bool includeTableData = true;
 };
 
 DocumentTextHit HitTestDocument(

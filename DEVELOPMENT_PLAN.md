@@ -260,15 +260,106 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [ ] Execute and record the full manual Linux smoke-test checklist on representative X11, Wayland, and HiDPI desktops.
 - [ ] Do not introduce platform-only product behavior unless required by native platform conventions.
 
+## Review implementation: safety, performance and portability (2026-10-29)
+
+Scope: implement review items 1–8. Release packaging/signing and accessibility
+(review items 9–10) remain separate milestones. Keep the native, read-only,
+single-window architecture and shared behavior on Windows and Linux.
+
+1. [x] Bound mathematical processing and HTML details expansion; reject mutable
+   or recursively expanding formula definitions, preserve safe source fallback,
+   and cover empty-alt Markdown images.
+2. [x] Show blocked HTTP, HTTPS and network-share images as placeholders with
+   the **complete original URL/network path**, wrapped without truncation, and
+   an explicit per-image Load image action. Fetch only that approved image;
+   show loading/errors, enforce transport limits, and never silently follow a
+   redirect or grant permission to other images. Approval lasts only for the
+   current document session. Print, preload and reload must not grant approval.
+3. [x] Enforce byte budgets while reading documents and images; reject special
+   files, size raster images from metadata, decode on demand, and evict cached
+   pixels within a total memory budget.
+4. [x] Cull invisible lines, restrict search drawing to relevant matches,
+   correct two-dimensional table hit testing and reduce pointer-move work.
+5. [x] Avoid unnecessary full layout/search work, bound long-paragraph fallback,
+   coalesce resizes and make expensive computations cancellable where possible.
+6. [x] Unify UTF-8/native paths and URL decoding, normalize document paths,
+   preserve supplementary input characters and repair relative-path watching.
+7. [x] Keep input/render coordinates consistent. Following manual user feedback,
+   Windows preserves its original pixel-sized UI and reader zoom; automatic
+   per-monitor enlargement was reverted. Linux keeps its logical coordinates.
+8. [x] Build shared code once, stage resources once, run pull-request CI, and add
+   regression, fuzz and performance coverage for the findings.
+
+Validation completed on Windows (2026-10-29):
+
+- Release application, shared unit tests and optional benchmarks build successfully.
+- `ctest --test-dir build -C Release --output-on-failure`: both CTest targets pass;
+  all 44 unit/regression groups pass, including the RTL caret regression.
+- Performance sample: 1,000 paragraphs parse/layout in 0.131 s; four times as
+  many paragraphs cost 3.45 times as much; 2,000 hit tests take 0.0005 s.
+  These are local measurements, not a cross-machine performance guarantee.
+- Native WinHTTP loopback tests verify successful loading, no redirect follow,
+  no automatic authentication/cookies, the 16 MiB limit and stalled-response
+  timeout. Shared tests cover approval scope/reset, cancellation and cache limits.
+- Windows visual check of `test-docs/network-images.md`: full wrapped HTTPS,
+  HTTP, UNC and Unicode source labels, per-image buttons, automatic local image.
+- `git diff --check` passes. PR CI and fuzz targets are configured; hosted CI and
+  Linux sanitizer/fuzz execution have not been run from this Windows machine.
+- Linux build/runtime testing is intentionally left to the user's other machine;
+  use `docs/LINUX_SMOKE_TEST.md`. Multi-monitor DPI switching also remains a
+  manual host check; coordinate conversions are covered by unit tests.
+
+Windows follow-up after manual user feedback: restore the original menu sizing
+and immediate synchronous relayout/repaint on window resize. Do not defer paints
+or wait for background reflow while stretching the window. Retain image-cache
+live-resize optimizations and the height-only resize shortcut. Visual acceptance
+of this correction remains with the user's manual test.
+
+Linux follow-up (2026-10-29, Arch x86_64, GCC 16.2.1, Rust 1.98.1):
+
+- Release build with Mermaid/PDF, all shared regression groups, the performance
+  runner, Rust bridge tests and C++ ASan/UBSan tests pass.
+- Fix MicroTeX's inclusive upper search bound, which let missing font-table
+  entries read past the backing array. Apply both dependency patches during
+  configuration, including cached/source-override builds, and cover empty,
+  single-row, boundary and composite-key lookups.
+- X11 smoke checks cover Mermaid in light/dark themes, source search, zoom,
+  resizing, scrolling, native GTK SVG saving and clean shutdown. The stripped
+  release archive also runs from outside the repository working directory;
+  its checksum and runtime library resolution pass.
+- Clang fuzzing, external SVG file associations, physical printing and the full
+  manual host checklist remain unverified by this local pass.
+
+Boundaries: background work covers Linux relayout and approved network-image loads;
+initial parsing/layout and search matching remain synchronous. Formula handling
+uses a bounded display-only subset with source fallback, not process isolation.
+Windows image reads reject reparse ancestors and validate the final handle, but
+an adversarial ancestor replacement between those checks is not fully eliminated.
+A failed Linux background font/zoom reflow keeps the last valid layout; restoring the
+last successfully applied typography settings is a small follow-up improvement.
+
 ## Later Backlog
 
-- [ ] Native browser-free Mermaid rendering for fenced `mermaid` code blocks.
-  - [ ] Do not use Chromium, Puppeteer, a webview, or the Mermaid CLI rendering pipeline.
-  - [ ] Prefer a lightweight native integration, likely via a Rust static library/C ABI bridge using a mature browser-free renderer such as `mermaid-rs-renderer`.
-  - [ ] Render into an app-native image surface using the now-enabled constrained Skia SVG path or a raster image fallback.
-  - [ ] Cache rendered diagrams by source hash.
-  - [ ] Fall back to the original code block plus an error message when rendering fails.
-  - [ ] Defer this until the Rust/Cargo build dependency and CI/release impact are acceptable.
+- [x] Render the demo's static Shields badges locally with Skia; parse bounded
+  label/message/color URLs and preserve the external-image policy for unsupported
+  options and dynamic data. Keep linked badges clickable.
+  - Draw badge text and geometry directly on the destination canvas at the final
+    zoom size; snap screen positions/baselines to device pixels without bitmap
+    resampling or per-badge horizontal font stretching. Keep PDF drawing vector.
+- [ ] Consider fetching dynamic badge data from explicit providers after user
+  approval, then rendering the result locally; never invent current status values.
+
+- [ ] Evaluate the native Mermaid experiment on `codex/mermaid-rust` before merging/releasing.
+  - [x] Add a pinned Rust static library/C ABI bridge with CLI and PNG features disabled.
+  - [x] Render fenced `mermaid` code blocks through shared Skia SVG, expanding unsupported arrow markers to native paths.
+  - [x] Cache source/font results; preserve source copying/search, fitting, zoom, themes, print and PDF.
+  - [x] Open rendered diagrams in the default SVG application and save full-size themed SVGs through native dialogs on both hosts.
+  - [x] Retain source plus an explanation on invalid, unsupported or oversized diagrams.
+  - [x] Integrate native Windows/Linux Cargo builds and release license notices.
+  - [x] Validate the Linux build, Mermaid fixture, themed rendering, search/zoom/resize, native SVG saving and shared print/PDF tests.
+  - [ ] Complete manual Linux font-coverage, external SVG association and native printing checks.
+  - [ ] Compare actual binary size, startup/render cost and build maintenance against a later optional system-WebView experiment.
+  - Details, constraints and test commands: `docs/MERMAID.md`.
 - [x] Native browser-free math rendering for Markdown.
   - [x] Recognize md4c `$...$` and `$$...$$` math spans without a Markdown source-rewriting pass.
   - [x] Keep normal prices, shell variables, unmatched dollar signs, and dollar-wrapped prose as ordinary Markdown text through conservative inline-math classification.
@@ -293,7 +384,9 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [ ] Which Markdown dialect is the primary compatibility target: CommonMark, GitHub-flavored Markdown, documentation-site Markdown, or broad tolerant Markdown?
 - [x] Should raw HTML render, be sanitized, or be shown as source? Use a strict native allowlist and show everything else as source.
 - [x] Should front matter be visible, collapsed, or hidden by default? Show common fields in a compact visible bar and hide the remaining raw fields.
-- [ ] Should remote images ever load automatically?
+- [x] Should remote images ever load automatically? No. Show the full source in
+  a placeholder and allow an explicit per-image load for HTTP, HTTPS and network
+  shares. Never treat one approval as permission for another image or redirect.
 - [x] Should local links outside the current document tree require confirmation? No; warn only for executable local files.
 - [ ] Should print/export preserve the active theme or always use a print-friendly theme?
 - [ ] What level of accessibility is expected for a custom-rendered document surface?
