@@ -83,6 +83,7 @@ Requirements:
 - Windows
 - Visual Studio 2022 with C++ build tools
 - Python
+- Rust/Cargo (validated with 1.98.1) for the native Mermaid SVG library
 - Git
 - Network access for the first dependency fetch unless `build/_deps` and Skia are already available
 
@@ -104,6 +105,7 @@ Useful variants:
 .\build.ps1 -Clean -SkipSkia -Configuration Release
 .\build.ps1 -Configuration Debug
 .\build.ps1 -RunSmokeTest
+.\build.ps1 -SkipSkia -DisableMermaid -Configuration Release
 ```
 
 Default Windows output:
@@ -125,8 +127,8 @@ The Linux host is built from the same CMake project on Linux. It uses GLFW for
 windowing/event integration and GTK3 for native dialogs/context menus.
 
 Linux dependencies include Skia, md4c, Tree-sitter, GLFW, GTK3, fontconfig,
-freetype, pthread, dl, OpenGL, and X11. Build the PDF-enabled application and
-Skia dependency, then run the tests, with:
+freetype, pthread, dl, OpenGL, X11, and Rust/Cargo (validated with 1.98.1).
+Build the PDF-enabled application and Skia dependency, then run the tests, with:
 
 ```bash
 ./build.sh
@@ -135,7 +137,9 @@ ctest --test-dir build --output-on-failure
 ```
 
 Use `./build.sh --skip-skia` after Skia has already been built. Use
-`--disable-pdf` only with a Skia build configured without its PDF backend.
+`--disable-mermaid` for a build without the Rust dependency. Native Mermaid
+integration, limits and Linux validation are documented in `docs/MERMAID.md`.
+Use `--disable-pdf` only with a Skia build configured without its PDF backend.
 Create the stripped Linux archive with `./package-linux.sh`; release validation
 and manual host checks are documented in `docs/LINUX_SMOKE_TEST.md`.
 

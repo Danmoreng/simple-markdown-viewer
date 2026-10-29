@@ -262,13 +262,15 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 
 ## Later Backlog
 
-- [ ] Native browser-free Mermaid rendering for fenced `mermaid` code blocks.
-  - [ ] Do not use Chromium, Puppeteer, a webview, or the Mermaid CLI rendering pipeline.
-  - [ ] Prefer a lightweight native integration, likely via a Rust static library/C ABI bridge using a mature browser-free renderer such as `mermaid-rs-renderer`.
-  - [ ] Render into an app-native image surface using the now-enabled constrained Skia SVG path or a raster image fallback.
-  - [ ] Cache rendered diagrams by source hash.
-  - [ ] Fall back to the original code block plus an error message when rendering fails.
-  - [ ] Defer this until the Rust/Cargo build dependency and CI/release impact are acceptable.
+- [ ] Evaluate the native Mermaid experiment on `codex/mermaid-rust` before merging/releasing.
+  - [x] Add a pinned Rust static library/C ABI bridge with CLI and PNG features disabled.
+  - [x] Render fenced `mermaid` code blocks through shared Skia SVG, expanding unsupported arrow markers to native paths.
+  - [x] Cache source/font results; preserve source copying/search, fitting, zoom, themes, print and PDF.
+  - [x] Retain source plus an explanation on invalid, unsupported or oversized diagrams.
+  - [x] Integrate native Windows/Linux Cargo builds and release license notices.
+  - [ ] Validate the Linux build, fixture, font coverage, print and PDF behavior on Linux.
+  - [ ] Compare actual binary size, startup/render cost and build maintenance against a later optional system-WebView experiment.
+  - Details, constraints and test commands: `docs/MERMAID.md`.
 - [x] Native browser-free math rendering for Markdown.
   - [x] Recognize md4c `$...$` and `$$...$$` math spans without a Markdown source-rewriting pass.
   - [x] Keep normal prices, shell variables, unmatched dollar signs, and dollar-wrapped prose as ordinary Markdown text through conservative inline-math classification.

@@ -11,6 +11,10 @@ enable_testing()
 
 option(MDVIEWER_ENABLE_PDF "Enable PDF export (requires a PDF-enabled Skia build)" ON)
 option(MDVIEWER_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(MDVIEWER_ENABLE_MERMAID "Enable native Mermaid diagrams (requires Rust/Cargo at build time)" ON)
+if(MDVIEWER_ENABLE_MERMAID)
+    include(cmake/mermaid.cmake)
+endif()
 
 # Fetched runtime dependencies are linked statically so the Linux release does
 # not depend on libraries inside the build tree.
@@ -265,6 +269,8 @@ set(SOURCES
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
     src/render/math_renderer.cpp
+    src/render/mermaid_renderer.cpp
+    src/render/mermaid_svg.cpp
     src/render/microtex_skia_adapter.cpp
     src/render/pdf_exporter.cpp
     src/render/print_document.cpp
@@ -329,9 +335,13 @@ else()
 endif()
 
 target_compile_definitions(mdviewer PRIVATE
+    MDVIEWER_ENABLE_MERMAID=$<BOOL:${MDVIEWER_ENABLE_MERMAID}>
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
 
-target_link_libraries(mdviewer PRIVATE utf8proc microtex)
+target_link_libraries(mdviewer PRIVATE utf8proc microtex tinyxml2::tinyxml2)
+if(MDVIEWER_ENABLE_MERMAID)
+    target_link_libraries(mdviewer PRIVATE mdviewer_mermaid)
+endif()
 
 target_include_directories(mdviewer PRIVATE 
     src
@@ -482,6 +492,8 @@ add_executable(mdviewer_tests
     src/render/image_cache.cpp
     src/render/menu_renderer.cpp
     src/render/math_renderer.cpp
+    src/render/mermaid_renderer.cpp
+    src/render/mermaid_svg.cpp
     src/render/microtex_skia_adapter.cpp
     src/render/pdf_exporter.cpp
     src/render/print_document.cpp
@@ -505,9 +517,13 @@ add_executable(mdviewer_tests
 )
 
 target_compile_definitions(mdviewer_tests PRIVATE
+    MDVIEWER_ENABLE_MERMAID=$<BOOL:${MDVIEWER_ENABLE_MERMAID}>
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
 
-target_link_libraries(mdviewer_tests PRIVATE utf8proc microtex)
+target_link_libraries(mdviewer_tests PRIVATE utf8proc microtex tinyxml2::tinyxml2)
+if(MDVIEWER_ENABLE_MERMAID)
+    target_link_libraries(mdviewer_tests PRIVATE mdviewer_mermaid)
+endif()
 
 target_include_directories(mdviewer_tests PRIVATE
     src

@@ -7,6 +7,7 @@ TARGET="mdviewer"
 CLEAN=false
 SKIP_SKIA=false
 ENABLE_PDF=true
+ENABLE_MERMAID=true
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -14,6 +15,7 @@ while [[ "$#" -gt 0 ]]; do
         --debug) CONFIGURATION="Debug" ;;
         --skip-skia) SKIP_SKIA=true ;;
         --disable-pdf) ENABLE_PDF=false ;;
+        --disable-mermaid) ENABLE_MERMAID=false ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
@@ -167,7 +169,8 @@ cmake -S . -B "$BUILD_DIR" \
     -DSKIA_DIR="$SKIA_DIR" \
     -DSKIA_OUT_DIR="$SKIA_OUT_PATH" \
     -DSKIA_DEBUG_OUT_DIR="$SKIA_DIR/out/Debug" \
-    -DMDVIEWER_ENABLE_PDF="$ENABLE_PDF"
+    -DMDVIEWER_ENABLE_PDF="$ENABLE_PDF" \
+    -DMDVIEWER_ENABLE_MERMAID="$ENABLE_MERMAID"
 
 echo "Building target $TARGET ($CONFIGURATION)..."
 cmake --build "$BUILD_DIR" --target "$TARGET"

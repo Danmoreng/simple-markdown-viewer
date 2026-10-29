@@ -6,6 +6,14 @@ licenses.
 
 Direct dependencies currently used by the project build:
 
+Native Mermaid support additionally links mermaid-rs-renderer 0.3.1 (MIT), its
+locked Rust dependencies, and the Rust standard library. The CLI and PNG
+features are disabled. Full dependency license texts are in
+`third_party/mermaid_bridge/THIRD_PARTY_NOTICES` and Rust library notices in
+`third_party/mermaid_bridge/RUST_LIBRARY_NOTICES.html`. Release packages include
+these as MERMAID_THIRD_PARTY_NOTICES and MERMAID_RUST_LIBRARY_NOTICES.html.
+The dependency graph is pinned in third_party/mermaid_bridge/Cargo.lock.
+
 1. Skia
    - Source: https://skia.org / https://skia.googlesource.com/skia
    - Local source tree: `third_party/skia`

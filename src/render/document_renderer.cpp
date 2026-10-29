@@ -722,6 +722,17 @@ void DrawBlockDecoration(
 
         if (!block.codeLanguage.empty()) {
             std::string codeLabel = block.codeLanguage;
+            if (!block.diagramError.empty()) {
+                codeLabel += " · source: " + block.diagramError;
+                const float maxLabelWidth = std::max(bgRect.width() - 70.0f, 1.0f);
+                ConfigureBlockFont(ctx.font, params, block, BlockType::CodeBlock, InlineFormatting::None);
+                ctx.font.setSize(std::max(params.baseFontSize * 0.7f, 7.0f));
+                const size_t fitted = FitUtf8TextBytes(params.typefaces, ctx.font, codeLabel, maxLabelWidth);
+                if (fitted < codeLabel.size()) {
+                    codeLabel.resize(fitted);
+                    codeLabel += "...";
+                }
+            }
             if (block.codeHighlightStatus == syntax::HighlightStatus::TimedOut ||
                 block.codeHighlightStatus == syntax::HighlightStatus::Failed) {
                 codeLabel += " · plain";
@@ -970,6 +981,13 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
                     ctx.canvas->restore();
                 }
             }
+            continue;
+        }
+
+        if (run.kind == InlineKind::Diagram) {
+            DrawMermaid(
+                ctx.canvas, run.mermaidLayout, runX, line.y,
+                params.appState && params.appState->theme == ThemeMode::Dark);
             continue;
         }
 
@@ -1273,6 +1291,16 @@ void DrawBlocks(
         }
 
         for (const auto& line : block.lines) {
+            const bool isDiagram = !line.runs.empty() && line.runs.front().kind == InlineKind::Diagram;
+            if (isDiagram) {
+                // SVGs contain opaque node fills; selection/search overlays must
+                // be painted after the diagram rather than hidden beneath it.
+                DrawLine(ctx, params, block, line);
+                DrawSearchForLine(ctx, params, block, line);
+                DrawSelectionForLine(ctx, params, block, line);
+                DrawSearchStrokeForLine(ctx, params, block, line);
+                continue;
+            }
             DrawInlineDecorationsForLine(ctx, params, line);
             DrawSearchForLine(ctx, params, block, line);
             DrawSelectionForLine(ctx, params, block, line);

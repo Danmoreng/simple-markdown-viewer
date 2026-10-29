@@ -6,6 +6,7 @@
 #include <vector>
 #include "layout/document_model.h"
 #include "render/math_renderer.h"
+#include "render/mermaid_renderer.h"
 #include "render/syntax/tree_sitter_highlighter.h"
 #include "text/document_fonts.h"
 #include "text/text_direction.h"
@@ -46,6 +47,7 @@ struct RunLayout {
     float baselineShift = 0.0f;
     bool mathDisplay = false;
     MathLayout mathLayout;
+    MermaidLayout mermaidLayout;
     std::string linkTarget;
     SkFont shapedFont;
     std::vector<SkGlyphID> glyphs;
@@ -74,6 +76,7 @@ struct BlockLayout {
     unsigned orderedListStart = 1;
     char orderedListDelimiter = '.';
     std::string codeLanguage;
+    std::string diagramError;
     std::string metadataFormat;
     size_t detailsId = 0;
     bool detailsOpen = false;

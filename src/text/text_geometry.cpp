@@ -10,7 +10,8 @@ namespace mdviewer {
 namespace {
 
 bool IsAtomicRun(const RunLayout& run) {
-    return run.kind == InlineKind::Image || run.kind == InlineKind::Math;
+    return run.kind == InlineKind::Image || run.kind == InlineKind::Math ||
+        run.kind == InlineKind::Diagram;
 }
 
 size_t RunLogicalEnd(const RunLayout& run) {

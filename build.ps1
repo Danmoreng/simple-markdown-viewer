@@ -8,6 +8,7 @@ param (
     [string]$Target = "mdviewer",
     [switch]$RunSmokeTest,
     [switch]$SkipSkia,
+    [switch]$DisableMermaid,
     [switch]$SkiaOnly
 )
 
@@ -304,6 +305,7 @@ $configureArgs = @(
     "-DSKIA_DIR=$skiaDir",
     "-DSKIA_OUT_DIR=$skiaOutPath",
     "-DSKIA_DEBUG_OUT_DIR=$skiaDir/out/Debug"
+    "-DMDVIEWER_ENABLE_MERMAID=$(-not $DisableMermaid)"
 )
 if (Test-Path $md4cSourceDir) {
     $configureArgs += "-DFETCHCONTENT_SOURCE_DIR_MD4C=$md4cSourceDir"

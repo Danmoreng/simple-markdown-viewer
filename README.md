@@ -60,6 +60,7 @@ Both archives include the application, `LICENSE`, `THIRD_PARTY_NOTICES`, and thi
     direction-aware wrapping, selection, search highlighting, links, lists,
     tables, details, code, print/PDF output, and heading-outline labels
   - **Local raster and SVG images** with aspect-ratio preservation, fit-to-column scaling, requested HTML dimensions, and no forced upscaling beyond intrinsic size; SVGs may derive their intrinsic size from `width`/`height` or `viewBox`, while SVG HTML `<foreignObject>` content is not supported
+  - **Native Mermaid diagrams** in fenced `mermaid` blocks through a pinned Rust library and Skia SVG, including arrowheads, light/dark colors, source copying/search, and print/PDF output; invalid or unsupported diagrams remain visible as source with an explanation. This is an independent Mermaid implementation with bounded input and partial compatibility; see [Mermaid support](docs/MERMAID.md).
 - Navigation:
   - **Full browsing history** (back/forward) with per-document reading-position restoration
   - Generated nested heading outline that highlights the current section and can be collapsed, placed on either side, resized, scrolled independently, and navigated by keyboard

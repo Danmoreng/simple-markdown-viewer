@@ -65,6 +65,7 @@ enum class InlineKind {
     Text,
     Image,
     Math,
+    Diagram, // Layout-only atomic representation of a rendered Mermaid code block.
     SoftBreak,
     HardBreak,
 };

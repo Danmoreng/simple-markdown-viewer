@@ -323,6 +323,7 @@ public:
     float activeFontScale = 1.0f;
     LayoutEngine::ImageSizeProvider imageSizeProvider;
     LayoutOptions options;
+    size_t mermaidBlockCount = 0;
 
     LayoutContext(
         float width,
@@ -383,6 +384,54 @@ public:
             const float blockWidth = std::max(
                 availableWidth - blockInsets.left - blockInsets.right,
                 1.0f);
+            if (block.type == BlockType::CodeBlock && block.codeLanguage == "mermaid") {
+                std::string source;
+                for (const auto& run : block.inlineRuns) {
+                    source += run.text;
+                }
+                MermaidLayout diagram;
+                if (++mermaidBlockCount > 64) {
+                    diagram.error = "Diagram limit reached (64 blocks per document).";
+                } else {
+                    SkString family;
+                    if (typefaces.regular) {
+                        typefaces.regular->getFamilyName(&family);
+                    }
+                    diagram = LayoutMermaid(
+                        source, family.isEmpty() ? "sans-serif" : family.c_str(),
+                        typefaces.fontMgr, baseFontSize,
+                        std::max(blockWidth - 2.0f * kCodeBlockPaddingX, 1.0f));
+                }
+                if (diagram.IsValid()) {
+                    currentY += kCodeBlockOuterMarginY;
+                    const float top = currentY;
+                    LineLayout line;
+                    line.x = blockLeft + (blockWidth - diagram.width) * 0.5f;
+                    line.y = top + 36.0f; // Keep language label/copy controls clear of the diagram.
+                    line.width = diagram.width;
+                    line.height = diagram.height;
+                    line.textStart = currentTextOffset;
+                    line.textLength = source.size();
+                    RunLayout run;
+                    run.kind = InlineKind::Diagram;
+                    run.text = source;
+                    run.textStart = currentTextOffset;
+                    run.visualWidth = diagram.width;
+                    run.semanticSpanId = nextSemanticSpanId++;
+                    run.mermaidLayout = std::move(diagram);
+                    line.runs.push_back(std::move(run));
+                    plainText += source;
+                    currentTextOffset += source.size();
+                    bl.textLength = source.size();
+                    currentY = line.y + line.height + kCodeBlockPaddingY;
+                    bl.bounds = SkRect::MakeXYWH(blockLeft, top, blockWidth, currentY - top);
+                    bl.lines.push_back(std::move(line));
+                    layouts.push_back(std::move(bl));
+                    currentY += kCodeBlockOuterMarginY + kBlockSpacing;
+                    continue;
+                }
+                bl.diagramError = std::move(diagram.error);
+            }
             if (block.type == BlockType::CodeBlock && options.fitHorizontalOverflow) {
                 const float codeViewportWidth = std::max(blockWidth - (kCodeBlockPaddingX * 2.0f), 1.0f);
                 const float naturalCodeWidth = MeasureInlineRunsWidth(block.inlineRuns, BlockType::CodeBlock);
@@ -411,6 +460,9 @@ public:
 
             if (block.type == BlockType::CodeBlock) {
                 currentY += kCodeBlockPaddingY;
+                if (!bl.diagramError.empty()) {
+                    currentY += 28.0f;
+                }
                 if (bl.direction == ResolvedTextDirection::RightToLeft) {
                     currentY += kCodeBlockRtlControlClearanceY;
                 }

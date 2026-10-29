@@ -44,7 +44,12 @@ jobs:
             python3
 
       - name: Build Linux application with PDF support
-        run: ./build.sh
+        # Pin the second compiler toolchain as well as Cargo.lock.
+        # No Rust runtime or Cargo is required by the packaged application.
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          ./build.sh
 
       - name: Build unit tests
         run: cmake --build build --target mdviewer_tests --parallel 2
