@@ -6,6 +6,10 @@ param (
     [string]$Configuration = "Release",
     [string]$BuildDir = "build",
     [string]$Target = "mdviewer",
+    [ValidateRange(1, 64)]
+    [int]$Parallel = 2,
+    [switch]$BuildBenchmarks,
+    [switch]$UpdateDependencies,
     [switch]$RunSmokeTest,
     [switch]$SkipSkia,
     [switch]$DisableMermaid,
@@ -306,6 +310,8 @@ $configureArgs = @(
     "-DSKIA_OUT_DIR=$skiaOutPath",
     "-DSKIA_DEBUG_OUT_DIR=$skiaDir/out/Debug"
     "-DMDVIEWER_ENABLE_MERMAID=$(-not $DisableMermaid)"
+    "-DMDVIEWER_BUILD_BENCHMARKS=$([bool]$BuildBenchmarks)"
+    "-DMDVIEWER_UPDATE_DEPENDENCIES=$([bool]$UpdateDependencies)"
 )
 if (Test-Path $md4cSourceDir) {
     $configureArgs += "-DFETCHCONTENT_SOURCE_DIR_MD4C=$md4cSourceDir"
@@ -317,7 +323,7 @@ cmake @configureArgs
 Assert-LastExitCode "cmake configure"
 
 Write-Host "Building target $Target ($Configuration)..." -ForegroundColor Cyan
-cmake --build $BuildDir --config $Configuration --target $Target
+cmake --build $BuildDir --config $Configuration --target $Target --parallel $Parallel
 Assert-LastExitCode "cmake build"
 
 if ($RunSmokeTest) {
@@ -330,11 +336,27 @@ if ($RunSmokeTest) {
 
     if (Test-Path $exePath) {
         Write-Host "Launching $exePath..." -ForegroundColor Green
-        # GUI app, just check if it starts
-        Start-Process $exePath
-        Start-Sleep -Seconds 2
-        Get-Process $Target -ErrorAction SilentlyContinue | Stop-Process
-        Write-Host "Smoke test passed (app launched and closed)." -ForegroundColor Green
+        # Keep the exact process handle: other viewer windows belong to the user.
+        $smokeProcess = Start-Process -FilePath $exePath -PassThru -WindowStyle Hidden
+        try {
+            if ($smokeProcess.WaitForExit(2000)) {
+                throw "Smoke test failed: process exited during startup (exit code $($smokeProcess.ExitCode))."
+            }
+            $smokeProcess.Refresh()
+            if ($smokeProcess.HasExited -or -not $smokeProcess.Responding) {
+                throw "Smoke test failed: process is not responsive after startup."
+            }
+            Write-Host "Smoke test passed (process stayed alive and responsive)." -ForegroundColor Green
+        } finally {
+            if (-not $smokeProcess.HasExited) {
+                $null = $smokeProcess.CloseMainWindow()
+                if (-not $smokeProcess.WaitForExit(2000)) {
+                    $smokeProcess.Kill()
+                    $smokeProcess.WaitForExit()
+                }
+            }
+            $smokeProcess.Dispose()
+        }
     } else {
         throw "Executable not found at $exePath"
     }

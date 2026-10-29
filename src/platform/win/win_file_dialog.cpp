@@ -37,7 +37,7 @@ std::optional<std::filesystem::path> ShowOpenFileDialog(HWND hwnd) {
         L"All Files (*.*)\0*.*\0";
     dialog.lpstrFile = fileBuffer.data();
     dialog.nMaxFile = static_cast<DWORD>(fileBuffer.size());
-    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     dialog.lpstrDefExt = L"md";
 
     if (!GetOpenFileNameW(&dialog)) {
@@ -63,7 +63,7 @@ std::optional<std::filesystem::path> ShowSavePdfDialog(HWND hwnd, const std::fil
         L"All Files (*.*)\0*.*\0";
     dialog.lpstrFile = fileBuffer.data();
     dialog.nMaxFile = static_cast<DWORD>(fileBuffer.size());
-    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     dialog.lpstrDefExt = L"pdf";
     dialog.lpstrTitle = L"Save Markdown as PDF";
     if (!initialDir.empty()) {
@@ -88,7 +88,7 @@ std::optional<std::filesystem::path> ShowSaveSvgDialog(HWND hwnd, const std::fil
     dialog.lpstrFilter = L"SVG Images (*.svg)\0*.svg\0All Files (*.*)\0*.*\0";
     dialog.lpstrFile = fileBuffer.data();
     dialog.nMaxFile = static_cast<DWORD>(fileBuffer.size());
-    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     dialog.lpstrDefExt = L"svg";
     dialog.lpstrTitle = L"Save Diagram as SVG";
     if (!initialDir.empty()) dialog.lpstrInitialDir = initialDir.c_str();

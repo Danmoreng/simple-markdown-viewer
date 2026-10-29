@@ -8,6 +8,8 @@ CLEAN=false
 SKIP_SKIA=false
 ENABLE_PDF=true
 ENABLE_MERMAID=true
+BUILD_BENCHMARKS=false
+UPDATE_DEPENDENCIES=false
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -16,6 +18,8 @@ while [[ "$#" -gt 0 ]]; do
         --skip-skia) SKIP_SKIA=true ;;
         --disable-pdf) ENABLE_PDF=false ;;
         --disable-mermaid) ENABLE_MERMAID=false ;;
+        --benchmarks) BUILD_BENCHMARKS=true ;;
+        --update-dependencies) UPDATE_DEPENDENCIES=true ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
@@ -170,7 +174,9 @@ cmake -S . -B "$BUILD_DIR" \
     -DSKIA_OUT_DIR="$SKIA_OUT_PATH" \
     -DSKIA_DEBUG_OUT_DIR="$SKIA_DIR/out/Debug" \
     -DMDVIEWER_ENABLE_PDF="$ENABLE_PDF" \
-    -DMDVIEWER_ENABLE_MERMAID="$ENABLE_MERMAID"
+    -DMDVIEWER_ENABLE_MERMAID="$ENABLE_MERMAID" \
+    -DMDVIEWER_BUILD_BENCHMARKS="$BUILD_BENCHMARKS" \
+    -DMDVIEWER_UPDATE_DEPENDENCIES="$UPDATE_DEPENDENCIES"
 
 echo "Building target $TARGET ($CONFIGURATION)..."
-cmake --build "$BUILD_DIR" --target "$TARGET"
+cmake --build "$BUILD_DIR" --target "$TARGET" --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-2}"

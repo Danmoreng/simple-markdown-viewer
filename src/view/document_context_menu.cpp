@@ -2,6 +2,7 @@
 
 #include "app/link_resolver.h"
 #include "app/diagram_export.h"
+#include "app/image_source.h"
 
 namespace mdviewer {
 namespace {
@@ -49,18 +50,24 @@ DocumentContextMenu BuildDocumentContextMenu(const AppState& appState, const Int
     if (hasImage) {
         AddSeparator(menu);
         menu.imageSource = hit.imageSource;
-        const LinkTarget imageTarget = ResolveLinkTarget(appState.currentFilePath, hit.imageSource, false);
+        const auto source = DescribeImageSource(hit.imageSource, appState.currentFilePath.parent_path());
+        // Menu construction never probes targets: a seemingly local path can
+        // traverse a symlink or junction to a share. Explicit actions resolve it.
+        const LinkTarget imageTarget = source.info.RequiresConsent()
+            ? LinkTarget{LinkTargetKind::ExternalUrl, hit.imageSource, {}, {}}
+            : (source.info.kind == ImageSourceKind::Local
+                ? LinkTarget{LinkTargetKind::ExternalPath, {}, source.resolvedPath, {}} : LinkTarget{});
         if (imageTarget.kind == LinkTargetKind::InternalDocument ||
             imageTarget.kind == LinkTargetKind::ExternalPath ||
             imageTarget.kind == LinkTargetKind::MissingLocalPath) {
             menu.localImagePath = imageTarget.path;
             menu.imageCopyText = PathToUtf8(imageTarget.path);
         } else {
-            menu.imageCopyText = hit.imageSource;
+            menu.imageCopyText = source.info.displayTarget.empty() ? hit.imageSource : source.info.displayTarget;
         }
         menu.items.push_back({
             .command = DocumentContextCommand::OpenImage,
-            .label = "Open Image",
+            .label = source.info.RequiresConsent() ? "Open Image Externally" : "Open Image",
             .enabled = imageTarget.kind != LinkTargetKind::Invalid,
         });
         menu.items.push_back({
@@ -100,7 +107,9 @@ DocumentContextMenu BuildDocumentContextMenu(const AppState& appState, const Int
             .enabled = true,
         });
 
-        const LinkTarget target = ResolveLinkTarget(appState.currentFilePath, linkTarget, false);
+        const auto source = DescribeImageSource(linkTarget, appState.currentFilePath.parent_path());
+        const LinkTarget target = source.info.kind == ImageSourceKind::Local
+            ? ResolveLinkTarget(appState.currentFilePath, linkTarget, false, false) : LinkTarget{};
         if ((target.kind == LinkTargetKind::InternalDocument || target.kind == LinkTargetKind::ExternalPath) &&
             !SamePath(target.path, menu.localImagePath)) {
             menu.localLinkPath = target.path;

@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -40,7 +41,8 @@ using DocumentPreloadCallback = std::function<void(const DocumentModel&, const s
 
 class ViewerController {
 public:
-    ViewerController() = default;
+    ViewerController();
+    ~ViewerController();
 
     AppState& GetMutableAppState() { return appState_; }
     const AppState& GetAppState() const { return appState_; }
@@ -81,18 +83,31 @@ public:
         const DocumentPreloadCallback& preloadDocument,
         LayoutEngine::ImageSizeProvider imageSizeProvider,
         bool pushHistory = true,
-        bool updateRecentFiles = true);
+        bool updateRecentFiles = true,
+        LayoutOptions options = {});
     OpenDocumentStatus ReloadCurrentFile(
         float width,
         const DocumentTypefaceSet& typefaces,
         const DocumentPreloadCallback& preloadDocument,
-        LayoutEngine::ImageSizeProvider imageSizeProvider);
+        LayoutEngine::ImageSizeProvider imageSizeProvider,
+        LayoutOptions options = {});
 
     bool Relayout(
         float width,
         const DocumentTypefaceSet& typefaces,
         const DocumentPreloadCallback& preloadDocument,
-        LayoutEngine::ImageSizeProvider imageSizeProvider);
+        LayoutEngine::ImageSizeProvider imageSizeProvider,
+        LayoutOptions options = {});
+
+    // Snapshot native-owned image metadata before queueing; background work
+    // owns its document and font references and never touches the host/cache.
+    void QueueRelayout(float width, const DocumentTypefaceSet& typefaces,
+        LayoutEngine::ImageSizeProvider imageSizeProvider, LayoutOptions options = {});
+    bool PollRelayout();
+    bool IsRelayoutPending() const;
+    void CancelRelayout();
+    void InvalidateLayoutModel();
+    const std::string& GetLastLayoutError() const { return lastLayoutError_; }
 
     bool HasCurrentFile() const;
     bool HasCurrentFileChanged() const;
@@ -118,6 +133,10 @@ private:
     std::string fontFamilyUtf8_;
     std::optional<WindowPlacement> windowPlacement_;
     std::vector<RecentFileEntry> recentFiles_;
+    struct LayoutWorker;
+    std::unique_ptr<LayoutWorker> layoutWorker_;
+    std::shared_ptr<const DocumentModel> layoutModelSnapshot_;
+    std::string lastLayoutError_;
 };
 
 } // namespace mdviewer

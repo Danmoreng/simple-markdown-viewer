@@ -260,6 +260,62 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [ ] Execute and record the full manual Linux smoke-test checklist on representative X11, Wayland, and HiDPI desktops.
 - [ ] Do not introduce platform-only product behavior unless required by native platform conventions.
 
+## Review implementation: safety, performance and portability (2026-10-29)
+
+Scope: implement review items 1–8. Release packaging/signing and accessibility
+(review items 9–10) remain separate milestones. Keep the native, read-only,
+single-window architecture and shared behavior on Windows and Linux.
+
+1. [x] Bound mathematical processing and HTML details expansion; reject mutable
+   or recursively expanding formula definitions, preserve safe source fallback,
+   and cover empty-alt Markdown images.
+2. [x] Show blocked HTTP, HTTPS and network-share images as placeholders with
+   the **complete original URL/network path**, wrapped without truncation, and
+   an explicit per-image Load image action. Fetch only that approved image;
+   show loading/errors, enforce transport limits, and never silently follow a
+   redirect or grant permission to other images. Approval lasts only for the
+   current document session. Print, preload and reload must not grant approval.
+3. [x] Enforce byte budgets while reading documents and images; reject special
+   files, size raster images from metadata, decode on demand, and evict cached
+   pixels within a total memory budget.
+4. [x] Cull invisible lines, restrict search drawing to relevant matches,
+   correct two-dimensional table hit testing and reduce pointer-move work.
+5. [x] Avoid unnecessary full layout/search work, bound long-paragraph fallback,
+   coalesce resizes and make expensive computations cancellable where possible.
+6. [x] Unify UTF-8/native paths and URL decoding, normalize document paths,
+   preserve supplementary input characters and repair relative-path watching.
+7. [x] Use logical coordinates consistently on Windows and Linux, handle monitor
+   DPI changes and keep display scaling independent from reader zoom.
+8. [x] Build shared code once, stage resources once, run pull-request CI, and add
+   regression, fuzz and performance coverage for the findings.
+
+Validation completed on Windows (2026-10-29):
+
+- Release application, shared unit tests and optional benchmarks build successfully.
+- `ctest --test-dir build -C Release --output-on-failure`: both CTest targets pass;
+  all 44 unit/regression groups pass, including the RTL caret regression.
+- Performance sample: 1,000 paragraphs parse/layout in 0.131 s; four times as
+  many paragraphs cost 3.45 times as much; 2,000 hit tests take 0.0005 s.
+  These are local measurements, not a cross-machine performance guarantee.
+- Native WinHTTP loopback tests verify successful loading, no redirect follow,
+  no automatic authentication/cookies, the 16 MiB limit and stalled-response
+  timeout. Shared tests cover approval scope/reset, cancellation and cache limits.
+- Windows visual check of `test-docs/network-images.md`: full wrapped HTTPS,
+  HTTP, UNC and Unicode source labels, per-image buttons, automatic local image.
+- `git diff --check` passes. PR CI and fuzz targets are configured; hosted CI and
+  Linux sanitizer/fuzz execution have not been run from this Windows machine.
+- Linux build/runtime testing is intentionally left to the user's other machine;
+  use `docs/LINUX_SMOKE_TEST.md`. Multi-monitor DPI switching also remains a
+  manual host check; coordinate conversions are covered by unit tests.
+
+Boundaries: background work covers relayout and approved network-image loads;
+initial parsing/layout and search matching remain synchronous. Formula handling
+uses a bounded display-only subset with source fallback, not process isolation.
+Windows image reads reject reparse ancestors and validate the final handle, but
+an adversarial ancestor replacement between those checks is not fully eliminated.
+A failed background font/zoom reflow keeps the last valid layout; restoring the
+last successfully applied typography settings is a small follow-up improvement.
+
 ## Later Backlog
 
 - [ ] Evaluate the native Mermaid experiment on `codex/mermaid-rust` before merging/releasing.
@@ -296,7 +352,9 @@ Goal: harden the second native host and keep it aligned with the shared viewer b
 - [ ] Which Markdown dialect is the primary compatibility target: CommonMark, GitHub-flavored Markdown, documentation-site Markdown, or broad tolerant Markdown?
 - [x] Should raw HTML render, be sanitized, or be shown as source? Use a strict native allowlist and show everything else as source.
 - [x] Should front matter be visible, collapsed, or hidden by default? Show common fields in a compact visible bar and hide the remaining raw fields.
-- [ ] Should remote images ever load automatically?
+- [x] Should remote images ever load automatically? No. Show the full source in
+  a placeholder and allow an explicit per-image load for HTTP, HTTPS and network
+  shares. Never treat one approval as permission for another image or redirect.
 - [x] Should local links outside the current document tree require confirmation? No; warn only for executable local files.
 - [ ] Should print/export preserve the active theme or always use a print-friendly theme?
 - [ ] What level of accessibility is expected for a custom-rendered document surface?

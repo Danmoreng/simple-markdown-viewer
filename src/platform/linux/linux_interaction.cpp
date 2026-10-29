@@ -30,6 +30,15 @@ namespace {
 constexpr float kDropdownItemHeight = 30.0f;
 GLFWcursor* gOutlineResizeCursor = nullptr;
 GLFWcursor* gDiagramCursor = nullptr;
+std::string gPendingImageLoadSource;
+std::filesystem::path gPendingImageDocument;
+std::string gPendingImageTarget;
+
+void ClearPendingImageLoad() {
+    gPendingImageLoadSource.clear();
+    gPendingImageDocument.clear();
+    gPendingImageTarget.clear();
+}
 
 void OpenDiagram(const MermaidLayout& diagram, ThemeMode theme) {
     std::string error;
@@ -196,7 +205,7 @@ int HitTestDropdown(GLFWwindow* window, LinuxApp& app, double x, double y) {
         static_cast<float>(y));
 }
 
-InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y) {
+InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y, bool includeTableData = false) {
     const auto& appState = GetAppState(app.GetHostContext());
     const float contentTop = GetContentTopInset();
     
@@ -212,6 +221,7 @@ InteractionTextHit HitTest(GLFWwindow* window, LinuxApp& app, double x, double y
             return found == appState.horizontalScrollOffsets.end() ? 0.0f : found->second;
         },
     };
+    callbacks.includeTableData = includeTableData;
 
     auto docHit = HitTestDocument(
         appState.docLayout,
@@ -485,6 +495,13 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
 
+    // GLFW synthesizes button releases after focus loss. Those events are not
+    // completed clicks and must never authorize an image load or open a menu.
+    if (action == GLFW_RELEASE && glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_FALSE) {
+        ClearPendingImageLoad();
+        return;
+    }
+
     // Open the GTK popup only after the physical button has been released.
     // Entering GTK's nested menu loop from GLFW's press callback leaves the
     // real pointer button held on the GLFW window and can prevent GTK from
@@ -505,7 +522,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             return;
         }
 
-        const auto hit = HitTest(window, *app, xpos, ypos);
+        const auto hit = HitTest(window, *app, xpos, ypos, true);
         const auto menu = BuildDocumentContextMenu(appState, hit);
         const auto command = ShowDocumentContextMenu(menu);
         if (!command) {
@@ -580,12 +597,17 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
     if (button != GLFW_MOUSE_BUTTON_LEFT) return;
 
     if (action == GLFW_PRESS) {
+        ClearPendingImageLoad();
         if (appState.isAutoScrolling) {
             StopAutoScroll(*app);
         }
         if (appState.searchActive && appState.searchCloseButtonRect.contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
             CloseSearch(appState);
             appState.needsRepaint = true;
+            return;
+        }
+        if (appState.searchActive && appState.searchOverlayRect.contains(static_cast<float>(xpos), static_cast<float>(ypos))) {
+            ClearPendingLinkState(appState);
             return;
         }
 
@@ -750,6 +772,19 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             const float docX = static_cast<float>(xpos) -
                 (lockedState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app->GetHostContext()) : 0.0f);
             const float docY = static_cast<float>(ypos) - GetContentTopInset() + lockedState.scrollOffset;
+            for (const auto& region : lockedState.imageLoadButtons) {
+                if (!region.rect.contains(docX, docY)) continue;
+                // Copy before relayout invalidates button geometry. Only this
+                // visible Load image action can authorize a network request.
+                gPendingImageLoadSource = region.source;
+                gPendingImageDocument = lockedState.currentFilePath;
+                gPendingImageTarget = app->GetHostContext().imageCache.GetSourceInfo(
+                    region.source, lockedState.currentFilePath.parent_path()).displayTarget;
+                ClearPendingLinkState(lockedState);
+                FinalizeSelectionInteraction(lockedState);
+                lockedState.needsRepaint = true;
+                return;
+            }
             for (const auto& buttonRegion : lockedState.codeBlockButtons) {
                 if (!buttonRegion.first.contains(docX, docY)) {
                     continue;
@@ -766,6 +801,7 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             }
         }
         if (hit.detailsToggleId != 0 && ToggleDetailsBlock(appState.docModel, hit.detailsToggleId)) {
+            app->Controller().InvalidateLayoutModel();
             appState.selectionAnchor = appState.selectionFocus;
             RelayoutCurrentDocument(window, app->GetHostContext());
             RebuildSearchMatches(appState);
@@ -781,6 +817,26 @@ void OnMouseButtonImpl(GLFWwindow* window, int button, int action, int mods) {
             appState.needsRepaint = true;
         }
     } else if (action == GLFW_RELEASE) {
+        if (!gPendingImageLoadSource.empty()) {
+            const std::string source = std::move(gPendingImageLoadSource);
+            const auto document = std::move(gPendingImageDocument);
+            const std::string target = std::move(gPendingImageTarget);
+            ClearPendingImageLoad();
+            const float docX = static_cast<float>(xpos) -
+                (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(app->GetHostContext()) : 0.0f);
+            const float docY = static_cast<float>(ypos) - GetContentTopInset() + appState.scrollOffset;
+            const bool visibleButton = std::any_of(appState.imageLoadButtons.begin(), appState.imageLoadButtons.end(),
+                [&](const auto& region) { return region.source == source && region.rect.contains(docX, docY); });
+            const bool sameTarget = document == appState.currentFilePath &&
+                app->GetHostContext().imageCache.GetSourceInfo(source, document.parent_path()).displayTarget == target;
+            if (sameTarget && visibleButton && appState.menuBarState.activeIndex < 0 &&
+                !(appState.searchActive && appState.searchOverlayRect.contains(static_cast<float>(xpos), static_cast<float>(ypos)))) {
+                auto host = app->GetHostContext();
+                if (host.imageCache.RequestLoad(source, document.parent_path())) RelayoutCurrentDocument(window, host);
+            }
+            appState.needsRepaint = true;
+            return;
+        }
         const bool endedOutlineResize = appState.isResizingOutline;
         if (endedOutlineResize || appState.isDraggingOutlineScrollbar) {
             EndOutlinePointerDrag(appState);
@@ -1185,6 +1241,30 @@ void OnDrop(GLFWwindow* window, int count, const char** paths) noexcept {
     RunGuardedCallback(window, "file drop", [&] { OnDropImpl(window, count, paths); });
 }
 
+void OnWindowFocus(GLFWwindow* window, int focused) noexcept {
+    if (focused == GLFW_TRUE) return;
+    // This callback runs before GLFW's synthetic button-release callbacks.
+    ClearPendingImageLoad();
+    RunGuardedCallback(window, "focus loss", [&] {
+        auto* app = static_cast<LinuxApp*>(glfwGetWindowUserPointer(window));
+        if (!app) return;
+        auto& state = GetAppState(app->GetHostContext());
+        const bool wasResizingOutline = state.isResizingOutline;
+        StopAutoScroll(*app);
+        ClearPendingLinkState(state);
+        FinalizeSelectionInteraction(state);
+        EndOutlinePointerDrag(state);
+        EndHorizontalScrollbarDrag(state);
+        state.isDraggingScrollbar = false;
+        if (wasResizingOutline) {
+            const uint64_t nowMs = static_cast<uint64_t>(glfwGetTime() * 1000.0);
+            ScheduleLiveRelayout(*app, nowMs);
+            app->SurfaceContext().liveResizeEndTimeMs = nowMs;
+        }
+        state.needsRepaint = true;
+    });
+}
+
 } // namespace
 
 void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
@@ -1200,9 +1280,11 @@ void SetupCallbacks(GLFWwindow* window, LinuxApp* app) {
     glfwSetCharCallback(window, OnChar);
     glfwSetFramebufferSizeCallback(window, OnFramebufferSize);
     glfwSetDropCallback(window, OnDrop);
+    glfwSetWindowFocusCallback(window, OnWindowFocus);
 }
 
 void CleanupInteractionResources() {
+    ClearPendingImageLoad();
     if (gDiagramCursor) {
         glfwDestroyCursor(gDiagramCursor);
         gDiagramCursor = nullptr;

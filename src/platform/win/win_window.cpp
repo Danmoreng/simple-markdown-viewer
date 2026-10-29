@@ -11,6 +11,7 @@
 #include "platform/win/win_menu.h"
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_viewer_host.h"
+#include "platform/win/win_dpi.h"
 #include "render/typography.h"
 #include "view/document_interaction.h"
 
@@ -221,12 +222,18 @@ int RunMessageLoop() {
 std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, WinApp& app) {
     switch (message) {
         case WM_CREATE:
+            app.Host().dpiScale = WindowDpiScale(hwnd);
+            UpdateMenuDpi(hwnd);
             DragAcceptFiles(hwnd, TRUE);
             app.Host().fileWatcher.Start(hwnd);
             UpdateSurface(hwnd, app.Host());
             SyncMenuState(hwnd, app.Host());
             return 0;
         case WM_DESTROY:
+            app.Controller().CancelRelayout();
+            KillTimer(hwnd, kWindowResizeTimerId);
+            KillTimer(hwnd, kImageLoadTimerId);
+            KillTimer(hwnd, kRelayoutPollTimerId);
             RememberRestoredWindowPlacement(hwnd, app.Controller());
             app.Controller().SaveConfig();
             StopAutoScroll(hwnd, app.Interaction());
@@ -236,6 +243,14 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             PostQuitMessage(0);
             return 0;
         case WM_PAINT:
+            if (app.Host().liveWindowResize && app.Host().windowResizePending) {
+                // OS-generated paints must not bypass the resize cadence and
+                // rebuild the GPU swapchain for every intermediate WM_SIZE.
+                PAINTSTRUCT paint{};
+                BeginPaint(hwnd, &paint);
+                EndPaint(hwnd, &paint);
+                return 0;
+            }
             Render(hwnd, app.Host());
             return 0;
         case WM_MEASUREITEM:
@@ -261,7 +276,7 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             }
             return std::nullopt;
         case WM_LBUTTONDOWN:
-            HandlePrimaryButtonDown(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            HandlePrimaryButtonDown(hwnd, app.Interaction(), LogicalCoordinate(GET_X_LPARAM(lParam), app.Host().dpiScale), LogicalCoordinate(GET_Y_LPARAM(lParam), app.Host().dpiScale));
             return 0;
         case WM_XBUTTONDOWN:
             HandleXButtonDown(hwnd, app.Interaction(), wParam);
@@ -271,11 +286,11 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
                 hwnd,
                 app.Interaction(),
                 wParam,
-                GET_X_LPARAM(lParam),
-                GET_Y_LPARAM(lParam));
+                LogicalCoordinate(GET_X_LPARAM(lParam), app.Host().dpiScale),
+                LogicalCoordinate(GET_Y_LPARAM(lParam), app.Host().dpiScale));
             return 0;
         case WM_LBUTTONUP:
-            HandlePrimaryButtonUp(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            HandlePrimaryButtonUp(hwnd, app.Interaction(), LogicalCoordinate(GET_X_LPARAM(lParam), app.Host().dpiScale), LogicalCoordinate(GET_Y_LPARAM(lParam), app.Host().dpiScale));
             return 0;
         case WM_CONTEXTMENU:
             if (HandleContextMenu(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
@@ -283,7 +298,7 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             }
             return std::nullopt;
         case WM_MBUTTONDOWN:
-            HandleMiddleButtonDown(hwnd, app.Interaction(), GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            HandleMiddleButtonDown(hwnd, app.Interaction(), LogicalCoordinate(GET_X_LPARAM(lParam), app.Host().dpiScale), LogicalCoordinate(GET_Y_LPARAM(lParam), app.Host().dpiScale));
             return 0;
         case WM_MBUTTONUP:
             return 0;
@@ -312,6 +327,15 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             }
             return std::nullopt;
         case WM_TIMER:
+            if (wParam == kRelayoutPollTimerId) {
+                PollDocumentRelayout(hwnd, app.Host());
+                return 0;
+            }
+            if (wParam == kWindowResizeTimerId) {
+                KillTimer(hwnd, kWindowResizeTimerId);
+                ProcessWindowResize(hwnd, app.Host());
+                return 0;
+            }
             if (HandleTimer(hwnd, app.Interaction(), wParam)) {
                 return 0;
             }
@@ -321,22 +345,44 @@ std::optional<LRESULT> DispatchMainWindowMessage(HWND hwnd, UINT message, WPARAM
             return 0;
         case WM_SIZE:
             RememberRestoredWindowPlacement(hwnd, app.Controller());
-            UpdateSurface(hwnd, app.Host());
-            RelayoutCurrentDocument(hwnd, app.Host());
-            InvalidateRect(hwnd, nullptr, FALSE);
+            if (wParam == SIZE_MINIMIZED) return 0;
+            if (app.Host().liveWindowResize) {
+                if (!app.Host().windowResizePending) {
+                    app.Host().windowResizePending = true;
+                    if (!SetTimer(hwnd, kWindowResizeTimerId, 34, nullptr)) {
+                        ProcessWindowResize(hwnd, app.Host());
+                    }
+                }
+            } else {
+                ProcessWindowResize(hwnd, app.Host());
+            }
             return 0;
         case WM_ENTERSIZEMOVE:
+            app.Host().liveWindowResize = true;
             app.Host().imageCache.BeginLiveResize();
             return 0;
         case WM_MOVE:
             RememberRestoredWindowPlacement(hwnd, app.Controller());
             return 0;
         case WM_EXITSIZEMOVE:
+            app.Host().liveWindowResize = false;
+            KillTimer(hwnd, kWindowResizeTimerId);
             app.Host().imageCache.EndLiveResize();
             RememberRestoredWindowPlacement(hwnd, app.Controller());
-            UpdateSurface(hwnd, app.Host());
-            RelayoutCurrentDocument(hwnd, app.Host());
-            InvalidateRect(hwnd, nullptr, FALSE);
+            ProcessWindowResize(hwnd, app.Host());
+            return 0;
+        case WM_DPICHANGED: {
+            app.Host().dpiScale = DpiScale(HIWORD(wParam));
+            UpdateMenuDpi(hwnd);
+            const auto* suggested = reinterpret_cast<const RECT*>(lParam);
+            SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                suggested->right - suggested->left, suggested->bottom - suggested->top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            ProcessWindowResize(hwnd, app.Host());
+            return 0;
+        }
+        case WM_KILLFOCUS:
+            app.Interaction().textInput.Reset();
             return 0;
         case kMessageWatchedFileChanged:
             ReloadIfFileChanged(hwnd, app.Host());

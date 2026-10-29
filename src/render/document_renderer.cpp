@@ -9,6 +9,7 @@
 
 #include "render/typography.h"
 #include "text/text_geometry.h"
+#include "text/source_label.h"
 #include "view/document_interaction.h"
 #include "view/document_outline.h"
 
@@ -458,15 +459,15 @@ void DrawSelectionForLine(RenderContext& ctx, const DocumentSceneParams& params,
         SkPaint highlightPaint;
         highlightPaint.setAntiAlias(true);
         highlightPaint.setColor(params.palette.selectionFill);
-        for (const SkRect& rect : GetTextRangeRects(
-                 line,
+        if (const auto rect = GetTextRunRangeRect(
+                 run, line.x,
                  highlightStart,
                  highlightEnd,
                  line.y + 1.0f,
                  line.y + line.height - 1.0f,
                  highlightPaddingX)) {
             ctx.canvas->drawRoundRect(
-                rect,
+                *rect,
                 isCodeText ? 3.0f : 1.0f,
                 isCodeText ? 3.0f : 1.0f,
                 highlightPaint);
@@ -516,16 +517,43 @@ void DrawInlineDecorationsForLine(RenderContext& ctx, const DocumentSceneParams&
     }
 }
 
+bool ClipSearchRunRange(RenderContext& ctx, const LineLayout& line, const RunLayout& run,
+    size_t& start, size_t& end) {
+    SkRect clip;
+    if (!ctx.canvas->getLocalClipBounds(&clip)) return false;
+    constexpr float kHighlightOutset = 3.0f;
+    const float left = clip.left() - line.x - kHighlightOutset;
+    const float right = clip.right() - line.x + kHighlightOutset;
+    if (run.visualX > right || run.visualX + run.visualWidth < left) return false;
+    if (run.caretStopsLogicalOrder != 0 && run.caretStops.size() >= 2) {
+        const auto& stops = run.caretStops;
+        auto leftStop = std::lower_bound(stops.begin(), stops.end(), left,
+            [](const CaretStop& stop, float x) { return stop.x < x; });
+        if (leftStop != stops.begin()) --leftStop;
+        auto rightStop = std::lower_bound(stops.begin(), stops.end(), right,
+            [](const CaretStop& stop, float x) { return stop.x < x; });
+        if (rightStop == stops.end()) --rightStop;
+        start = std::max(start, std::min(leftStop->textPosition, rightStop->textPosition));
+        end = std::min(end, std::max(leftStop->textPosition, rightStop->textPosition));
+    }
+    return start < end;
+}
+
 void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
     if (!params.appState || !params.appState->searchActive || params.appState->searchMatches.empty()) {
         return;
     }
 
     const auto currentMatch = GetCurrentSearchMatch(*params.appState);
-    for (const auto& match : params.appState->searchMatches) {
-        for (const RunLayout& run : line.runs) {
-            const size_t runStart = run.textStart;
-            const size_t runEnd = GetRunTextEnd(run);
+    for (const RunLayout& run : line.runs) {
+        size_t runStart = run.textStart;
+        size_t runEnd = GetRunTextEnd(run);
+        if (run.kind == InlineKind::Image || !ClipSearchRunRange(ctx, line, run, runStart, runEnd)) continue;
+        const auto& matches = params.appState->searchMatches;
+        auto first = std::upper_bound(matches.begin(), matches.end(), runStart,
+            [](size_t start, const auto& match) { return start < match.second; });
+        for (; first != matches.end() && first->first < runEnd; ++first) {
+            const auto& match = *first;
             if (run.kind == InlineKind::Image || match.second <= runStart || match.first >= runEnd) {
                 continue;
             }
@@ -544,14 +572,14 @@ void DrawSearchForLine(RenderContext& ctx, const DocumentSceneParams& params, co
                 currentMatch && currentMatch->first == match.first && currentMatch->second == match.second
                     ? params.palette.menuSelectedBackground
                     : params.palette.selectionFill);
-            for (const SkRect& rect : GetTextRangeRects(
-                     line,
+            if (const auto rect = GetTextRunRangeRect(
+                     run, line.x,
                      highlightStart,
                      highlightEnd,
                      line.y + 1.0f,
                      line.y + line.height - 1.0f,
                      highlightPaddingX)) {
-                ctx.canvas->drawRoundRect(rect, 3.0f, 3.0f, highlightPaint);
+                ctx.canvas->drawRoundRect(*rect, 3.0f, 3.0f, highlightPaint);
             }
         }
     }
@@ -563,10 +591,15 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
     }
 
     const auto currentMatch = GetCurrentSearchMatch(*params.appState);
-    for (const auto& match : params.appState->searchMatches) {
-        for (const RunLayout& run : line.runs) {
-            const size_t runStart = run.textStart;
-            const size_t runEnd = GetRunTextEnd(run);
+    for (const RunLayout& run : line.runs) {
+        size_t runStart = run.textStart;
+        size_t runEnd = GetRunTextEnd(run);
+        if (run.kind == InlineKind::Image || !ClipSearchRunRange(ctx, line, run, runStart, runEnd)) continue;
+        const auto& matches = params.appState->searchMatches;
+        auto first = std::upper_bound(matches.begin(), matches.end(), runStart,
+            [](size_t start, const auto& match) { return start < match.second; });
+        for (; first != matches.end() && first->first < runEnd; ++first) {
+            const auto& match = *first;
             if (run.kind == InlineKind::Image || match.second <= runStart || match.first >= runEnd) {
                 continue;
             }
@@ -586,14 +619,14 @@ void DrawSearchStrokeForLine(RenderContext& ctx, const DocumentSceneParams& para
             strokePaint.setStyle(SkPaint::kStroke_Style);
             strokePaint.setStrokeWidth(isCurrent ? 1.8f : 1.1f);
             strokePaint.setColor(isCurrent ? params.palette.linkText : params.palette.menuDisabledText);
-            for (const SkRect& rect : GetTextRangeRects(
-                     line,
+            if (const auto rect = GetTextRunRangeRect(
+                     run, line.x,
                      highlightStart,
                      highlightEnd,
                      line.y + 1.0f,
                      line.y + line.height - 1.0f,
                      highlightPaddingX)) {
-                ctx.canvas->drawRoundRect(rect, 3.0f, 3.0f, strokePaint);
+                ctx.canvas->drawRoundRect(*rect, 3.0f, 3.0f, strokePaint);
             }
         }
     }
@@ -892,6 +925,83 @@ void DrawBlockDecoration(
     }
 }
 
+void DrawImageLoadPlaceholder(RenderContext& ctx, const DocumentSceneParams& params,
+    const BlockLayout& block, const RunLayout& run, const SkRect& rect) {
+    const ImageLoadInfo info = params.imageLoadInfoProvider
+        ? params.imageLoadInfoProvider(run.imageSource) : run.imageLoadInfo;
+    const bool loading = info.state == ImageLoadState::Loading;
+    const bool failed = info.state == ImageLoadState::Failed;
+    const bool showLoadAction = params.showInteractiveElements && info.RequiresConsent();
+    SkPaint fill;
+    fill.setAntiAlias(true);
+    fill.setColor(params.palette.codeInlineBackground);
+    ctx.canvas->drawRoundRect(rect, 4.0f, 4.0f, fill);
+    SkPaint border;
+    border.setAntiAlias(true);
+    border.setColor(params.palette.tableBorder);
+    border.setStyle(SkPaint::kStroke_Style);
+    ctx.canvas->drawRoundRect(rect, 4.0f, 4.0f, border);
+
+    SkFont labelFont;
+    ConfigureDocumentFont(labelFont, params.typefaces, BlockType::Paragraph,
+        InlineFormatting::None, 13.0f);
+    labelFont.setSize(13.0f);
+    ctx.paint.setColor(params.palette.bodyText);
+    const char* label = failed ? "Image could not be loaded"
+        : run.imageSourceControlsEscaped ? "Escaped image source" : "External image";
+    const float textLeft = rect.left() + kImagePlaceholderPadding;
+    DrawTextWithFallback(ctx.canvas, params.typefaces, label, std::strlen(label),
+        textLeft, rect.top() + kImagePlaceholderPadding + 13.0f, labelFont, ctx.paint);
+
+    const SkFont sourceFont = MakeSourceLabelFont(params.typefaces, kImagePlaceholderSourceFontSize);
+    float sourceY = rect.top() + kImagePlaceholderPadding + run.imagePlaceholderLabelHeight +
+        kImagePlaceholderSourceFontSize;
+    // These are complete, measured source fragments from layout, never shortened
+    // with ellipses. The original source is shown even when a resolved target differs.
+    const auto drawLabelLines = [&](const std::vector<std::string>& fragments) {
+        const float rowHeight = std::max(run.imageSourceLineHeight, 1.0f);
+        const size_t first = static_cast<size_t>(std::max(
+            std::floor((params.visibleDocumentTop - sourceY - rowHeight) / rowHeight), 0.0f));
+        for (size_t index = first; index < fragments.size(); ++index) {
+            const float y = sourceY + static_cast<float>(index) * rowHeight;
+            if (y - rowHeight > params.visibleDocumentBottom) break;
+            const auto& fragment = fragments[index];
+            DrawSourceLabelText(ctx.canvas, params.typefaces, sourceFont, fragment,
+                textLeft, y, ctx.paint);
+        }
+        sourceY += static_cast<float>(fragments.size()) * rowHeight;
+    };
+    drawLabelLines(run.imageSourceLines);
+    if (!run.imageErrorLines.empty()) sourceY += 4.0f;
+    drawLabelLines(run.imageErrorLines);
+
+    const char* action = !showLoadAction ? (failed ? "Image unavailable" : "Image not loaded")
+        : loading ? "Loading image..." : failed ? "Try again" : "Load image";
+    const float actionWidth = MeasureTextWithFallback(params.typefaces, labelFont, action, std::strlen(action));
+    const SkRect button = SkRect::MakeXYWH(textLeft,
+        rect.bottom() - kImagePlaceholderPadding - run.imageLoadButtonHeight,
+        std::min(actionWidth + 20.0f, std::max(rect.width() - 2.0f * kImagePlaceholderPadding, 1.0f)),
+        std::max(run.imageLoadButtonHeight - 4.0f, 1.0f));
+    if (showLoadAction) {
+        fill.setColor(loading ? params.palette.codeInlineBackground : params.palette.menuSelectedBackground);
+        ctx.canvas->drawRoundRect(button, 4.0f, 4.0f, fill);
+        ctx.canvas->drawRoundRect(button, 4.0f, 4.0f, border);
+    }
+    ctx.paint.setColor(loading ? params.palette.menuDisabledText : params.palette.linkText);
+    DrawTextWithFallback(ctx.canvas, params.typefaces, action, std::strlen(action),
+        button.left() + 10.0f, button.top() + 16.0f, labelFont, ctx.paint);
+    if (showLoadAction && !loading && params.addImageLoadButton) {
+        SkRect hitRect = button;
+        SkRect visibleClip;
+        if (!ctx.canvas->getLocalClipBounds(&visibleClip) || !hitRect.intersect(visibleClip)) return;
+        if (params.appState && block.usesHorizontalScrollOffset) {
+            const auto found = params.appState->horizontalScrollOffsets.find(block.horizontalScrollOwnerTextStart);
+            if (found != params.appState->horizontalScrollOffsets.end()) hitRect.offset(-found->second, 0.0f);
+        }
+        params.addImageLoadButton({hitRect, run.imageSource});
+    }
+}
+
 void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const BlockLayout& block, const LineLayout& line) {
     for (const RunLayout& run : line.runs) {
         ConfigureBlockFont(ctx.font, params, block, block.type, run.formatting);
@@ -917,6 +1027,11 @@ void DrawLine(RenderContext& ctx, const DocumentSceneParams& params, const Block
         if (run.kind == InlineKind::Image && !run.imageSource.empty()) {
             const float displayW = run.imageWidth;
             const float displayH = run.imageHeight;
+            if (run.imageLoadRequired || !run.imageErrorLines.empty()) {
+                DrawImageLoadPlaceholder(ctx, params, block, run,
+                    SkRect::MakeXYWH(runX, line.y + (line.height - displayH) * 0.5f, displayW, displayH));
+                continue;
+            }
             const sk_sp<SkImage> image =
                 params.resolveImage ? params.resolveImage(run.imageSource, displayW, displayH) : nullptr;
             const float renderedWidth = image && params.freezeImageDimensions
@@ -1257,11 +1372,11 @@ void DrawBlocks(
     BlockType parentType = BlockType::Paragraph,
     unsigned parentOrderedListStart = 1,
     char parentOrderedListDelimiter = '.') {
-    for (size_t index = 0; index < blocks.size(); ++index) {
+    const auto firstBlock = std::lower_bound(blocks.begin(), blocks.end(), params.visibleDocumentTop,
+        [](const BlockLayout& block, float top) { return block.bounds.bottom() < top; });
+    for (size_t index = static_cast<size_t>(firstBlock - blocks.begin()); index < blocks.size(); ++index) {
         const auto& block = blocks[index];
-        if (block.bounds.bottom() < params.visibleDocumentTop || block.bounds.top() > params.visibleDocumentBottom) {
-            continue;
-        }
+        if (block.bounds.top() > params.visibleDocumentBottom) break;
 
         if (block.type == BlockType::ThematicBreak) {
             ctx.paint.setColor(params.palette.thematicBreak);
@@ -1290,7 +1405,15 @@ void DrawBlocks(
             ctx.canvas->translate(-GetHorizontalScrollOffset(params, block), 0.0f);
         }
 
-        for (const auto& line : block.lines) {
+        constexpr float kLinePaintOutset = 3.0f;
+        const auto firstLine = std::lower_bound(
+            block.lines.begin(), block.lines.end(), params.visibleDocumentTop,
+            [](const LineLayout& line, float top) {
+                return line.y + line.height + kLinePaintOutset < top;
+            });
+        for (auto lineIt = firstLine; lineIt != block.lines.end(); ++lineIt) {
+            const auto& line = *lineIt;
+            if (line.y - kLinePaintOutset > params.visibleDocumentBottom) break;
             const bool isDiagram = !line.runs.empty() && line.runs.front().kind == InlineKind::Diagram;
             if (isDiagram) {
                 // SVGs contain opaque node fills; selection/search overlays must
@@ -1385,6 +1508,7 @@ void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
             closeSize,
             closeSize);
         const_cast<AppState*>(params.appState)->searchCloseButtonRect = closeRect;
+        const_cast<AppState*>(params.appState)->searchOverlayRect = SkRect::MakeXYWH(overlayX, overlayY, overlayW, overlayH);
 
         SkPaint backgroundPaint;
         backgroundPaint.setAntiAlias(true);
@@ -1469,6 +1593,7 @@ void DrawStatusOverlays(RenderContext& ctx, const DocumentSceneParams& params) {
         ctx.canvas->drawLine(cx + arm, cy - arm, cx - arm, cy + arm, closeStroke);
     } else {
         const_cast<AppState*>(params.appState)->searchCloseButtonRect = SkRect::MakeEmpty();
+        const_cast<AppState*>(params.appState)->searchOverlayRect = SkRect::MakeEmpty();
     }
 
     if (!params.appState->hoveredUrl.empty()) {

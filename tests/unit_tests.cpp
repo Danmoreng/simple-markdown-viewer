@@ -41,6 +41,16 @@
 #include "include/core/SkPixmap.h"
 #include "include/core/SkSurface.h"
 
+namespace mdviewer::tests {
+void RunParserSafetyTests();
+void RunIoPathTests();
+void RunAsyncLayoutTests();
+void RunLayoutPerformanceTests();
+void RunPlatformHelpersTests();
+void RunRenderInteractionTests();
+void RunImageCacheTests();
+}
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -556,10 +566,10 @@ void LinkResolution() {
     const mdviewer::InteractionTextHit missingLinkHit{0, true, "missing.md"};
     const auto missingContextMenu = mdviewer::BuildDocumentContextMenu(contextState, missingLinkHit);
     Require(
-        std::none_of(missingContextMenu.items.begin(), missingContextMenu.items.end(), [](const auto& item) {
+        std::any_of(missingContextMenu.items.begin(), missingContextMenu.items.end(), [](const auto& item) {
             return item.command == mdviewer::DocumentContextCommand::RevealLinkTarget;
         }),
-        "missing link context menu should not offer a reveal action");
+        "local link menus resolve paths without probing potentially network-backed targets");
 }
 
 void SvgImageRendering() {
@@ -4083,6 +4093,13 @@ void ScrollAnchorPreservesReadingPosition() {
 
 int main() {
     const std::vector<std::pair<const char*, void (*)()>> tests = {
+        {"ParserSafetyRegressions", mdviewer::tests::RunParserSafetyTests},
+        {"IoAndPathRegressions", mdviewer::tests::RunIoPathTests},
+        {"AsyncLayoutRegressions", mdviewer::tests::RunAsyncLayoutTests},
+        {"LayoutPerformanceRegressions", mdviewer::tests::RunLayoutPerformanceTests},
+        {"PlatformHelperRegressions", mdviewer::tests::RunPlatformHelpersTests},
+        {"RenderInteractionRegressions", mdviewer::tests::RunRenderInteractionTests},
+        {"ImageCacheRegressions", mdviewer::tests::RunImageCacheTests},
         {"ConfigParsingAndSaving", ConfigParsingAndSaving},
         {"RecentFilesAndHistory", RecentFilesAndHistory},
         {"ConfigPathMigration", ConfigPathMigration},

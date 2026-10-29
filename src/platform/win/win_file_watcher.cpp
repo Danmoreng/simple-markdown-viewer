@@ -16,6 +16,7 @@ void WinFileWatcher::Start(HWND hwnd) {
     hwnd_ = hwnd;
     stopRequested_ = false;
     wakeEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!wakeEvent_) return;
     thread_ = std::thread(&WinFileWatcher::ThreadMain, this);
 }
 
@@ -44,8 +45,10 @@ void WinFileWatcher::Stop() {
 }
 
 void WinFileWatcher::SetWatchedFile(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto absolutePath = path.empty() ? std::filesystem::path{} : std::filesystem::absolute(path, error);
     std::lock_guard<std::mutex> lock(mutex_);
-    watchedDirectory_ = path.empty() ? std::filesystem::path{} : path.parent_path();
+    watchedDirectory_ = error ? std::filesystem::path{} : absolutePath.lexically_normal().parent_path();
     if (wakeEvent_) {
         SetEvent(wakeEvent_);
     }
@@ -104,6 +107,7 @@ void WinFileWatcher::ThreadMain() {
         HANDLE handles[2] = {wakeEvent_, changeHandle};
         const DWORD handleCount = changeHandle ? 2 : 1;
         const DWORD result = WaitForMultipleObjects(handleCount, handles, FALSE, INFINITE);
+        if (result == WAIT_FAILED) break;
         if (result == WAIT_OBJECT_0) {
             if (wakeEvent_) {
                 ResetEvent(wakeEvent_);

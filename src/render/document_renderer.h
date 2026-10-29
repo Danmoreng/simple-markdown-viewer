@@ -6,6 +6,7 @@
 #include <string>
 
 #include "app/app_state.h"
+#include "app/image_source.h"
 #include "render/theme.h"
 #include "text/document_font_style.h"
 #include "text/document_fonts.h"
@@ -45,6 +46,8 @@ struct DocumentSceneParams {
     std::function<sk_sp<SkImage>(const std::string& url, float displayWidth, float displayHeight)> resolveImage;
     std::function<void(const SkRect& rect, size_t start, size_t end)> addCodeBlockButton;
     std::function<void(const HorizontalScrollbarRegion& region)> addHorizontalScrollbar;
+    std::function<ImageLoadInfo(const std::string& source)> imageLoadInfoProvider;
+    std::function<void(const ImageLoadButtonRegion& region)> addImageLoadButton;
 };
 
 SkColor GetDocumentTextColor(

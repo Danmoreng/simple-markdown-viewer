@@ -35,6 +35,30 @@ std::optional<float> CaretXForLogicalBoundary(
     const RunLayout& run,
     size_t logicalPosition,
     bool snapForward) {
+    if (run.caretStopsLogicalOrder != 0 && !run.caretStops.empty()) {
+        const auto findBoundary = [&](auto begin, auto end) -> std::optional<float> {
+            const auto next = std::lower_bound(begin, end, logicalPosition,
+                [](const CaretStop& stop, size_t position) { return stop.textPosition < position; });
+            auto selected = next;
+            if (next == end || next->textPosition != logicalPosition) {
+                if ((!snapForward || next == end) && next != begin) selected = std::prev(next);
+            }
+            if (selected == end) return std::nullopt;
+            // Preserve the existing visual-first tie policy for duplicate logical
+            // boundaries (zero-advance glyphs and cluster-edge carets).
+            const size_t position = selected->textPosition;
+            auto first = std::lower_bound(begin, end, position,
+                [](const CaretStop& stop, size_t value) { return stop.textPosition < value; });
+            if (run.caretStopsLogicalOrder < 0) {
+                first = std::prev(std::upper_bound(first, end, position,
+                    [](size_t value, const CaretStop& stop) { return value < stop.textPosition; }));
+            }
+            return first->x;
+        };
+        return run.caretStopsLogicalOrder > 0
+            ? findBoundary(run.caretStops.begin(), run.caretStops.end())
+            : findBoundary(run.caretStops.rbegin(), run.caretStops.rend());
+    }
     const CaretStop* exact = nullptr;
     const CaretStop* preceding = nullptr;
     const CaretStop* following = nullptr;
@@ -78,17 +102,57 @@ size_t HitTestTextRun(const RunLayout& run, float xInLine) {
         return AtomicHitPosition(run, xInLine);
     }
 
-    const CaretStop* closest = &run.caretStops.front();
-    float closestDistance = std::abs(xInLine - closest->x);
-    for (const CaretStop& stop : run.caretStops) {
-        const float distance = std::abs(xInLine - stop.x);
-        if (distance < closestDistance ||
-            (distance == closestDistance && stop.textPosition < closest->textPosition)) {
-            closest = &stop;
-            closestDistance = distance;
+    // Hand-constructed/legacy runs may retain logical rather than visual order.
+    // Only layout-indexed runs carry the ordering metadata needed by the fast path.
+    if (run.caretStopsLogicalOrder == 0) {
+        const CaretStop* closest = &run.caretStops.front();
+        for (const CaretStop& stop : run.caretStops) {
+            const float distance = std::abs(xInLine - stop.x);
+            const float closestDistance = std::abs(xInLine - closest->x);
+            if (distance < closestDistance ||
+                (distance == closestDistance && stop.textPosition < closest->textPosition)) {
+                closest = &stop;
+            }
+        }
+        return closest->textPosition;
+    }
+
+    // Layout stores carets in visual order, with equal-X stops sorted logically.
+    const auto next = std::lower_bound(run.caretStops.begin(), run.caretStops.end(), xInLine,
+        [](const CaretStop& stop, float x) { return stop.x < x; });
+    const CaretStop* closest = next != run.caretStops.end() ? &*next : nullptr;
+    if (next != run.caretStops.begin()) {
+        const float previousX = std::prev(next)->x;
+        const auto previous = std::lower_bound(run.caretStops.begin(), next, previousX,
+            [](const CaretStop& stop, float x) { return stop.x < x; });
+        if (closest == nullptr || std::abs(xInLine - previousX) < std::abs(xInLine - closest->x) ||
+            (std::abs(xInLine - previousX) == std::abs(xInLine - closest->x) &&
+             previous->textPosition < closest->textPosition)) {
+            closest = &*previous;
         }
     }
     return closest->textPosition;
+}
+
+std::optional<SkRect> GetTextRunRangeRect(
+    const RunLayout& run, float lineX, size_t logicalStart, size_t logicalEnd,
+    float top, float bottom, float horizontalPadding) {
+    if (run.kind == InlineKind::Image || bottom <= top) return std::nullopt;
+    if (logicalEnd < logicalStart) std::swap(logicalStart, logicalEnd);
+    const size_t selectedStart = std::max(logicalStart, run.textStart);
+    const size_t selectedEnd = std::min(logicalEnd, RunLogicalEnd(run));
+    if (selectedStart >= selectedEnd) return std::nullopt;
+    float left = lineX + run.visualX;
+    float right = left + run.visualWidth;
+    if (!IsAtomicRun(run) && !run.caretStops.empty()) {
+        const auto startX = CaretXForLogicalBoundary(run, selectedStart, false);
+        const auto endX = CaretXForLogicalBoundary(run, selectedEnd, true);
+        if (startX && endX) {
+            left = lineX + std::min(*startX, *endX);
+            right = lineX + std::max(*startX, *endX);
+        }
+    }
+    return PaddedRect(left, right, top, bottom, horizontalPadding);
 }
 
 std::vector<SkRect> GetTextRangeRects(
@@ -107,31 +171,9 @@ std::vector<SkRect> GetTextRangeRects(
 
     std::vector<SkRect> rects;
     for (const RunLayout& run : line.runs) {
-        if (run.kind == InlineKind::Image) {
-            continue;
+        if (const auto rect = GetTextRunRangeRect(run, line.x, logicalStart, logicalEnd, top, bottom, horizontalPadding)) {
+            rects.push_back(*rect);
         }
-
-        const size_t runStart = run.textStart;
-        const size_t runEnd = RunLogicalEnd(run);
-        const size_t selectedStart = std::max(logicalStart, runStart);
-        const size_t selectedEnd = std::min(logicalEnd, runEnd);
-        if (selectedStart >= selectedEnd) {
-            continue;
-        }
-
-        float left = line.x + run.visualX;
-        float right = left + run.visualWidth;
-        if (!IsAtomicRun(run) && !run.caretStops.empty()) {
-            const std::optional<float> startX =
-                CaretXForLogicalBoundary(run, selectedStart, false);
-            const std::optional<float> endX =
-                CaretXForLogicalBoundary(run, selectedEnd, true);
-            if (startX.has_value() && endX.has_value()) {
-                left = line.x + std::min(*startX, *endX);
-                right = line.x + std::max(*startX, *endX);
-            }
-        }
-        rects.push_back(PaddedRect(left, right, top, bottom, horizontalPadding));
     }
 
     std::sort(rects.begin(), rects.end(), [](const SkRect& left, const SkRect& right) {

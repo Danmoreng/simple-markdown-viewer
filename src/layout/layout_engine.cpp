@@ -17,6 +17,7 @@
 #include "text/complex_text_runtime.h"
 #include "text/document_font_style.h"
 #include "text/shaped_text_layout.h"
+#include "text/source_label.h"
 
 // Suppress warnings from Skia headers
 #pragma warning(push)
@@ -99,14 +100,16 @@ std::optional<ResolvedTextDirection> FindFirstBlockDirection(const Block& block)
     return std::nullopt;
 }
 
-std::vector<size_t> LegacyGraphemeBoundaries(std::string_view text) {
+std::vector<size_t> LegacyGraphemeBoundaries(std::string_view text, std::stop_token stopToken = {}) {
     std::vector<size_t> boundaries{0};
     size_t offset = 0;
     utf8proc_int32_t previous = 0;
     utf8proc_int32_t state = 0;
     bool hasPrevious = false;
+    size_t codepointCount = 0;
 
     while (offset < text.size()) {
+        if ((codepointCount++ & 1023U) == 0) ThrowIfLayoutCancelled(stopToken);
         utf8proc_int32_t current = 0;
         const utf8proc_ssize_t bytes = utf8proc_iterate(
             reinterpret_cast<const utf8proc_uint8_t*>(text.data() + offset),
@@ -132,10 +135,11 @@ std::vector<size_t> LegacyGraphemeBoundaries(std::string_view text) {
     return boundaries;
 }
 
-void PopulateLegacyCaretStops(RunLayout& run, const SkFont& font) {
+void PopulateLegacyCaretStops(RunLayout& run, const SkFont& font, std::stop_token stopToken = {}) {
     run.shaped = false;
     run.bidiLevel = 0;
     run.caretStops.clear();
+    run.caretStopsLogicalOrder = 0;
 
     if (run.kind == InlineKind::Image) {
         return;
@@ -146,12 +150,14 @@ void PopulateLegacyCaretStops(RunLayout& run, const SkFont& font) {
             run.textStart + run.text.size(),
             run.visualX + run.visualWidth,
         });
+        UpdateCaretStopsLogicalOrder(run);
         return;
     }
 
-    const std::vector<size_t> boundaries = LegacyGraphemeBoundaries(run.text);
+    const std::vector<size_t> boundaries = LegacyGraphemeBoundaries(run.text, stopToken);
     std::vector<float> cumulativeWidths(boundaries.size(), 0.0f);
     for (size_t index = 1; index < boundaries.size(); ++index) {
+        if ((index & 1023U) == 0) ThrowIfLayoutCancelled(stopToken);
         const size_t previous = boundaries[index - 1];
         cumulativeWidths[index] = cumulativeWidths[index - 1] + font.measureText(
             run.text.data() + previous,
@@ -160,6 +166,7 @@ void PopulateLegacyCaretStops(RunLayout& run, const SkFont& font) {
     }
     const float measuredWidth = cumulativeWidths.back();
     for (size_t index = 0; index < boundaries.size(); ++index) {
+        if ((index & 1023U) == 0) ThrowIfLayoutCancelled(stopToken);
         const float normalizedWidth = measuredWidth > 0.0f
             ? (cumulativeWidths[index] / measuredWidth) * run.visualWidth
             : 0.0f;
@@ -168,6 +175,7 @@ void PopulateLegacyCaretStops(RunLayout& run, const SkFont& font) {
             run.visualX + normalizedWidth,
         });
     }
+    UpdateCaretStopsLogicalOrder(run);
 }
 
 bool IsBreakableWhitespace(char ch) {
@@ -348,6 +356,7 @@ public:
         float pendingListInset = 0.0f,
         AlertKind inheritedAlertKind = AlertKind::None) {
         for (const auto& block : blocks) {
+            ThrowIfLayoutCancelled(options.stopToken);
             if (BlockSubtreeProducesPlainText(block)) {
                 EnsurePlainTextBlockSeparator();
             }
@@ -677,6 +686,80 @@ private:
         return {displayWidth, displayHeight};
     }
 
+    std::vector<std::string> WrapImageSource(std::string_view source, float width) {
+        const SkFont sourceFont = MakeSourceLabelFont(typefaces, kImagePlaceholderSourceFontSize);
+        const auto boundaries = LegacyGraphemeBoundaries(source, options.stopToken);
+        std::vector<std::string> lines;
+        size_t start = 0;
+        float usedWidth = 0.0f;
+        for (size_t index = 1; index < boundaries.size(); ++index) {
+            if ((index & 1023U) == 0) ThrowIfLayoutCancelled(options.stopToken);
+            const size_t previous = boundaries[index - 1];
+            const float glyphWidth = MeasureSourceLabelText(typefaces, sourceFont,
+                source.substr(previous, boundaries[index] - previous));
+            if (previous > start && usedWidth + glyphWidth > width) {
+                lines.emplace_back(source.substr(start, previous - start));
+                start = previous;
+                usedWidth = 0.0f;
+            }
+            usedWidth += glyphWidth;
+        }
+        if (start < source.size() || lines.empty()) lines.emplace_back(source.substr(start));
+        return lines;
+    }
+
+    void PrepareImageRun(
+        ShapedTextInputRun& input,
+        float wrapWidth,
+        float lineHeight,
+        bool isSingleImageBlock,
+        BlockType blockType) {
+        if (options.imageLoadInfoProvider) {
+            input.imageLoadInfo = options.imageLoadInfoProvider(input.run.imageSource);
+        } else {
+            input.imageLoadInfo = DescribeImageSource(input.run.imageSource, {}).info;
+            if (input.imageLoadInfo.RequiresConsent() && imageSizeProvider) {
+                const auto size = imageSizeProvider(input.run.imageSource);
+                if (size.first > 0.0f && size.second > 0.0f) input.imageLoadInfo.state = ImageLoadState::Ready;
+            }
+        }
+        input.imageLoadRequired = input.imageLoadInfo.RequiresConsent() &&
+            input.imageLoadInfo.state != ImageLoadState::Ready;
+        if (input.imageLoadRequired ||
+            (input.imageLoadInfo.state == ImageLoadState::Failed && !input.imageLoadInfo.error.empty())) {
+            input.objectWidth = std::max(wrapWidth, 1.0f);
+            const float sourceWidth = std::max(input.objectWidth - kImagePlaceholderPadding * 2.0f, 1.0f);
+            const std::string& original = input.imageLoadInfo.originalSource.empty()
+                ? input.run.imageSource : input.imageLoadInfo.originalSource;
+            const std::string visibleSource = EscapeSourceLabelControls(original);
+            input.imageSourceControlsEscaped = visibleSource != original;
+            input.imageSourceLines = WrapImageSource(visibleSource, sourceWidth);
+            if (!input.imageLoadInfo.displayTarget.empty() && input.imageLoadInfo.displayTarget != original) {
+                input.imageSourceLines.emplace_back("Resolved target:");
+                const std::string visibleTarget = EscapeSourceLabelControls(input.imageLoadInfo.displayTarget);
+                input.imageSourceControlsEscaped = input.imageSourceControlsEscaped ||
+                    visibleTarget != input.imageLoadInfo.displayTarget;
+                auto targetLines = WrapImageSource(visibleTarget, sourceWidth);
+                input.imageSourceLines.insert(input.imageSourceLines.end(),
+                    std::make_move_iterator(targetLines.begin()), std::make_move_iterator(targetLines.end()));
+            }
+            input.imagePlaceholderLabelHeight = kImagePlaceholderLabelHeight;
+            input.imageSourceLineHeight = kImagePlaceholderSourceLineHeight;
+            input.imageLoadButtonHeight = kImagePlaceholderButtonHeight;
+            if (!input.imageLoadInfo.error.empty()) {
+                input.imageErrorLines = WrapImageSource(
+                    EscapeSourceLabelControls(input.imageLoadInfo.error), sourceWidth);
+            }
+            input.objectHeight = kImagePlaceholderPadding * 2.0f + input.imagePlaceholderLabelHeight +
+                input.imageSourceLineHeight * static_cast<float>(input.imageSourceLines.size()) +
+                input.imageLoadButtonHeight + (input.imageErrorLines.empty() ? 0.0f : 4.0f +
+                    input.imageSourceLineHeight * static_cast<float>(input.imageErrorLines.size()));
+            return;
+        }
+        std::tie(input.objectWidth, input.objectHeight) = ComputeImageDisplaySize(
+            input.run, wrapWidth, lineHeight, isSingleImageBlock, blockType);
+    }
+
     std::vector<ShapedTextInputRun> PrepareShapingRuns(
         const std::vector<InlineRun>& runs,
         float wrapWidth,
@@ -688,14 +771,15 @@ private:
         const bool isSingleImageBlock = runs.size() == 1 && runs.front().kind == InlineKind::Image;
         size_t localSemanticSpanId = 1;
         for (const InlineRun& run : runs) {
+            ThrowIfLayoutCancelled(options.stopToken);
             ShapedTextInputRun input;
             input.run = run;
             input.semanticSpanId = assignSemanticIds
                 ? nextSemanticSpanId++
                 : localSemanticSpanId++;
             if (run.kind == InlineKind::Image) {
-                std::tie(input.objectWidth, input.objectHeight) = ComputeImageDisplaySize(
-                    run,
+                PrepareImageRun(
+                    input,
                     wrapWidth,
                     lineHeight,
                     isSingleImageBlock,
@@ -771,14 +855,16 @@ private:
             prepared.size() == 1 &&
             prepared.front().run.kind == InlineKind::Image &&
             prepared.front().objectWidth > wrapWidth * 0.8f;
-        const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared, currentTextOffset);
+        const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared, currentTextOffset, options.stopToken);
         std::vector<LineLayout> shapedLines;
         float lineY = startY;
         float maximumContentWidth = 0.0f;
         bool hasResolvedDirection = false;
 
         for (const ShapingParagraph& paragraph : paragraphs.paragraphs) {
+            ThrowIfLayoutCancelled(options.stopToken);
             ShapedTextLayoutOptions shapingOptions;
+            shapingOptions.stopToken = options.stopToken;
             shapingOptions.blockType = blockType;
             shapingOptions.baseFontSize = baseFontSize;
             shapingOptions.fontScale = activeFontScale;
@@ -887,6 +973,7 @@ private:
         };
 
         for (size_t runIndex = 0; runIndex < runs.size(); ++runIndex) {
+            ThrowIfLayoutCancelled(options.stopToken);
             const auto& run = runs[runIndex];
             const size_t semanticSpanId = nextSemanticSpanId++;
             ConfigureInlineFont(blockType, run.formatting);
@@ -925,7 +1012,7 @@ private:
                     .semanticSpanId = semanticSpanId,
                     .linkTarget = run.linkTarget,
                 };
-                PopulateLegacyCaretStops(layoutRun, font);
+                PopulateLegacyCaretStops(layoutRun, font, options.stopToken);
                 currentLine.runs.push_back(std::move(layoutRun));
                 currentLine.textLength += run.text.size();
                 plainText += run.text;
@@ -986,7 +1073,7 @@ private:
                     .mathLayout = std::move(mathLayout),
                     .linkTarget = run.linkTarget,
                 };
-                PopulateLegacyCaretStops(layoutRun, font);
+                PopulateLegacyCaretStops(layoutRun, font, options.stopToken);
                 currentLine.runs.push_back(std::move(layoutRun));
                 currentLine.textLength += run.text.size();
                 plainText += run.text;
@@ -1012,49 +1099,11 @@ private:
                 continue;
             }
             if (run.kind == InlineKind::Image) {
-                float imgDisplayW, imgDisplayH;
-                float actualW = 0.0f, actualH = 0.0f;
-                bool hasActualSize = false;
-                if (imageSizeProvider) {
-                    auto size = imageSizeProvider(run.imageSource);
-                    if (size.first > 0 && size.second > 0) {
-                        actualW = size.first;
-                        actualH = size.second;
-                        hasActualSize = true;
-                    }
-                }
-
-                const bool hasRequestedWidth = run.imageRequestedWidth > 0.0f;
-                const bool hasRequestedHeight = run.imageRequestedHeight > 0.0f;
-                if (hasRequestedWidth || hasRequestedHeight) {
-                    const float aspect = hasActualSize ? (actualW / actualH) : 1.618f;
-                    imgDisplayW = hasRequestedWidth
-                        ? run.imageRequestedWidth
-                        : run.imageRequestedHeight * aspect;
-                    imgDisplayH = hasRequestedHeight
-                        ? run.imageRequestedHeight
-                        : run.imageRequestedWidth / aspect;
-                    const float fitScale = std::min(1.0f, wrapWidth / std::max(imgDisplayW, 1.0f));
-                    imgDisplayW = std::max(imgDisplayW * fitScale, 1.0f);
-                    imgDisplayH = std::max(imgDisplayH * fitScale, 1.0f);
-                } else if (isSingleImageBlock) {
-                    const float maxBlockImageWidth = wrapWidth * 0.9f;
-                    imgDisplayW = hasActualSize
-                        ? std::min(maxBlockImageWidth, actualW)
-                        : maxBlockImageWidth;
-                    imgDisplayW = std::max(imgDisplayW, 1.0f);
-                    float aspect = hasActualSize ? (actualH / actualW) : 0.618f;
-                    imgDisplayH = imgDisplayW * aspect;
-                } else if (hasActualSize) {
-                    imgDisplayH = lineHeight * 0.8f;
-                    const float aspect = actualW / actualH;
-                    imgDisplayW = imgDisplayH * aspect;
-                } else {
-                    ConfigureInlineFont(blockType, run.formatting);
-                    imgDisplayH = lineHeight * 1.05f;
-                    const float labelWidth = font.measureText(run.text.c_str(), run.text.size(), SkTextEncoding::kUTF8);
-                    imgDisplayW = std::clamp(labelWidth + 14.0f, 28.0f, wrapWidth);
-                }
+                ShapedTextInputRun imageInput;
+                imageInput.run = run;
+                PrepareImageRun(imageInput, wrapWidth, lineHeight, isSingleImageBlock, blockType);
+                const float imgDisplayW = imageInput.objectWidth;
+                const float imgDisplayH = imageInput.objectHeight;
 
                 if (currentX + imgDisplayW > wrapWidth && currentX > 0.0f) {
                     maxContentWidth = std::max(maxContentWidth, currentLineWidth);
@@ -1077,7 +1126,15 @@ private:
                     .semanticSpanId = semanticSpanId,
                     .linkTarget = run.linkTarget,
                 };
-                PopulateLegacyCaretStops(rl, font);
+                rl.imageLoadRequired = imageInput.imageLoadRequired;
+                rl.imageLoadInfo = std::move(imageInput.imageLoadInfo);
+                rl.imageSourceLines = std::move(imageInput.imageSourceLines);
+                rl.imageErrorLines = std::move(imageInput.imageErrorLines);
+                rl.imageSourceControlsEscaped = imageInput.imageSourceControlsEscaped;
+                rl.imagePlaceholderLabelHeight = imageInput.imagePlaceholderLabelHeight;
+                rl.imageSourceLineHeight = imageInput.imageSourceLineHeight;
+                rl.imageLoadButtonHeight = imageInput.imageLoadButtonHeight;
+                PopulateLegacyCaretStops(rl, font, options.stopToken);
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.height = std::max(currentLine.height, imgDisplayH + 4.0f);
                 currentLineWidth = currentX + imgDisplayW;
@@ -1088,9 +1145,16 @@ private:
 
             const char softBreakText[] = " ";
             const char* textPtr = run.kind == InlineKind::SoftBreak ? softBreakText : run.text.c_str();
+            const char* runStart = textPtr;
             const char* endPtr = textPtr + (run.kind == InlineKind::SoftBreak ? 1 : run.text.size());
+            const std::vector<size_t> boundaries = preserveSourceLines
+                ? std::vector<size_t>{}
+                : LegacyGraphemeBoundaries(
+                      std::string_view(runStart, static_cast<size_t>(endPtr - runStart)), options.stopToken);
+            const char* newlinePtr = std::find(textPtr, endPtr, '\n');
 
             while (textPtr < endPtr) {
+                ThrowIfLayoutCancelled(options.stopToken);
                 if (*textPtr == '\n') {
                     plainText.push_back('\n');
                     currentTextOffset += 1;
@@ -1099,10 +1163,10 @@ private:
                     currentX = 0.0f;
                     currentLineWidth = 0.0f;
                     ++textPtr;
+                    newlinePtr = std::find(textPtr, endPtr, '\n');
                     continue;
                 }
 
-                const char* newlinePtr = std::find(textPtr, endPtr, '\n');
                 const size_t remainingLength = static_cast<size_t>(newlinePtr - textPtr);
                 size_t bytesConsumed = preserveSourceLines
                     ? remainingLength
@@ -1110,7 +1174,9 @@ private:
                           textPtr,
                           remainingLength,
                           wrapWidth - currentX,
-                          currentX <= 0.0f);
+                          currentX <= 0.0f,
+                          boundaries,
+                          static_cast<size_t>(textPtr - runStart));
                 
                 if (bytesConsumed == 0 && currentX > 0) {
                     maxContentWidth = std::max(maxContentWidth, currentLineWidth);
@@ -1137,7 +1203,7 @@ private:
                     .semanticSpanId = semanticSpanId,
                     .linkTarget = run.linkTarget,
                 };
-                PopulateLegacyCaretStops(rl, font);
+                PopulateLegacyCaretStops(rl, font, options.stopToken);
                 currentLine.runs.push_back(std::move(rl));
                 currentLine.textLength += bytesConsumed;
                 plainText.append(textPtr, bytesConsumed);
@@ -1175,59 +1241,60 @@ private:
         return lineY - startY;
     }
 
-    size_t FindBreakPoint(const char* text, size_t length, float maxWidth, bool allowOverflowWord) {
-        if (length == 0 || maxWidth <= 0.0f) {
-            return 0;
+    size_t FindBreakPoint(
+        const char* text,
+        size_t length,
+        float maxWidth,
+        bool allowOverflowWord,
+        const std::vector<size_t>& boundaries,
+        size_t textOffset) {
+        if (length == 0 || maxWidth <= 0.0f) return 0;
+
+        // Exponential search only measures prefixes near one visual line. Starting
+        // a binary search at half of the remaining document makes narrow wrapping
+        // quadratic for long paragraphs. Boundaries are computed once per run.
+        const size_t first = static_cast<size_t>(
+            std::lower_bound(boundaries.begin(), boundaries.end(), textOffset) - boundaries.begin());
+        const size_t end = static_cast<size_t>(
+            std::upper_bound(boundaries.begin(), boundaries.end(), textOffset + length) - boundaries.begin()) - 1;
+        if (end <= first) return length;
+        size_t best = first;
+        size_t high = first + 1;
+        while (high <= end) {
+            ThrowIfLayoutCancelled(options.stopToken);
+            const size_t bytes = boundaries[high] - textOffset;
+            if (font.measureText(text, bytes, SkTextEncoding::kUTF8) > maxWidth) break;
+            best = high;
+            if (high == end) return length;
+            high = first + std::min((high - first) * 2, end - first);
         }
-
-        size_t low = 0;
-        size_t high = length;
-        size_t best = 0;
-
-        while (low <= high) {
-            size_t mid = (low + high) / 2;
-            while (mid > 0 && mid < length && (static_cast<unsigned char>(text[mid]) & 0xC0) == 0x80) {
-                mid--;
-            }
-            
-            if (font.measureText(text, mid, SkTextEncoding::kUTF8) <= maxWidth) {
+        size_t low = best + 1;
+        while (low < high) {
+            ThrowIfLayoutCancelled(options.stopToken);
+            const size_t mid = low + (high - low) / 2;
+            const size_t bytes = boundaries[mid] - textOffset;
+            if (font.measureText(text, bytes, SkTextEncoding::kUTF8) <= maxWidth) {
                 best = mid;
                 low = mid + 1;
-                while (low < length && (static_cast<unsigned char>(text[low]) & 0xC0) == 0x80) {
-                    low++;
-                }
             } else {
-                if (mid == 0) break;
-                high = mid - 1;
+                high = mid;
             }
         }
-
-        if (best < length) {
-            size_t lastSpace = 0;
-            for (size_t i = 0; i < best; ++i) {
-                if (IsBreakableWhitespace(text[i])) {
-                    lastSpace = i + 1;
-                }
-            }
-            if (lastSpace > 0) {
-                return lastSpace;
-            }
-        } else {
-            return best;
+        const size_t bestBytes = boundaries[best] - textOffset;
+        size_t lastSpace = 0;
+        for (size_t index = 0; index < bestBytes; ++index) {
+            if ((index & 1023U) == 0) ThrowIfLayoutCancelled(options.stopToken);
+            if (IsBreakableWhitespace(text[index])) lastSpace = index + 1;
         }
-
-        if (!allowOverflowWord) {
-            return 0;
+        if (lastSpace != 0) {
+            const auto boundary = std::upper_bound(
+                boundaries.begin() + first, boundaries.begin() + best + 1,
+                textOffset + lastSpace);
+            const size_t breakBytes = *std::prev(boundary) - textOffset;
+            if (breakBytes != 0) return breakBytes;
         }
-        if (best > 0) {
-            return best;
-        }
-        size_t firstBoundary = 1;
-        while (firstBoundary < length &&
-               (static_cast<unsigned char>(text[firstBoundary]) & 0xC0) == 0x80) {
-            ++firstBoundary;
-        }
-        return firstBoundary;
+        if (!allowOverflowWord) return 0;
+        return bestBytes != 0 ? bestBytes : boundaries[first + 1] - textOffset;
     }
 
     void ConfigureInlineFont(BlockType blockType, InlineFormatting formatting) {
@@ -1270,6 +1337,7 @@ private:
             });
             if (!paragraphs.paragraphs.empty()) {
                 ShapedTextLayoutOptions shapingOptions;
+                shapingOptions.stopToken = options.stopToken;
                 shapingOptions.blockType = BlockType::Paragraph;
                 shapingOptions.baseFontSize = kOutlineLabelFontSize;
                 shapingOptions.wrapWidth = kNoWrapShapingWidth;
@@ -1327,10 +1395,12 @@ private:
             lineHeight,
             blockType,
             false);
-        const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared);
+        const ShapingParagraphSet paragraphs = BuildShapingParagraphs(prepared, 0, options.stopToken);
         float maximumWidth = 0.0f;
         for (const ShapingParagraph& paragraph : paragraphs.paragraphs) {
+            ThrowIfLayoutCancelled(options.stopToken);
             ShapedTextLayoutOptions shapingOptions;
+            shapingOptions.stopToken = options.stopToken;
             shapingOptions.blockType = blockType;
             shapingOptions.baseFontSize = baseFontSize;
             shapingOptions.fontScale = activeFontScale;
@@ -1397,6 +1467,7 @@ private:
         float tableWidth) {
         std::vector<float> preferredWidths(columnCount, kMinTableColumnWidth);
         for (const Block* row : rows) {
+            ThrowIfLayoutCancelled(options.stopToken);
             for (size_t columnIndex = 0; columnIndex < columnCount; ++columnIndex) {
                 const Block* cell = GetRowCell(*row, columnIndex);
                 if (cell == nullptr) {
@@ -1475,6 +1546,7 @@ private:
 
         size_t columnCount = 0;
         for (const Block* row : rows) {
+            ThrowIfLayoutCancelled(options.stopToken);
             size_t rowColumnCount = 0;
             for (const auto& child : row->children) {
                 if (child.type == BlockType::TableHeaderCell || child.type == BlockType::TableCell) {
@@ -1502,6 +1574,7 @@ private:
         float rowTop = currentY;
 
         for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
+            ThrowIfLayoutCancelled(options.stopToken);
             const Block& row = *rows[rowIndex];
             BlockLayout rowLayout;
             rowLayout.type = BlockType::TableRow;
@@ -1605,6 +1678,7 @@ DocumentLayout LayoutEngine::ComputeLayout(
     float baseFontSize,
     ImageSizeProvider imageSizeProvider,
     LayoutOptions options) {
+    ThrowIfLayoutCancelled(options.stopToken);
     DocumentLayout layout;
     LayoutContext ctx(width, typefaces, baseFontSize, imageSizeProvider, options);
     ctx.LayoutBlocks(doc.blocks, layout.blocks);

@@ -13,6 +13,7 @@
 #include "platform/win/win_message_dialog.h"
 #include "platform/win/win_menu.h"
 #include "platform/win/win_shell.h"
+#include "platform/win/win_dpi.h"
 #include "render/typography.h"
 #include "view/document_context_menu.h"
 #include "view/document_hit_test.h"
@@ -76,7 +77,7 @@ std::string PathToUtf8(const std::filesystem::path& path) {
     return std::string(utf8.begin(), utf8.end());
 }
 
-DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float viewportY) {
+DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float viewportY, bool includeTableData = false) {
     AppState& appState = GetAppState(context.host);
     return HitTestDocument(
         appState.docLayout,
@@ -92,6 +93,7 @@ DocumentTextHit HitTestText(ViewerInteractionContext& context, float x, float vi
                 const auto found = appState.horizontalScrollOffsets.find(block.horizontalScrollOwnerTextStart);
                 return found == appState.horizontalScrollOffsets.end() ? 0.0f : found->second;
             },
+            .includeTableData = includeTableData,
         });
 }
 
@@ -206,14 +208,17 @@ InteractionKey TranslateInteractionKey(WPARAM wParam) {
     }
 }
 
-std::string Utf16CharToUtf8(wchar_t ch) {
-    const int needed = WideCharToMultiByte(CP_UTF8, 0, &ch, 1, nullptr, 0, nullptr, nullptr);
+std::string Utf16TextToUtf8(const std::u16string& units) {
+    if (units.empty()) return {};
+    const std::wstring text(units.begin(), units.end());
+    const int length = static_cast<int>(text.size());
+    const int needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), length, nullptr, 0, nullptr, nullptr);
     if (needed <= 0) {
         return {};
     }
 
     std::string result(static_cast<size_t>(needed), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, &ch, 1, result.data(), needed, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), length, result.data(), needed, nullptr, nullptr);
     return result;
 }
 
@@ -280,10 +285,12 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
         if (command.openSearch) {
+            context.textInput.Reset();
             OpenSearch(appState);
             ScrollSearchMatchIntoView(hwnd, context);
         }
         if (command.closeSearch) {
+            context.textInput.Reset();
             CloseSearch(appState);
         }
         if (command.searchNext) {
@@ -295,6 +302,7 @@ bool ExecuteKeyCommand(HWND hwnd, ViewerInteractionContext& context, const KeyCo
             ScrollSearchMatchIntoView(hwnd, context);
         }
         if (command.searchBackspace) {
+            context.textInput.Reset();
             DeleteLastSearchCharacter(appState);
             ScrollSearchMatchIntoView(hwnd, context);
         }
@@ -374,7 +382,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         return false;
     }
 
-    const MenuBarHitTestResult topMenuHit = HitTestTopMenu(hwnd, x, y, context.host.surface->width());
+    const MenuBarHitTestResult topMenuHit = HitTestTopMenu(hwnd, x, y, static_cast<int>(std::lround(GetLogicalSurfaceWidth(context.host))));
     if (topMenuHit.HasHit()) {
         StopAutoScroll(hwnd, context);
         SetFocus(hwnd);
@@ -394,10 +402,10 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         std::lock_guard<std::mutex> outlineLock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
         const float surfaceWidth = context.host.surface
-            ? static_cast<float>(context.host.surface->width())
+            ? GetLogicalSurfaceWidth(context.host)
             : 0.0f;
         const float surfaceHeight = context.host.surface
-            ? static_cast<float>(context.host.surface->height())
+            ? GetLogicalSurfaceHeight(context.host)
             : 0.0f;
         if (HitTestOutlineResizeHandle(
                 appState,
@@ -494,12 +502,51 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
         return true;
     }
 
+    // The search panel covers document content; covered image buttons are not
+    // visible actions and must never authorize a network load.
+    {
+        AppState& appState = GetAppState(context.host);
+        if (appState.searchActive && appState.searchOverlayRect.contains(static_cast<float>(x), static_cast<float>(y))) {
+            if (appState.searchCloseButtonRect.contains(static_cast<float>(x), static_cast<float>(y))) {
+                context.textInput.Reset();
+                CloseSearch(appState);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return true;
+        }
+    }
+
+    std::string requestedImage;
+    {
+        AppState& appState = GetAppState(context.host);
+        const float documentX = static_cast<float>(x) -
+            (appState.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+        const float documentY = static_cast<float>(y) - GetContentTopInset() + appState.scrollOffset;
+        for (const auto& button : appState.imageLoadButtons) {
+            if (button.rect.contains(documentX, documentY)) {
+                requestedImage = button.source;
+                break;
+            }
+        }
+    }
+    if (!requestedImage.empty()) {
+        StopAutoScroll(hwnd, context);
+        const auto& documentPath = GetAppState(context.host).currentFilePath;
+        context.pendingImageDocumentPath = documentPath;
+        context.pendingImageTarget = context.host.imageCache.GetSourceInfo(requestedImage, documentPath.parent_path()).displayTarget;
+        context.pendingImageLoadSource = std::move(requestedImage);
+        SetFocus(hwnd);
+        SetCapture(hwnd);
+        return true;
+    }
+
     const auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
 
     {
         std::lock_guard<std::mutex> buttonLock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
         if (appState.searchActive && appState.searchCloseButtonRect.contains(static_cast<float>(x), static_cast<float>(y))) {
+            context.textInput.Reset();
             CloseSearch(appState);
             InvalidateRect(hwnd, nullptr, FALSE);
             return true;
@@ -536,6 +583,7 @@ bool HandlePrimaryButtonDown(HWND hwnd, ViewerInteractionContext& context, int x
             }
         }
         if (toggled) {
+            context.host.controller.InvalidateLayoutModel();
             RelayoutCurrentDocument(hwnd, context.host);
             {
                 std::lock_guard<std::mutex> detailsLock(GetAppState(context.host).mtx);
@@ -579,7 +627,7 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
         return false;
     }
 
-    if (UpdateTopMenuHover(hwnd, x, y, context.host.surface->width())) {
+    if (UpdateTopMenuHover(hwnd, x, y, static_cast<int>(std::lround(GetLogicalSurfaceWidth(context.host))))) {
         InvalidateRect(hwnd, nullptr, FALSE);
     }
 
@@ -591,8 +639,8 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
-        const float surfaceWidth = static_cast<float>(context.host.surface->width());
-        const float surfaceHeight = static_cast<float>(context.host.surface->height());
+        const float surfaceWidth = GetLogicalSurfaceWidth(context.host);
+        const float surfaceHeight = GetLogicalSurfaceHeight(context.host);
         if (appState.isResizingOutline) {
             activeOutlineResize = true;
             resizedOutline = ResizeOutlineSidebar(appState, static_cast<float>(x), surfaceWidth);
@@ -657,6 +705,15 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
         auto hit = HitTestText(context, static_cast<float>(x), static_cast<float>(y));
         if (!hoverOutlineResize && hit.diagram.IsValid()) SetCursor(LoadCursorW(nullptr, IDC_HAND));
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
+        const AppState& state = GetAppState(context.host);
+        const float documentX = static_cast<float>(x) -
+            (state.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+        const float documentY = static_cast<float>(y) - GetContentTopInset() + state.scrollOffset;
+        if (!hoverOutlineResize && !state.searchOverlayRect.contains(static_cast<float>(x), static_cast<float>(y)) &&
+            std::any_of(state.imageLoadButtons.begin(), state.imageLoadButtons.end(),
+                [&](const ImageLoadButtonRegion& button) { return button.rect.contains(documentX, documentY); })) {
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+        }
         if (UpdateHoveredUrl(GetAppState(context.host), ToInteractionHit(hit))) {
             InvalidateRect(hwnd, nullptr, FALSE);
         }
@@ -698,6 +755,33 @@ bool HandlePointerMove(HWND hwnd, ViewerInteractionContext& context, WPARAM mous
 }
 
 bool HandlePrimaryButtonUp(HWND hwnd, ViewerInteractionContext& context, int x, int y) {
+    if (!context.pendingImageLoadSource.empty()) {
+        const std::string source = std::move(context.pendingImageLoadSource);
+        const auto documentPath = std::move(context.pendingImageDocumentPath);
+        const std::string target = std::move(context.pendingImageTarget);
+        context.pendingImageLoadSource.clear();
+        context.pendingImageDocumentPath.clear();
+        context.pendingImageTarget.clear();
+        ReleaseCapture();
+        AppState& state = GetAppState(context.host);
+        const float documentX = static_cast<float>(x) -
+            (state.outlineSide == OutlineSide::Left ? GetDocumentLeftInset(context.host) : 0.0f);
+        const float documentY = static_cast<float>(y) - GetContentTopInset() + state.scrollOffset;
+        const bool covered = state.searchActive && state.searchOverlayRect.contains(static_cast<float>(x), static_cast<float>(y));
+        const bool sameTarget = state.currentFilePath == documentPath &&
+            context.host.imageCache.GetSourceInfo(source, state.currentFilePath.parent_path()).displayTarget == target;
+        if (!covered && sameTarget && std::any_of(state.imageLoadButtons.begin(), state.imageLoadButtons.end(),
+                [&](const ImageLoadButtonRegion& button) {
+                    return button.source == source && button.rect.contains(documentX, documentY);
+                })) {
+            if (context.host.imageCache.RequestLoad(source, state.currentFilePath.parent_path())) {
+                SetTimer(hwnd, kImageLoadTimerId, 50, nullptr);
+                RelayoutCurrentDocument(hwnd, context.host);
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return true;
+    }
     bool endedOutlineDrag = false;
     bool endedOutlineResize = false;
     {
@@ -792,6 +876,7 @@ bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX
 
     POINT clientPoint = screenPoint;
     ScreenToClient(hwnd, &clientPoint);
+    clientPoint = LogicalClientPoint(hwnd, clientPoint);
     if (clientPoint.y < GetContentTopInset()) {
         return false;
     }
@@ -799,7 +884,7 @@ bool HandleContextMenu(HWND hwnd, ViewerInteractionContext& context, int screenX
     StopAutoScroll(hwnd, context);
     SetFocus(hwnd);
 
-    const auto hit = HitTestText(context, static_cast<float>(clientPoint.x), static_cast<float>(clientPoint.y));
+    const auto hit = HitTestText(context, static_cast<float>(clientPoint.x), static_cast<float>(clientPoint.y), true);
     DocumentContextMenu menu;
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
@@ -917,14 +1002,15 @@ bool HandleMouseWheel(HWND hwnd, ViewerInteractionContext& context, int delta, b
     POINT cursorPoint = {};
     GetCursorPos(&cursorPoint);
     ScreenToClient(hwnd, &cursorPoint);
+    cursorPoint = LogicalClientPoint(hwnd, cursorPoint);
     {
         std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
         AppState& appState = GetAppState(context.host);
         const float surfaceWidth = context.host.surface
-            ? static_cast<float>(context.host.surface->width())
+            ? GetLogicalSurfaceWidth(context.host)
             : 0.0f;
         const float surfaceHeight = context.host.surface
-            ? static_cast<float>(context.host.surface->height())
+            ? GetLogicalSurfaceHeight(context.host)
             : 0.0f;
         if (!appState.outlineCollapsed && IsPointInOutlineSidebar(
                 appState,
@@ -963,6 +1049,7 @@ bool HandleHorizontalMouseWheel(HWND hwnd, ViewerInteractionContext& context, in
     POINT cursorPoint = {};
     GetCursorPos(&cursorPoint);
     ScreenToClient(hwnd, &cursorPoint);
+    cursorPoint = LogicalClientPoint(hwnd, cursorPoint);
 
     std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
     AppState& appState = GetAppState(context.host);
@@ -1001,16 +1088,27 @@ bool HandleTextInput(HWND hwnd, ViewerInteractionContext& context, wchar_t ch) {
     std::lock_guard<std::mutex> lock(GetAppState(context.host).mtx);
     AppState& appState = GetAppState(context.host);
     if (!appState.searchActive) {
+        context.textInput.Reset();
         return false;
     }
 
-    InsertSearchText(appState, Utf16CharToUtf8(ch));
+    const std::string text = Utf16TextToUtf8(context.textInput.Push(static_cast<char16_t>(ch)));
+    if (text.empty()) return true;
+    InsertSearchText(appState, text);
     ScrollSearchMatchIntoView(hwnd, context);
     InvalidateRect(hwnd, nullptr, FALSE);
     return true;
 }
 
 bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId) {
+    if (timerId == kImageLoadTimerId) {
+        if (context.host.imageCache.PollLoads()) {
+            RelayoutCurrentDocument(hwnd, context.host);
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        if (!context.host.imageCache.HasPendingLoads()) KillTimer(hwnd, kImageLoadTimerId);
+        return true;
+    }
     if (timerId == context.autoScrollTimerId) {
         if (TickAutoScroll(hwnd, context)) {
             InvalidateRect(hwnd, nullptr, FALSE);
@@ -1055,6 +1153,9 @@ bool HandleTimer(HWND hwnd, ViewerInteractionContext& context, WPARAM timerId) {
 
 bool HandleCaptureChanged(HWND hwnd, ViewerInteractionContext& context, LPARAM capturedWindow) {
     if (reinterpret_cast<HWND>(capturedWindow) != hwnd) {
+        context.pendingImageLoadSource.clear();
+        context.pendingImageDocumentPath.clear();
+        context.pendingImageTarget.clear();
         StopAutoScroll(hwnd, context);
         bool endedOutlineResize = false;
         {

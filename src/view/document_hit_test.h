@@ -24,6 +24,8 @@ struct DocumentTextHit {
 
 struct HitTestCallbacks {
     std::function<float(const BlockLayout& block)> get_block_horizontal_scroll;
+    // Clipboard representations are only needed when opening a context menu.
+    bool includeTableData = true;
 };
 
 DocumentTextHit HitTestDocument(

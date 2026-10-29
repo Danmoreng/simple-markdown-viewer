@@ -4,6 +4,8 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <span>
+#include <string_view>
 #include <vector>
 
 #include <utf8proc.h>
@@ -26,14 +28,22 @@ bool ToggleDetailsInBlocks(std::vector<Block>& blocks, size_t detailsId) {
 
 struct FoldedText {
     std::string text;
-    std::vector<size_t> originalOffsets;
+    std::vector<std::uint32_t> originalOffsets;
 };
 
 FoldedText FoldForSearch(const std::string& source) {
-    constexpr size_t kNoOriginalOffset = std::numeric_limits<size_t>::max();
+    constexpr auto kNoOriginalOffset = std::numeric_limits<std::uint32_t>::max();
 
     FoldedText folded;
+    if (source.size() >= kNoOriginalOffset) return folded;
     folded.text.reserve(source.size());
+    if (std::all_of(source.begin(), source.end(), [](unsigned char ch) { return ch < 0x80; })) {
+        for (const unsigned char ch : source) {
+            folded.text.push_back(static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch + ('a' - 'A') : ch));
+        }
+        return folded;
+    }
+    folded.originalOffsets.reserve(source.size() + 1);
     folded.originalOffsets.push_back(0);
 
     size_t sourceOffset = 0;
@@ -46,7 +56,7 @@ FoldedText FoldForSearch(const std::string& source) {
 
         if (sourceLength <= 0) {
             folded.text.push_back(source[sourceOffset]);
-            folded.originalOffsets.push_back(sourceOffset + 1);
+            folded.originalOffsets.push_back(static_cast<std::uint32_t>(sourceOffset + 1));
             ++sourceOffset;
             continue;
         }
@@ -74,7 +84,7 @@ FoldedText FoldForSearch(const std::string& source) {
         if (mappedCount <= 0) {
             folded.text.append(source, sourceOffset, static_cast<size_t>(sourceLength));
             folded.originalOffsets.resize(folded.text.size() + 1, kNoOriginalOffset);
-            folded.originalOffsets.back() = sourceOffset + static_cast<size_t>(sourceLength);
+            folded.originalOffsets.back() = static_cast<std::uint32_t>(sourceOffset + static_cast<size_t>(sourceLength));
             sourceOffset += static_cast<size_t>(sourceLength);
             continue;
         }
@@ -89,28 +99,29 @@ FoldedText FoldForSearch(const std::string& source) {
             folded.originalOffsets.resize(folded.text.size() + 1, kNoOriginalOffset);
         }
 
-        folded.originalOffsets.back() = sourceOffset + static_cast<size_t>(sourceLength);
+        folded.originalOffsets.back() = static_cast<std::uint32_t>(sourceOffset + static_cast<size_t>(sourceLength));
         sourceOffset += static_cast<size_t>(sourceLength);
     }
     return folded;
 }
 
-void AppendMatchesInText(AppState& appState, const FoldedText& haystack, const std::string& needle) {
-    constexpr size_t kNoOriginalOffset = std::numeric_limits<size_t>::max();
-    if (needle.empty() || haystack.originalOffsets.size() != haystack.text.size() + 1) {
+void AppendMatchesInText(AppState& appState, std::string_view haystack,
+    std::span<const std::uint32_t> originalOffsets, const std::string& needle) {
+    constexpr auto kNoOriginalOffset = std::numeric_limits<std::uint32_t>::max();
+    if (needle.empty() || (!originalOffsets.empty() && originalOffsets.size() != haystack.size() + 1)) {
         return;
     }
 
     size_t offset = 0;
-    while (offset < haystack.text.size()) {
-        const size_t found = haystack.text.find(needle, offset);
+    while (offset < haystack.size()) {
+        const size_t found = haystack.find(needle, offset);
         if (found == std::string::npos) {
             break;
         }
 
         const size_t foldedEnd = found + needle.size();
-        const size_t originalStart = haystack.originalOffsets[found];
-        const size_t originalEnd = haystack.originalOffsets[foldedEnd];
+        const size_t originalStart = originalOffsets.empty() ? found : originalOffsets[found];
+        const size_t originalEnd = originalOffsets.empty() ? foldedEnd : originalOffsets[foldedEnd];
         if (originalStart != kNoOriginalOffset && originalEnd != kNoOriginalOffset) {
             appState.searchMatches.push_back({originalStart, originalEnd});
             offset = foldedEnd;
@@ -307,14 +318,27 @@ void RebuildSearchMatches(AppState& appState) {
         return;
     }
 
-    const FoldedText foldedDocument = FoldForSearch(appState.docLayout.plainText);
+    auto& cache = appState.searchTextCache;
+    // The equality check also supports callers constructing layouts directly;
+    // it reuses storage and avoids the previous Unicode fold/allocation per key.
+    if (!cache.valid || cache.revision != appState.documentTextRevision ||
+        cache.sourceText != appState.docLayout.plainText) {
+        FoldedText foldedDocument = FoldForSearch(appState.docLayout.plainText);
+        cache.sourceText = appState.docLayout.plainText;
+        cache.foldedText = std::move(foldedDocument.text);
+        cache.originalOffsets = std::move(foldedDocument.originalOffsets);
+        cache.revision = appState.documentTextRevision;
+        cache.valid = true;
+        ++cache.buildCount;
+    }
     const FoldedText foldedQuery = FoldForSearch(appState.searchQuery);
-    AppendMatchesInText(appState, foldedDocument, foldedQuery.text);
+    AppendMatchesInText(appState, cache.foldedText, cache.originalOffsets, foldedQuery.text);
 }
 
 void OpenSearch(AppState& appState) {
     appState.searchActive = true;
     appState.searchCloseButtonRect = SkRect::MakeEmpty();
+    appState.searchOverlayRect = SkRect::MakeEmpty();
     appState.selectionAnchor = 0;
     appState.selectionFocus = 0;
     RebuildSearchMatches(appState);
@@ -327,6 +351,7 @@ void CloseSearch(AppState& appState) {
     appState.searchMatches.clear();
     appState.currentSearchMatch = 0;
     appState.searchCloseButtonRect = SkRect::MakeEmpty();
+    appState.searchOverlayRect = SkRect::MakeEmpty();
     appState.needsRepaint = true;
 }
 

@@ -4,35 +4,23 @@
 #include <array>
 #include <cctype>
 #include <fstream>
-#include <sstream>
 #include <string_view>
 
 #include "app/document_loader.h"
+#include "util/path_utils.h"
 
 namespace mdviewer {
 
 namespace {
 
-std::string UrlDecode(const std::string& text) {
-    std::string decoded;
-    for (size_t index = 0; index < text.length(); ++index) {
-        if (text[index] == '%' && index + 2 < text.length()) {
-            int value = 0;
-            std::stringstream stream;
-            stream << std::hex << text.substr(index + 1, 2);
-            stream >> value;
-            decoded += static_cast<char>(value);
-            index += 2;
-        } else if (text[index] == '+') {
-            decoded += ' ';
-        } else {
-            decoded += text[index];
-        }
-    }
-    return decoded;
+bool PathExists(const std::filesystem::path& path) {
+    std::error_code error;
+    return std::filesystem::exists(path, error) && !error;
 }
 
 bool ProbeFileIsText(const std::filesystem::path& path) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error) || error) return false;
     std::ifstream stream(path, std::ios::binary);
     if (!stream) {
         return false;
@@ -79,7 +67,7 @@ bool HasUnsupportedScheme(const std::string& path) {
 }
 
 bool HasExecutableExtension(const std::filesystem::path& path) {
-    std::string extension = path.extension().string();
+    std::string extension = PathToUtf8(path.extension());
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
     });
@@ -125,16 +113,27 @@ LinkTarget MakeExistingLocalTarget(
 LinkTarget ResolveLinkTarget(
     const std::filesystem::path& currentFilePath,
     const std::string& url,
-    bool forceExternal) {
-    if (url.empty()) {
+    bool forceExternal,
+    bool inspectFileSystem) {
+    if (url.empty() || url.find('\0') != std::string::npos) {
         return {};
+    }
+
+    std::string lowerPrefix = url.substr(0, 8);
+    std::transform(lowerPrefix.begin(), lowerPrefix.end(), lowerPrefix.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (lowerPrefix.starts_with("http://") || lowerPrefix.starts_with("https://")) {
+        return {LinkTargetKind::ExternalUrl, url, {}, {}};
     }
 
     std::string pathPart = url;
     std::string fragment;
     const size_t hashPos = pathPart.find('#');
     if (hashPos != std::string::npos) {
-        fragment = UrlDecode(pathPart.substr(hashPos + 1));
+        auto decoded = PercentDecodePath(std::string_view(pathPart).substr(hashPos + 1));
+        if (!decoded) return {};
+        fragment = std::move(*decoded);
         pathPart = pathPart.substr(0, hashPos);
     }
 
@@ -143,24 +142,26 @@ LinkTarget ResolveLinkTarget(
         pathPart = pathPart.substr(0, queryPos);
     }
 
-    if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
-        return {LinkTargetKind::ExternalUrl, url, {}, {}};
-    }
-
-    if (url.rfind("file://", 0) == 0) {
-        std::string localPath = UrlDecode(url.substr(7));
+    if (lowerPrefix.starts_with("file://")) {
+        std::string rawPath = pathPart.substr(7);
+        // Split URL structure before decoding: %23 is part of a filename.
+        if (rawPath.starts_with("localhost/")) rawPath.erase(0, 9);
+        else if (!rawPath.empty() && rawPath.front() != '/' &&
+                 !(rawPath.size() >= 2 && rawPath[1] == ':')) rawPath = "//" + rawPath;
+        auto decoded = PercentDecodePath(rawPath);
+        if (!decoded) return {};
+        std::string localPath = std::move(*decoded);
+#ifdef _WIN32
         if (localPath.size() > 2 && localPath[0] == '/' && localPath[2] == ':') {
             localPath = localPath.substr(1);
         }
-
-        const size_t fragmentPos = localPath.find('#');
-        if (fragmentPos != std::string::npos) {
-            fragment = UrlDecode(localPath.substr(fragmentPos + 1));
-            localPath = localPath.substr(0, fragmentPos);
+#endif
+        std::filesystem::path targetPath = PathFromUtf8(localPath);
+        if (!inspectFileSystem) {
+            return {LinkTargetKind::ExternalPath, {}, targetPath.lexically_normal(), fragment,
+                HasExecutableExtension(targetPath)};
         }
-
-        std::filesystem::path targetPath(localPath);
-        if (!std::filesystem::exists(targetPath)) {
+        if (!PathExists(targetPath)) {
             return {LinkTargetKind::MissingLocalPath, {}, targetPath, fragment};
         }
         if (ShouldOpenInternally(targetPath, forceExternal)) {
@@ -183,14 +184,20 @@ LinkTarget ResolveLinkTarget(
         return {};
     }
 
-    const std::filesystem::path decodedPath = std::filesystem::path(UrlDecode(pathPart));
+    const auto decoded = PercentDecodePath(pathPart);
+    if (!decoded || HasUnsupportedScheme(*decoded)) return {};
+    const std::filesystem::path decodedPath = PathFromUtf8(*decoded);
     const std::filesystem::path documentRelativePath = currentFilePath.parent_path() / decodedPath;
+    if (!inspectFileSystem) {
+        return {LinkTargetKind::ExternalPath, {}, documentRelativePath.lexically_normal(), fragment,
+            HasExecutableExtension(documentRelativePath)};
+    }
     std::filesystem::path targetPath = documentRelativePath;
-    if (!std::filesystem::exists(targetPath)) {
-        targetPath = std::filesystem::path(UrlDecode(pathPart));
+    if (!PathExists(targetPath)) {
+        targetPath = decodedPath;
     }
 
-    if (!std::filesystem::exists(targetPath)) {
+    if (!PathExists(targetPath)) {
         return {LinkTargetKind::MissingLocalPath, {}, documentRelativePath, fragment};
     }
 

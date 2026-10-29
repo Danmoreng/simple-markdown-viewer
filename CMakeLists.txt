@@ -9,6 +9,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 enable_testing()
 
+# Existing checkouts can be configured without contacting every upstream. A
+# dependency revision change that is not present locally needs this opt-in.
+option(MDVIEWER_UPDATE_DEPENDENCIES "Fetch updates for populated dependency checkouts" OFF)
+if(NOT MDVIEWER_UPDATE_DEPENDENCIES)
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+endif()
+option(MDVIEWER_BUILD_FUZZERS "Build Clang/libFuzzer parser and SVG fuzz targets" OFF)
+option(MDVIEWER_BUILD_BENCHMARKS "Build the document performance regression runner" OFF)
+
 option(MDVIEWER_ENABLE_PDF "Enable PDF export (requires a PDF-enabled Skia build)" ON)
 option(MDVIEWER_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(MDVIEWER_ENABLE_MERMAID "Enable native Mermaid diagrams (requires Rust/Cargo at build time)" ON)
@@ -49,7 +58,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tinyxml2 microtex)
 
-file(GLOB_RECURSE MICROTEX_SOURCES CONFIGURE_DEPENDS
+# The pinned dependency's source list changes only when we configure a new
+# revision. Avoid recursively rescanning it on every incremental build.
+file(GLOB_RECURSE MICROTEX_SOURCES
     "${microtex_SOURCE_DIR}/src/atom/*.cpp"
     "${microtex_SOURCE_DIR}/src/box/*.cpp"
     "${microtex_SOURCE_DIR}/src/core/*.cpp"
@@ -187,7 +198,8 @@ foreach(optional_scanner
     endif()
 endforeach()
 set(TREE_SITTER_QUERY_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated_tree_sitter_queries.cpp")
-file(WRITE "${TREE_SITTER_QUERY_SOURCE}"
+set(TREE_SITTER_QUERY_STAGING "${TREE_SITTER_QUERY_SOURCE}.in")
+file(WRITE "${TREE_SITTER_QUERY_STAGING}"
     "#include \"render/syntax/tree_sitter_queries.h\"\n\n"
     "namespace mdviewer::syntax {\n\n")
 
@@ -199,7 +211,7 @@ function(append_tree_sitter_query function_name)
             string(APPEND query_text "${query_fragment}\n")
         endif()
     endforeach()
-    file(APPEND "${TREE_SITTER_QUERY_SOURCE}"
+    file(APPEND "${TREE_SITTER_QUERY_STAGING}"
         "const char* ${function_name}() {\n"
         "    return R\"mdvquery(${query_text})mdvquery\";\n"
         "}\n\n")
@@ -221,7 +233,8 @@ append_tree_sitter_query(GetTreeSitterRustQuery "${tree_sitter_rust_SOURCE_DIR}/
 append_tree_sitter_query(GetTreeSitterGoQuery "${tree_sitter_go_SOURCE_DIR}/queries/highlights.scm")
 append_tree_sitter_query(GetTreeSitterCSharpQuery "${tree_sitter_c_sharp_SOURCE_DIR}/queries/highlights.scm")
 
-file(APPEND "${TREE_SITTER_QUERY_SOURCE}" "} // namespace mdviewer::syntax\n")
+file(APPEND "${TREE_SITTER_QUERY_STAGING}" "} // namespace mdviewer::syntax\n")
+configure_file("${TREE_SITTER_QUERY_STAGING}" "${TREE_SITTER_QUERY_SOURCE}" COPYONLY)
 
 # GLFW for Linux windowing
 if(UNIX AND NOT APPLE)
@@ -247,14 +260,14 @@ set(SKIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/skia" CACHE PATH "Path to 
 set(SKIA_OUT_DIR "${SKIA_DIR}/out/Static" CACHE PATH "Path to the non-Debug Skia build output")
 set(SKIA_DEBUG_OUT_DIR "${SKIA_DIR}/out/Debug" CACHE PATH "Path to the Debug Skia build output")
 
-# Source files
-set(SOURCES
-    src/main.cpp
+# Shared sources are compiled once for the application, tests and tools.
+set(MDVIEWER_CORE_SOURCES
     src/app/app_config.cpp
     src/app/diagram_export.cpp
     src/app/document_loader.cpp
     src/app/heading_anchor.cpp
     src/app/link_resolver.cpp
+    src/app/image_source.cpp
     src/app/viewer_controller.cpp
     src/util/file_io.cpp
     src/util/skia_font_utils.cpp
@@ -287,8 +300,9 @@ set(SOURCES
     ${TREE_SITTER_QUERY_SOURCE}
 )
 
+set(MDVIEWER_HOST_SOURCES)
 if(WIN32)
-    list(APPEND SOURCES
+    list(APPEND MDVIEWER_HOST_SOURCES
         src/platform/win/win_clipboard.cpp
         src/platform/win/win_crash_handler.cpp
         src/platform/win/win_file_dialog.cpp
@@ -306,7 +320,7 @@ if(WIN32)
         resources/app.rc
     )
 elseif(UNIX AND NOT APPLE)
-    list(APPEND SOURCES
+    list(APPEND MDVIEWER_HOST_SOURCES
         src/platform/linux/linux_app.cpp
         src/platform/linux/linux_clipboard.cpp
         src/platform/linux/linux_file_dialog.cpp
@@ -324,42 +338,19 @@ elseif(UNIX AND NOT APPLE)
     )
 endif()
 
-# Headers
-set(HEADERS
-    # Add headers here later
-)
-
 if(WIN32)
-    add_executable(mdviewer WIN32 ${SOURCES} ${HEADERS})
+    list(APPEND MDVIEWER_CORE_SOURCES src/platform/win/win_image_download.cpp)
+elseif(UNIX AND NOT APPLE)
+    list(APPEND MDVIEWER_CORE_SOURCES src/platform/linux/linux_image_download.cpp)
 else()
-    add_executable(mdviewer ${SOURCES} ${HEADERS})
+    message(FATAL_ERROR "Supported hosts are Windows and Linux")
 endif()
-
-target_compile_definitions(mdviewer PRIVATE
+add_library(mdviewer_core STATIC ${MDVIEWER_CORE_SOURCES})
+target_compile_definitions(mdviewer_core PUBLIC
     MDVIEWER_ENABLE_MERMAID=$<BOOL:${MDVIEWER_ENABLE_MERMAID}>
     MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
-
-target_link_libraries(mdviewer PRIVATE utf8proc microtex tinyxml2::tinyxml2)
-if(MDVIEWER_ENABLE_MERMAID)
-    target_link_libraries(mdviewer PRIVATE mdviewer_mermaid)
-endif()
-
-target_include_directories(mdviewer PRIVATE 
+target_include_directories(mdviewer_core PUBLIC
     src
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${tree_sitter_SOURCE_DIR}/lib/include
-    ${tree_sitter_SOURCE_DIR}/lib/src
-    ${tree_sitter_c_SOURCE_DIR}/src
-    ${tree_sitter_cpp_SOURCE_DIR}/src
-    ${tree_sitter_javascript_SOURCE_DIR}/src
-    ${tree_sitter_typescript_SOURCE_DIR}/typescript/src
-    ${tree_sitter_typescript_SOURCE_DIR}/tsx/src
-    ${tree_sitter_json_SOURCE_DIR}/src
-    ${tree_sitter_python_SOURCE_DIR}/src
-    ${tree_sitter_bash_SOURCE_DIR}/src
-    ${tree_sitter_rust_SOURCE_DIR}/src
-    ${tree_sitter_go_SOURCE_DIR}/src
-    ${tree_sitter_c_sharp_SOURCE_DIR}/src
     ${SKIA_DIR}
     ${SKIA_DIR}/include/core
     ${SKIA_DIR}/include/config
@@ -368,169 +359,10 @@ target_include_directories(mdviewer PRIVATE
     ${SKIA_DIR}/include/gpu/ganesh
     ${SKIA_DIR}/include/gpu/ganesh/d3d
     ${SKIA_DIR}/include/gpu/ganesh/gl
-    ${md4c_SOURCE_DIR}/src
-)
-
-if(UNIX AND NOT APPLE)
-    target_include_directories(mdviewer PRIVATE ${GTK3_INCLUDE_DIRS})
-endif()
-
-if(WIN32)
-    target_link_libraries(mdviewer PRIVATE 
-        md4c
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/svg.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/svg.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skresources.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skresources.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skshaper.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skshaper.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_icu.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_icu.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_core.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_core.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/harfbuzz.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/harfbuzz.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/icu.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/icu.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/expat.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/expat.lib>
-        # Windows dependencies for Skia
-        windowscodecs.lib
-        dwrite.lib
-        usp10.lib
-        ole32.lib
-        dbghelp.lib
-        user32.lib
-        gdi32.lib
-        Advapi32.lib
-        d3d12.lib
-        d3dcompiler.lib
-        dxgi.lib
-    )
-else()
-    target_link_libraries(mdviewer PRIVATE 
-        md4c
-        glfw
-        ${GTK3_LIBRARIES}
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libsvg.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libsvg.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskresources.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskresources.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskshaper.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskshaper.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_icu.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_icu.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_core.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_core.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libharfbuzz.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libharfbuzz.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libicu.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libicu.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libexpat.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libexpat.a>
-        # Linux dependencies for Skia
-        fontconfig
-        freetype
-        pthread
-        dl
-        GL
-        X11
-    )
-endif()
-
-# Basic Windows flags
-if(MSVC)
-    target_compile_options(mdviewer PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267 /wd5030)
-    set_source_files_properties(
-        ${TREE_SITTER_CORE_SOURCE}
-        ${TREE_SITTER_LANGUAGE_SOURCES}
-        ${TREE_SITTER_QUERY_SOURCE}
-        PROPERTIES COMPILE_OPTIONS /w)
-    target_compile_definitions(mdviewer PRIVATE UNICODE _UNICODE)
-    # Match Skia's static runtime
-    set_property(TARGET mdviewer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set_property(TARGET md4c PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set_property(TARGET utf8proc PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set_property(TARGET tinyxml2 PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    set_property(TARGET microtex PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
-
-add_custom_command(TARGET mdviewer POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:mdviewer>/res"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:mdviewer>/res"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${microtex_SOURCE_DIR}/res/fonts"
-        "$<TARGET_FILE_DIR:mdviewer>/res/fonts"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${microtex_SOURCE_DIR}/res/.clatexmath-res_root"
-        "${microtex_SOURCE_DIR}/res/RES_README"
-        "$<TARGET_FILE_DIR:mdviewer>/res")
-
-if(WIN32)
-    set(SKIA_ICU_DATA_FILE
-        "$<IF:$<CONFIG:Debug>,${SKIA_DEBUG_OUT_DIR}/icudtl.dat,${SKIA_OUT_DIR}/icudtl.dat>")
-    add_custom_command(TARGET mdviewer POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-            "-DSOURCE_FILE=${SKIA_ICU_DATA_FILE}"
-            "-DDESTINATION_FILE=$<TARGET_FILE_DIR:mdviewer>/icudtl.dat"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_required_file.cmake")
-endif()
-
-add_executable(mdviewer_tests
-    tests/unit_tests.cpp
-    src/app/app_config.cpp
-    src/app/diagram_export.cpp
-    src/app/document_loader.cpp
-    src/app/heading_anchor.cpp
-    src/app/link_resolver.cpp
-    src/app/viewer_controller.cpp
-    src/layout/layout_engine.cpp
-    src/markdown/markdown_parser.cpp
-    src/render/document_renderer.cpp
-    src/render/image_cache.cpp
-    src/render/menu_renderer.cpp
-    src/render/math_renderer.cpp
-    src/render/mermaid_renderer.cpp
-    src/render/mermaid_svg.cpp
-    src/render/microtex_skia_adapter.cpp
-    src/render/pdf_exporter.cpp
-    src/render/print_document.cpp
-    src/render/syntax/tree_sitter_highlighter.cpp
-    src/render/theme.cpp
-    src/render/typography.cpp
-    src/util/file_io.cpp
-    src/util/skia_font_utils.cpp
-    src/util/utf8.cpp
-    src/text/complex_text_runtime.cpp
-    src/text/document_font_style.cpp
-    src/text/shaped_text_layout.cpp
-    src/text/text_geometry.cpp
-    src/view/document_context_menu.cpp
-    src/view/document_hit_test.cpp
-    src/view/document_interaction.cpp
-    src/view/document_outline.cpp
-    ${TREE_SITTER_CORE_SOURCE}
-    ${TREE_SITTER_LANGUAGE_SOURCES}
-    ${TREE_SITTER_QUERY_SOURCE}
-)
-
-target_compile_definitions(mdviewer_tests PRIVATE
-    MDVIEWER_ENABLE_MERMAID=$<BOOL:${MDVIEWER_ENABLE_MERMAID}>
-    MDVIEWER_ENABLE_PDF=$<BOOL:${MDVIEWER_ENABLE_PDF}>)
-
-target_link_libraries(mdviewer_tests PRIVATE utf8proc microtex tinyxml2::tinyxml2)
-if(MDVIEWER_ENABLE_MERMAID)
-    target_link_libraries(mdviewer_tests PRIVATE mdviewer_mermaid)
-endif()
-
-target_include_directories(mdviewer_tests PRIVATE
-    src
-    ${CMAKE_CURRENT_BINARY_DIR}
     ${tree_sitter_SOURCE_DIR}/lib/include
+    ${md4c_SOURCE_DIR}/src
+    PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${tree_sitter_SOURCE_DIR}/lib/src
     ${tree_sitter_c_SOURCE_DIR}/src
     ${tree_sitter_cpp_SOURCE_DIR}/src
@@ -542,120 +374,149 @@ target_include_directories(mdviewer_tests PRIVATE
     ${tree_sitter_bash_SOURCE_DIR}/src
     ${tree_sitter_rust_SOURCE_DIR}/src
     ${tree_sitter_go_SOURCE_DIR}/src
-    ${tree_sitter_c_sharp_SOURCE_DIR}/src
-    ${SKIA_DIR}
-    ${SKIA_DIR}/include/core
-    ${SKIA_DIR}/include/config
-    ${SKIA_DIR}/include/ports
-    ${SKIA_DIR}/include/gpu
-    ${SKIA_DIR}/include/gpu/ganesh
-    ${SKIA_DIR}/include/gpu/ganesh/gl
-    ${md4c_SOURCE_DIR}/src
-)
+    ${tree_sitter_c_sharp_SOURCE_DIR}/src)
+target_link_libraries(mdviewer_core PUBLIC md4c utf8proc microtex tinyxml2::tinyxml2)
+if(MDVIEWER_ENABLE_MERMAID)
+    target_link_libraries(mdviewer_core PUBLIC mdviewer_mermaid)
+endif()
+
+# Preserve archive order: SVG/shaping consumers precede the Skia/ICU providers.
+if(WIN32)
+    set(skia_prefix "")
+    set(skia_suffix ".lib")
+else()
+    set(skia_prefix "lib")
+    set(skia_suffix ".a")
+endif()
+foreach(library svg skresources skshaper skunicode_icu skunicode_core harfbuzz icu skia expat)
+    target_link_libraries(mdviewer_core PUBLIC
+        "$<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/${skia_prefix}${library}${skia_suffix}>"
+        "$<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/${skia_prefix}${library}${skia_suffix}>")
+endforeach()
+if(WIN32)
+    target_compile_definitions(mdviewer_core PUBLIC UNICODE _UNICODE)
+    target_link_libraries(mdviewer_core PUBLIC
+        windowscodecs dwrite usp10 ole32 user32 gdi32 advapi32 winhttp)
+else()
+    find_package(CURL REQUIRED)
+    target_link_libraries(mdviewer_core PUBLIC
+        CURL::libcurl fontconfig freetype pthread ${CMAKE_DL_LIBS} GL X11)
+endif()
 
 if(WIN32)
-    target_link_libraries(mdviewer_tests PRIVATE
-        md4c
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/svg.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/svg.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skresources.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skresources.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skshaper.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skshaper.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_icu.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_icu.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skunicode_core.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skunicode_core.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/harfbuzz.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/harfbuzz.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/icu.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/icu.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/skia.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/skia.lib>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/expat.lib>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/expat.lib>
-        windowscodecs.lib
-        dwrite.lib
-        usp10.lib
-        ole32.lib
-        user32.lib
-        gdi32.lib
-        comdlg32.lib
-        Advapi32.lib
-    )
-elseif(UNIX AND NOT APPLE)
-    target_link_libraries(mdviewer_tests PRIVATE
-        md4c
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libsvg.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libsvg.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskresources.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskresources.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskshaper.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskshaper.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_icu.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_icu.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskunicode_core.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskunicode_core.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libharfbuzz.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libharfbuzz.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libicu.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libicu.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libskia.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libskia.a>
-        $<$<CONFIG:Debug>:${SKIA_DEBUG_OUT_DIR}/libexpat.a>
-        $<$<NOT:$<CONFIG:Debug>>:${SKIA_OUT_DIR}/libexpat.a>
-        fontconfig
-        freetype
-        pthread
-        dl
-        GL
-        X11
-    )
+    add_executable(mdviewer WIN32 src/main.cpp ${MDVIEWER_HOST_SOURCES})
+    target_link_libraries(mdviewer PRIVATE mdviewer_core dbghelp comdlg32 shell32 d3d12 d3dcompiler dxgi)
 else()
-    target_link_libraries(mdviewer_tests PRIVATE md4c)
+    add_executable(mdviewer src/main.cpp ${MDVIEWER_HOST_SOURCES})
+    target_include_directories(mdviewer PRIVATE ${GTK3_INCLUDE_DIRS})
+    target_link_libraries(mdviewer PRIVATE mdviewer_core glfw ${GTK3_LIBRARIES})
 endif()
 
-if(MSVC)
-    target_compile_options(mdviewer_tests PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267 /wd5030)
-    set_property(TARGET mdviewer_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# Only the small first-party test directory is scanned on incremental builds.
+file(GLOB MDVIEWER_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_tests.cpp")
+add_executable(mdviewer_tests ${MDVIEWER_TEST_SOURCES})
+target_link_libraries(mdviewer_tests PRIVATE mdviewer_core)
+if(WIN32)
+    target_link_libraries(mdviewer_tests PRIVATE comdlg32)
 endif()
 
-add_custom_command(TARGET mdviewer_tests POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:mdviewer_tests>/res"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:mdviewer_tests>/res"
+# All executables use one per-configuration runtime directory. One shared target
+# owns resources; parallel app/test builds never remove each other's files.
+if(CMAKE_CONFIGURATION_TYPES)
+    set(MDVIEWER_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+else()
+    set(MDVIEWER_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+add_custom_target(mdviewer_runtime_resources
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${MDVIEWER_RUNTIME_DIR}/res"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${microtex_SOURCE_DIR}/res/fonts"
-        "$<TARGET_FILE_DIR:mdviewer_tests>/res/fonts"
+        "${microtex_SOURCE_DIR}/res/fonts" "${MDVIEWER_RUNTIME_DIR}/res/fonts"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${microtex_SOURCE_DIR}/res/.clatexmath-res_root"
-        "${microtex_SOURCE_DIR}/res/RES_README"
-        "$<TARGET_FILE_DIR:mdviewer_tests>/res")
-
+        "${microtex_SOURCE_DIR}/res/RES_README" "${MDVIEWER_RUNTIME_DIR}/res"
+    COMMENT "Staging shared runtime resources"
+    VERBATIM)
 if(WIN32)
-    add_custom_command(TARGET mdviewer_tests POST_BUILD
+    set(SKIA_ICU_DATA_FILE
+        "$<IF:$<CONFIG:Debug>,${SKIA_DEBUG_OUT_DIR}/icudtl.dat,${SKIA_OUT_DIR}/icudtl.dat>")
+    add_custom_command(TARGET mdviewer_runtime_resources POST_BUILD
         COMMAND ${CMAKE_COMMAND}
             "-DSOURCE_FILE=${SKIA_ICU_DATA_FILE}"
-            "-DDESTINATION_FILE=$<TARGET_FILE_DIR:mdviewer_tests>/icudtl.dat"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_required_file.cmake")
+            "-DDESTINATION_FILE=${MDVIEWER_RUNTIME_DIR}/icudtl.dat"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_required_file.cmake"
+        VERBATIM)
 endif()
 
+set(mdviewer_executables mdviewer mdviewer_tests)
+if(MDVIEWER_BUILD_BENCHMARKS)
+    add_executable(mdviewer_benchmarks tools/benchmarks/document_benchmarks.cpp)
+    target_link_libraries(mdviewer_benchmarks PRIVATE mdviewer_core)
+    list(APPEND mdviewer_executables mdviewer_benchmarks)
+    add_test(NAME mdviewer_performance_regressions COMMAND mdviewer_benchmarks --check)
+    set_tests_properties(mdviewer_performance_regressions PROPERTIES
+        LABELS performance TIMEOUT 90 WORKING_DIRECTORY "${MDVIEWER_RUNTIME_DIR}")
+endif()
+
+set(mdviewer_instrumented_targets mdviewer_core md4c utf8proc tinyxml2 microtex)
 if(MDVIEWER_ENABLE_SANITIZERS)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        foreach(target mdviewer mdviewer_tests)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+        foreach(target IN LISTS mdviewer_instrumented_targets)
             target_compile_options(${target} PRIVATE
-                -fno-omit-frame-pointer
-                -fsanitize=address,undefined
-                -fno-sanitize=vptr)
-            target_link_options(${target} PRIVATE
-                -fno-omit-frame-pointer
-                -fsanitize=address,undefined
-                -fno-sanitize=vptr)
+                -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=vptr)
         endforeach()
+        # Static libraries need the sanitizer runtime in every final executable.
+        target_link_options(mdviewer_core INTERFACE
+            -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=vptr)
     else()
-        message(FATAL_ERROR "MDVIEWER_ENABLE_SANITIZERS requires GCC or Clang")
+        message(FATAL_ERROR "MDVIEWER_ENABLE_SANITIZERS requires GCC or Clang on Linux")
     endif()
+endif()
+
+if(MDVIEWER_BUILD_FUZZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC OR NOT MDVIEWER_ENABLE_SANITIZERS)
+        message(FATAL_ERROR "Fuzz targets require Clang on Linux and MDVIEWER_ENABLE_SANITIZERS=ON")
+    endif()
+    foreach(target IN LISTS mdviewer_instrumented_targets)
+        target_compile_options(${target} PRIVATE -fsanitize=fuzzer-no-link)
+    endforeach()
+    foreach(kind markdown svg)
+        add_executable(mdviewer_${kind}_fuzz tools/fuzz/${kind}_fuzz.cpp)
+        target_link_libraries(mdviewer_${kind}_fuzz PRIVATE mdviewer_core)
+        target_compile_options(mdviewer_${kind}_fuzz PRIVATE -fsanitize=fuzzer)
+        target_link_options(mdviewer_${kind}_fuzz PRIVATE -fsanitize=fuzzer)
+        list(APPEND mdviewer_executables mdviewer_${kind}_fuzz)
+        # Mutated corpus entries belong in the build tree, never in the checkout.
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fuzz-corpus/${kind}")
+        configure_file("tools/fuzz/corpus/${kind}/seed.txt"
+            "${CMAKE_CURRENT_BINARY_DIR}/fuzz-corpus/${kind}/seed.txt" COPYONLY)
+        add_test(NAME mdviewer_${kind}_fuzz_smoke COMMAND mdviewer_${kind}_fuzz
+            -runs=500 -max_len=16384 -timeout=5
+            "${CMAKE_CURRENT_BINARY_DIR}/fuzz-corpus/${kind}")
+        set_tests_properties(mdviewer_${kind}_fuzz_smoke PROPERTIES
+            LABELS fuzz TIMEOUT 60 WORKING_DIRECTORY "${MDVIEWER_RUNTIME_DIR}")
+    endforeach()
+endif()
+
+foreach(target IN LISTS mdviewer_executables)
+    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${MDVIEWER_RUNTIME_DIR}")
+    add_dependencies(${target} mdviewer_runtime_resources)
+    if(MDVIEWER_ENABLE_SANITIZERS)
+        target_compile_options(${target} PRIVATE
+            -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=vptr)
+    endif()
+endforeach()
+if(MSVC)
+    foreach(target mdviewer_core ${mdviewer_executables})
+        target_compile_options(${target} PRIVATE /W4 /WX /utf-8 /wd4244 /wd4267 /wd5030)
+    endforeach()
+    set_source_files_properties(
+        ${TREE_SITTER_CORE_SOURCE} ${TREE_SITTER_LANGUAGE_SOURCES} ${TREE_SITTER_QUERY_SOURCE}
+        PROPERTIES COMPILE_OPTIONS /w)
+    foreach(target mdviewer_core ${mdviewer_executables} md4c utf8proc tinyxml2 microtex)
+        set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endforeach()
 endif()
 
 add_test(NAME mdviewer_unit_tests COMMAND mdviewer_tests)
 set_tests_properties(mdviewer_unit_tests PROPERTIES
-    WORKING_DIRECTORY "$<TARGET_FILE_DIR:mdviewer_tests>")
+    TIMEOUT 180 WORKING_DIRECTORY "${MDVIEWER_RUNTIME_DIR}")
